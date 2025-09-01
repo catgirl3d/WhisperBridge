@@ -347,7 +347,7 @@ class WhisperBridgeApp:
             ocr_service = get_ocr_service()
             if not ocr_service.is_initialized:
                 logger.warning("OCR service not ready for processing")
-                self.root.after(0, self._show_ocr_error, "OCR service not ready.")
+                self.root.after(0, lambda: self._show_ocr_error("OCR service not ready."))
                 return
 
             logger.debug("OCR service is ready, creating OCR request")
@@ -370,17 +370,48 @@ class WhisperBridgeApp:
 
             logger.info("OCR successful, showing overlay with OCR text only (translation disabled)")
             # Show overlay with OCR text only, no translation
-            self.root.after(0, self.show_overlay_window,
-                ocr_response.text,
-                f"OCR Result (Translation disabled)\n"
-                f"Confidence: {ocr_response.confidence:.1%}\n"
-                f"Engine: {ocr_response.engine_used.value}"
-            )
+            
+            # Use unique overlay_id for each OCR result to avoid conflicts
+            import time
+            unique_overlay_id = f"ocr_{int(time.time() * 1000)}"
+            logger.info(f"Using unique overlay ID: {unique_overlay_id}")
+            
+            # Store OCR data for the callback
+            ocr_text = ocr_response.text
+            ocr_info = f"OCR Result (Translation disabled)\nConfidence: {ocr_response.confidence:.1%}\nEngine: {ocr_response.engine_used.value}"
+            
+            def show_overlay_delayed():
+                logger.info("Timer-based overlay display triggered")
+                def show_overlay():
+                    logger.info("About to call show_overlay_window from timer -> root.after() - MAIN THREAD")
+                    logger.debug(f"Current thread: {threading.current_thread().name}, is_main: {threading.current_thread() is threading.main_thread()}")
+                    try:
+                        self.show_overlay_window(
+                            ocr_text,
+                            ocr_info,
+                            overlay_id=unique_overlay_id
+                        )
+                        logger.info("show_overlay_window call completed from timer -> root.after()")
+                    except Exception as e:
+                        logger.error(f"Error in show_overlay callback: {e}", exc_info=True)
+                
+                # Schedule from timer thread
+                try:
+                    self.root.after(0, show_overlay)
+                    logger.info("Overlay scheduled from timer thread")
+                except Exception as e:
+                    logger.error(f"Failed to schedule overlay from timer: {e}")
+            
+            # Use timer to delay the call slightly
+            timer = threading.Timer(0.1, show_overlay_delayed)
+            timer.daemon = True
+            timer.start()
+            logger.info("Timer started for delayed overlay display")
 
         except Exception as e:
             logger.error(f"Error in processing: {e}", exc_info=True)
             logger.debug(f"Processing error details: {type(e).__name__}: {str(e)}", exc_info=True)
-            self.root.after(0, self._show_ocr_error, f"An unexpected error occurred: {e}")
+            self.root.after(0, lambda: self._show_ocr_error(f"An unexpected error occurred: {e}"))
 
     async def _handle_capture_result(self, result):
         """Handle the result of screen capture.
@@ -676,6 +707,10 @@ class WhisperBridgeApp:
             position: (x, y) coordinates for window positioning
             overlay_id: Unique identifier for the overlay
         """
+        logger.info(f"=== SHOW_OVERLAY_WINDOW CALLED ===")
+        logger.info(f"Original text: '{original_text[:50]}{'...' if len(original_text) > 50 else ''}'")
+        logger.info(f"Translated text: '{translated_text[:50]}{'...' if len(translated_text) > 50 else ''}'")
+        logger.info(f"Position: {position}, Overlay ID: {overlay_id}")
         logger.debug("Executing show_overlay_window on main thread.")
         logger.debug(f"Attempting to show overlay '{overlay_id}' with position: {position}")
 

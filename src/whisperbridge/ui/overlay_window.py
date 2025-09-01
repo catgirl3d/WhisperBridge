@@ -234,13 +234,18 @@ class OverlayWindow(ctk.CTkToplevel):
 
     def _update_opacity(self):
         """Update window opacity during animation."""
-        if not self.is_destroyed:
-            # Set the opacity
-            self.attributes("-alpha", self.current_opacity)
-            
-            # If this is the first or last step, do more thorough logging
-            if self.current_opacity <= 0.05 or self.current_opacity >= 0.95:
-                logger.debug(f"Setting window opacity to {self.current_opacity:.3f}")
+        if not self.is_destroyed and self.winfo_exists():
+            try:
+                # Set the opacity
+                self.attributes("-alpha", self.current_opacity)
+
+                # If this is the first or last step, do more thorough logging
+                if self.current_opacity <= 0.05 or self.current_opacity >= 0.95:
+                    logger.debug(f"Setting window opacity to {self.current_opacity:.3f}")
+            except Exception as e:
+                logger.warning(f"Failed to update opacity: {e}")
+                # Stop animation if window is invalid
+                self.is_animating = False
     
     def _verify_opacity_step(self, step, expected_opacity):
         """Verify the opacity was properly set during animation."""
@@ -253,6 +258,8 @@ class OverlayWindow(ctk.CTkToplevel):
                     logger.warning(f"Window state: exists={self.winfo_exists()}, viewable={self.winfo_viewable()}")
             except Exception as e:
                 logger.warning(f"Error verifying opacity at step {step}: {e}")
+                # Stop animation if window is invalid
+                self.is_animating = False
 
     def show_loading(self, position: Optional[Tuple[int, int]] = None):
         """Show loading state.
