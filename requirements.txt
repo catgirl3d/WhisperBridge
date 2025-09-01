@@ -3,6 +3,7 @@
 
 # UI Framework
 customtkinter>=5.2.0
+PySide6>=6.5.0
 
 # System Integration
 pynput>=1.7.6
@@ -22,6 +23,7 @@ tenacity>=8.2.0
 
 # Configuration and Data
 pydantic>=2.4.0
+pydantic-settings>=2.0.0
 keyring>=24.2.0
 appdirs>=1.4.4
 

@@ -35,6 +35,7 @@ class SettingsManager:
         self._migration_handlers = {
             "1.0.0": self._migrate_from_1_0_0,
             "1.1.0": self._migrate_from_1_1_0,
+            "1.2.1": self._migrate_from_1_2_1,
         }
 
     def _migrate_from_1_0_0(self, data: Dict[str, Any]) -> Dict[str, Any]:
@@ -59,6 +60,15 @@ class SettingsManager:
         data.setdefault('supported_languages', ["en", "ru", "es", "fr", "de"])
         data.setdefault('thread_pool_size', 4)
         data.setdefault('log_to_file', True)
+
+        return data
+
+    def _migrate_from_1_2_1(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Migrate settings from version 1.2.1."""
+        logger.info("Migrating settings from version 1.2.1")
+
+        # Add UI backend field
+        data.setdefault('ui_backend', 'ctk')
 
         return data
 
@@ -205,7 +215,7 @@ class SettingsManager:
 
                 # Prepare data for saving
                 data = settings.model_dump()
-                data['version'] = '1.2.0'  # Current version
+                data['version'] = '1.2.1'  # Current version
 
                 # Remove API key from JSON (stored in keyring)
                 api_key = data.pop('openai_api_key', None)

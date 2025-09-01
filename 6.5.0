@@ -1,0 +1,18 @@
+Collecting PySide6
+  Downloading pyside6-6.9.2-cp39-abi3-win_amd64.whl.metadata (5.5 kB)
+Collecting shiboken6==6.9.2 (from PySide6)
+  Downloading shiboken6-6.9.2-cp39-abi3-win_amd64.whl.metadata (2.5 kB)
+Collecting PySide6_Essentials==6.9.2 (from PySide6)
+  Downloading pyside6_essentials-6.9.2-cp39-abi3-win_amd64.whl.metadata (3.8 kB)
+Collecting PySide6_Addons==6.9.2 (from PySide6)
+  Downloading pyside6_addons-6.9.2-cp39-abi3-win_amd64.whl.metadata (4.1 kB)
+Downloading pyside6-6.9.2-cp39-abi3-win_amd64.whl (564 kB)
+   ---------------------------------------- 564.6/564.6 kB 1.2 MB/s eta 0:00:00
+Downloading pyside6_addons-6.9.2-cp39-abi3-win_amd64.whl (160.2 MB)
+   ---------------------------------------- 160.2/160.2 MB 4.2 MB/s eta 0:00:00
+Downloading pyside6_essentials-6.9.2-cp39-abi3-win_amd64.whl (72.6 MB)
+   ---------------------------------------- 72.6/72.6 MB 5.1 MB/s eta 0:00:00
+Downloading shiboken6-6.9.2-cp39-abi3-win_amd64.whl (1.2 MB)
+   ---------------------------------------- 1.2/1.2 MB 3.2 MB/s eta 0:00:00
+Installing collected packages: shiboken6, PySide6_Essentials, PySide6_Addons, PySide6
+Successfully installed PySide6-6.9.2 PySide6_Addons-6.9.2 PySide6_Essentials-6.9.2 shiboken6-6.9.2

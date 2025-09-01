@@ -9,7 +9,7 @@ import os
 import json
 import keyring
 from pathlib import Path
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Literal
 from pydantic import Field, ConfigDict, field_validator, model_validator
 from pydantic_settings import BaseSettings
 from loguru import logger
@@ -50,6 +50,7 @@ class Settings(BaseSettings):
     ocr_timeout: int = Field(default=10, description="OCR timeout in seconds")
 
     # UI Settings
+    ui_backend: Literal["ctk", "qt"] = Field(default="ctk", description="UI backend framework")
     theme: str = Field(default="dark", description="UI theme")
     overlay_position: str = Field(default="cursor", description="Overlay position")
     overlay_timeout: int = Field(default=10, description="Overlay timeout in seconds")
@@ -106,6 +107,15 @@ class Settings(BaseSettings):
         valid_providers = ['openai', 'anthropic', 'google']
         if v not in valid_providers:
             raise ValueError(f'Invalid API provider: {v}. Must be one of {valid_providers}')
+        return v
+
+    @field_validator('ui_backend')
+    @classmethod
+    def validate_ui_backend(cls, v: str) -> str:
+        """Validate UI backend."""
+        valid_backends = ['ctk', 'qt']
+        if v not in valid_backends:
+            raise ValueError(f'Invalid UI backend: {v}. Must be one of {valid_backends}')
         return v
 
     @field_validator('log_level')

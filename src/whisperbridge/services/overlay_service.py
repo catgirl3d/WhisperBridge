@@ -10,7 +10,6 @@ import time
 from typing import Optional, Dict, List, Callable, Tuple
 import customtkinter as ctk
 from loguru import logger
-from ..ui.overlay_window import OverlayWindow
 from ..utils.overlay_utils import (
     get_screen_bounds,
     calculate_smart_position,
@@ -23,7 +22,7 @@ from ..utils.overlay_utils import (
 class OverlayInstance:
     """Represents an overlay window instance."""
 
-    def __init__(self, window: OverlayWindow, overlay_id: str):
+    def __init__(self, window: any, overlay_id: str):
         self.window = window
         self.overlay_id = overlay_id
         self.created_at = time.time()
@@ -100,8 +99,9 @@ class OverlayService:
         self,
         overlay_id: str,
         timeout: Optional[int] = None,
-        on_close_callback: Optional[Callable] = None
-    ) -> OverlayWindow:
+        on_close_callback: Optional[Callable] = None,
+        overlay_window_class: Optional[type] = None
+    ) -> Optional[any]:
         """Create a new overlay window.
         Args:
             overlay_id: Unique identifier for the overlay
@@ -173,9 +173,15 @@ class OverlayService:
             try:
                 # Log creation parameters
                 logger.debug(f"Creating overlay with parameters: timeout={timeout or self.overlay_timeout}s")
-                
+
+                # Get overlay window class
+                if overlay_window_class is None:
+                    # Lazy import to avoid circular dependency
+                    from ..ui.overlay_window import OverlayWindow as DefaultOverlayWindow
+                    overlay_window_class = DefaultOverlayWindow
+
                 # Create the window
-                overlay_window = OverlayWindow(
+                overlay_window = overlay_window_class(
                     self.root,
                     timeout=(timeout or self.overlay_timeout),
                     on_close_callback=close_callback_wrapper
@@ -421,7 +427,7 @@ class OverlayService:
 
             return True
 
-    def get_overlay(self, overlay_id: str) -> Optional[OverlayWindow]:
+    def get_overlay(self, overlay_id: str) -> Optional[any]:
         """Get overlay window by ID.
 
         Args:
