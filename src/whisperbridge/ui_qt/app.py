@@ -12,8 +12,8 @@ from PySide6.QtGui import QPalette, QColor
 
 from .main_window import MainWindow
 from .overlay_window import OverlayWindow
+from .tray import TrayManager
 from ..core.config import settings
-from ..services.tray_service import TrayService
 from ..services.hotkey_service import HotkeyService
 from ..services.overlay_service import init_overlay_service, get_overlay_service
 from ..core.keyboard_manager import KeyboardManager
@@ -42,7 +42,7 @@ class QtApp:
         self.overlay_windows: Dict[str, OverlayWindow] = {}
 
         # Services
-        self.tray_service: Optional[TrayService] = None
+        self.tray_manager: Optional[TrayManager] = None
         self.hotkey_service: Optional[HotkeyService] = None
         self.keyboard_manager: Optional[KeyboardManager] = None
         self.overlay_service = None
@@ -111,11 +111,15 @@ class QtApp:
             # Initialize overlay service
             self._initialize_overlay_service()
 
+            # Create tray manager and connect signals
+            self._create_tray_manager()
+
+            # Connect main window close-to-tray signal
+            if self.main_window:
+                self.main_window.closeToTrayRequested.connect(self.hide_main_window_to_tray)
+
             # Initialize keyboard services
             self._create_keyboard_services()
-
-            # Initialize system tray
-            self._create_tray_service()
 
             # Initialize OCR service
             self._initialize_ocr_service()
@@ -166,15 +170,20 @@ class QtApp:
             self.keyboard_manager = None
             self.hotkey_service = None
 
-    def _create_tray_service(self):
-        """Create and initialize the system tray service."""
+    def _create_tray_manager(self):
+        """Create and initialize the system tray manager."""
         try:
-            self.tray_service = TrayService(self)
-            if not self.tray_service.initialize():
-                print("Warning: Failed to initialize system tray")
+            self.tray_manager = TrayManager(
+                on_show_main_window=self.show_main_window,
+                on_toggle_overlay=self.toggle_overlay,
+                on_open_settings=self.open_settings,
+                on_exit_app=self.exit_app
+            )
+            if not self.tray_manager.create():
+                logger.warning("Failed to initialize system tray")
         except Exception as e:
-            print(f"Failed to create tray service: {e}")
-            self.tray_service = None
+            logger.error(f"Failed to create tray manager: {e}")
+            self.tray_manager = None
 
     def _register_default_hotkeys(self):
         """Register default hotkeys for the application."""
@@ -382,18 +391,18 @@ class QtApp:
 
     def _show_capture_error(self, message: str):
         """Show capture error notification."""
-        print(f"Capture error: {message}")
-        if self.tray_service:
-            self.tray_service.show_notification(
+        logger.error(f"Capture error: {message}")
+        if self.tray_manager:
+            self.tray_manager.show_notification(
                 "WhisperBridge",
                 f"Capture Error: {message}"
             )
 
     def _show_ocr_error(self, message: str):
         """Show OCR error notification."""
-        print(f"OCR error: {message}")
-        if self.tray_service:
-            self.tray_service.show_notification(
+        logger.error(f"OCR error: {message}")
+        if self.tray_manager:
+            self.tray_manager.show_notification(
                 "WhisperBridge",
                 f"OCR Error: {message}"
             )
@@ -403,8 +412,8 @@ class QtApp:
         logger.info("Quick translation hotkey pressed")
         logger.debug(f"Hotkey: {settings.quick_translate_hotkey}")
         # TODO: Implement quick translation (maybe from clipboard)
-        if self.tray_service:
-            self.tray_service.show_notification(
+        if self.tray_manager:
+            self.tray_manager.show_notification(
                 "WhisperBridge",
                 "Quick translation hotkey activated"
             )
@@ -415,8 +424,8 @@ class QtApp:
         logger.info("Application activation hotkey pressed")
         logger.debug(f"Hotkey: {settings.activation_hotkey}")
         self.show_main_window()
-        if self.tray_service:
-            self.tray_service.show_notification(
+        if self.tray_manager:
+            self.tray_manager.show_notification(
                 "WhisperBridge",
                 "Application activated"
             )
@@ -424,10 +433,61 @@ class QtApp:
 
     def show_main_window(self):
         """Show the main settings window."""
+        logger.info("Showing main window")
         if self.main_window:
             self.main_window.show()
             self.main_window.raise_()
             self.main_window.activateWindow()
+            logger.debug("Main window shown and activated")
+
+    def hide_main_window_to_tray(self):
+        """Hide the main window to system tray."""
+        logger.info("Hiding main window to tray")
+        if self.main_window:
+            self.main_window.hide()
+            logger.debug("Main window hidden to tray")
+
+    def toggle_overlay(self):
+        """Toggle overlay visibility. If no overlay exists, create a basic fullscreen overlay."""
+        logger.info("Toggling overlay")
+        try:
+            if self.overlay_windows:
+                overlay_id = next(iter(self.overlay_windows.keys()))
+                overlay = self.overlay_windows[overlay_id]
+                if overlay.is_overlay_visible():
+                    overlay.hide_overlay()
+                    logger.debug(f"Overlay {overlay_id} hidden")
+                else:
+                    overlay.show_overlay("", "")
+                    logger.debug(f"Overlay {overlay_id} shown")
+                return
+        except Exception as e:
+            logger.error(f"Error while toggling existing overlay: {e}")
+
+        # No overlays exist — create a basic fullscreen overlay (M0) and show it
+        try:
+            logger.info("No existing overlay found — creating a basic fullscreen overlay (M0)")
+            overlay_id = "main"
+            self.overlay_windows[overlay_id] = OverlayWindow()
+            self.overlay_windows[overlay_id].show_overlay("", "")
+            logger.info(f"Created and showed overlay '{overlay_id}'")
+        except Exception as e:
+            logger.error(f"Failed to create/show overlay: {e}")
+
+    def exit_app(self):
+        """Exit the application."""
+        logger.info("Exit application requested from tray")
+        self.qt_app.quit()
+
+    def open_settings(self):
+        """Open settings window (placeholder for future implementation)."""
+        logger.info("Open settings requested from tray")
+        # TODO: Implement settings window
+        if self.tray_manager:
+            self.tray_manager.show_notification(
+                "WhisperBridge",
+                "Settings window not yet implemented"
+            )
 
     def show_overlay_window(self, original_text: str, translated_text: str,
                            position: Optional[tuple] = None, overlay_id: str = "main"):
@@ -522,10 +582,10 @@ class QtApp:
             self.hotkey_service.stop()
             self.hotkey_service = None
 
-        # Shutdown tray service
-        if self.tray_service:
-            self.tray_service.shutdown()
-            self.tray_service = None
+        # Shutdown tray manager
+        if self.tray_manager:
+            self.tray_manager.dispose()
+            self.tray_manager = None
 
         # Shutdown OCR service
         try:
@@ -577,8 +637,8 @@ class QtApp:
             title: Notification title
             message: Notification message
         """
-        if self.tray_service:
-            self.tray_service.show_notification(title, message)
+        if self.tray_manager:
+            self.tray_manager.show_notification(title, message)
 
     def update_tray_status(self, is_active: bool = False, has_error: bool = False, is_loading: bool = False):
         """Update the tray icon status.
@@ -588,8 +648,8 @@ class QtApp:
             has_error: Whether there's an error state
             is_loading: Whether the app is loading resources
         """
-        if self.tray_service:
-            self.tray_service.update_status_icon(is_active, has_error, is_loading)
+        # TODO: Implement status icon updates in TrayManager for future phases
+        logger.debug(f"Tray status update requested: active={is_active}, error={has_error}, loading={is_loading}")
 
     def hide_main_window(self):
         """Hide the main window (minimize to tray)."""

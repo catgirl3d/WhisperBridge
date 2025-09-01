@@ -3,12 +3,18 @@ Main window implementation for Qt-based UI.
 """
 
 from PySide6.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QLabel, QPushButton
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal, QRect
 from PySide6.QtGui import QFont
+
+from ..core.settings_manager import settings_manager
+from loguru import logger
 
 
 class MainWindow(QMainWindow):
     """Main application window for Qt UI."""
+
+    # Signal emitted when window should be closed to tray instead of exiting
+    closeToTrayRequested = Signal()
 
     def __init__(self, on_save_callback=None):
         """Initialize the main window.
@@ -50,10 +56,46 @@ class MainWindow(QMainWindow):
         # Connect close event
         self.closeEvent = self._on_close
 
+        # Restore geometry on initialization
+        self.restore_geometry()
+
     def _on_close(self, event):
         """Handle window close event."""
-        # For now, just accept the close
-        event.accept()
+        logger.info("Main window close event triggered")
+        # Save geometry before closing
+        self.capture_geometry()
+        # Emit signal to hide to tray instead of closing
+        self.closeToTrayRequested.emit()
+        event.ignore()
+        self.hide()
+        logger.debug("Main window hidden to tray")
+
+    def restore_geometry(self):
+        """Restore window geometry from settings."""
+        try:
+            settings = settings_manager.get_settings()
+            if settings.window_geometry and len(settings.window_geometry) == 4:
+                geometry = QRect(*settings.window_geometry)
+                self.setGeometry(geometry)
+                logger.debug(f"Window geometry restored: {geometry}")
+            else:
+                logger.debug("No saved geometry found, using defaults")
+        except Exception as e:
+            logger.error(f"Failed to restore window geometry: {e}")
+
+    def capture_geometry(self):
+        """Capture and save current window geometry."""
+        try:
+            geometry = self.geometry()
+            geometry_data = [geometry.x(), geometry.y(), geometry.width(), geometry.height()]
+
+            # Update settings
+            settings = settings_manager.get_settings()
+            settings.window_geometry = geometry_data
+            settings_manager.save_settings(settings)
+            logger.debug(f"Window geometry captured and saved: {geometry_data}")
+        except Exception as e:
+            logger.error(f"Failed to capture window geometry: {e}")
 
     def _on_button_clicked(self):
         """Handle button click to demonstrate responsiveness."""

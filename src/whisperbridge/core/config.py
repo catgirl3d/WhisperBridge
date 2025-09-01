@@ -58,6 +58,7 @@ class Settings(BaseSettings):
     font_size: int = Field(default=12, description="Font size")
     window_width: int = Field(default=400, description="Default window width")
     window_height: int = Field(default=300, description="Default window height")
+    window_geometry: Optional[List[int]] = Field(default=None, description="Window geometry [x, y, width, height]")
 
     # General Settings
     language: str = Field(default="ru", description="Application language")
