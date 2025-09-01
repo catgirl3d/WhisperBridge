@@ -23,6 +23,19 @@ class OverlayWindow(ctk.CTkToplevel):
         """Initialize the simplified overlay window."""
         super().__init__(parent, **kwargs)
         logger.debug("OverlayWindow __init__ started.")
+        
+        # Log parent window state
+        logger.info("Parent window state:")
+        if parent:
+            try:
+                logger.info(f"  - Parent exists: {parent.winfo_exists()}")
+                logger.info(f"  - Parent is mapped: {parent.winfo_ismapped() if parent.winfo_exists() else 'N/A'}")
+                logger.info(f"  - Parent is viewable: {parent.winfo_viewable() if parent.winfo_exists() else 'N/A'}")
+                logger.info(f"  - Parent geometry: {parent.geometry() if parent.winfo_exists() else 'N/A'}")
+            except Exception as e:
+                logger.warning(f"Could not log parent window state: {e}")
+        else:
+            logger.warning("No parent window provided")
 
         # Basic window configuration
         self.attributes("-topmost", True)
@@ -217,7 +230,24 @@ class OverlayWindow(ctk.CTkToplevel):
     def _update_opacity(self):
         """Update window opacity during animation."""
         if not self.is_destroyed:
+            # Set the opacity
             self.attributes("-alpha", self.current_opacity)
+            
+            # If this is the first or last step, do more thorough logging
+            if self.current_opacity <= 0.05 or self.current_opacity >= 0.95:
+                logger.debug(f"Setting window opacity to {self.current_opacity:.3f}")
+    
+    def _verify_opacity_step(self, step, expected_opacity):
+        """Verify the opacity was properly set during animation."""
+        if not self.is_destroyed and self.winfo_exists():
+            try:
+                actual_opacity = self.attributes("-alpha")
+                # Only log if there's a significant difference
+                if abs(float(actual_opacity) - expected_opacity) > 0.05:
+                    logger.warning(f"Opacity verification at step {step}: expected={expected_opacity:.3f}, actual={actual_opacity}")
+                    logger.warning(f"Window state: exists={self.winfo_exists()}, viewable={self.winfo_viewable()}")
+            except Exception as e:
+                logger.warning(f"Error verifying opacity at step {step}: {e}")
 
     def show_loading(self, position: Optional[Tuple[int, int]] = None):
         """Show loading state.
@@ -246,48 +276,91 @@ class OverlayWindow(ctk.CTkToplevel):
             translated_text: Translated text to display
             position: (x, y) coordinates to position the window
         """
-        logger.debug(f"show_result called. Position: {position}")
-        logger.debug(f"Original text: '{original_text}'")
-        logger.debug(f"Translated text: '{translated_text}'")
+        logger.info(f"=== OVERLAY WINDOW SHOW_RESULT CALLED ===")
+        logger.debug(f"Original text: '{original_text[:50]}{'...' if len(original_text) > 50 else ''}'")
+        logger.debug(f"Translated text: '{translated_text[:50]}{'...' if len(translated_text) > 50 else ''}'")
         logger.debug(f"Position: {position}")
-        logger.debug(f"Window exists: {self.winfo_exists()}")
-        logger.debug(f"Current alpha: {self.attributes('-alpha')}")
+        
+        # Log detailed window state before changes
+        logger.info(f"PRE-DISPLAY WINDOW STATE:")
+        logger.info(f"  - Window exists: {self.winfo_exists()}")
+        logger.info(f"  - Window viewable: {self.winfo_viewable() if self.winfo_exists() else 'N/A'}")
+        logger.info(f"  - Current alpha: {self.attributes('-alpha')}")
+        logger.info(f"  - Window state: {self.state()}")
+        logger.info(f"  - Current geometry: {self.geometry()}")
+        logger.info(f"  - Is mapped: {self.winfo_ismapped() if self.winfo_exists() else 'N/A'}")
+        logger.info(f"  - Is visible: {self.winfo_viewable() if self.winfo_exists() else 'N/A'}")
+        logger.info(f"  - Parent visibility: {self.master.winfo_viewable() if self.master and self.master.winfo_exists() else 'N/A'}")
 
         # Update text content
         self._set_text_content(self.original_textbox, original_text)
         self._set_text_content(self.translation_textbox, translated_text)
+        logger.debug("Text content updated in textboxes")
 
         # Position the window
         if position:
+            logger.info(f"Positioning window at requested position: {position}")
             self._position_window(position)
-            logger.debug(f"Positioned window at: {position}")
+            logger.debug(f"Window positioned at: {position}")
         else:
             # Default position if none provided
             screen_width = self.winfo_screenwidth()
             screen_height = self.winfo_screenheight()
             default_pos = (screen_width // 2 - 250, screen_height // 2 - 150)  # Center the 500x300 window
+            logger.info(f"Using default center position: {default_pos}")
             self._position_window(default_pos)
-            logger.debug(f"Using default position: {default_pos}")
+            logger.debug(f"Window positioned at default center")
 
-        # Hide loading, show content
-        logger.debug("Showing content frame...")
+        # Log window dimensions after positioning
+        w, h = self.winfo_width(), self.winfo_height()
+        logger.info(f"Window dimensions after positioning: width={w}, height={h}")
+        
+        # Hide loading, show content - add frame visibility logging
+        logger.info("Showing content frame...")
+        if hasattr(self, 'content_frame'):
+            self.content_frame.grid()
+            logger.debug(f"Content frame visibility: configured={self.content_frame.grid_info() != {}}")
         
         # Force window to be visible and responsive
-        logger.debug("Making window visible.")
+        logger.info("Making window visible with explicit commands...")
         
         # Update window content and make it visible
+        logger.debug("Calling update_idletasks()...")
         self.update_idletasks()
+        
+        logger.debug("Calling deiconify()...")
         self.deiconify()
+        
+        logger.debug("Calling lift()...")
         self.lift()
+        
+        logger.debug("Setting topmost attribute...")
         self.attributes("-topmost", True)
+        
+        logger.debug("Forcing focus...")
         self.focus_force()
 
+        # Log window state after visibility commands
+        logger.info(f"POST-COMMANDS WINDOW STATE:")
+        logger.info(f"  - Window exists: {self.winfo_exists()}")
+        logger.info(f"  - Window viewable: {self.winfo_viewable() if self.winfo_exists() else 'N/A'}")
+        logger.info(f"  - Alpha value: {self.attributes('-alpha')}")
+        logger.info(f"  - Window state: {self.state()}")
+        logger.info(f"  - Window geometry: {self.geometry()}")
+        logger.info(f"  - Z-order index: Top (forced with lift and topmost)")
+        logger.info(f"  - Is mapped: {self.winfo_ismapped() if self.winfo_exists() else 'N/A'}")
+        
         # Start fade in animation
+        logger.debug("Starting fade-in animation...")
         self._start_fade_in()
 
-        logger.debug(f"Final geometry: {self.geometry()}")
-        logger.debug(f"Final alpha: {self.attributes('-alpha')}")
-        logger.debug("Overlay window should now be visible and responsive")
+        # Final verification logs
+        logger.info(f"=== FINAL OVERLAY WINDOW STATE ===")
+        logger.info(f"  - Final geometry: {self.geometry()}")
+        logger.info(f"  - Final alpha before animation: {self.attributes('-alpha')}")
+        logger.info(f"  - Window mapped: {self.winfo_ismapped() if self.winfo_exists() else 'N/A'}")
+        logger.info(f"  - Window viewable: {self.winfo_viewable() if self.winfo_exists() else 'N/A'}")
+        logger.info(f"  - Overlay window display sequence completed")
 
     def _set_text_content(self, textbox, text: str):
         """Set text content in a CTkTextbox."""
@@ -298,19 +371,41 @@ class OverlayWindow(ctk.CTkToplevel):
 
     def _start_fade_in(self):
         """Start fade in animation."""
+        logger.info("=== STARTING FADE-IN ANIMATION ===")
+        
         if self.is_animating:
+            logger.warning("Animation already in progress, skipping new fade-in request")
             return
 
-        self.is_animating = True
-        self.current_opacity = 0.0
-        self.target_opacity = 1.0
-        self.attributes("-alpha", self.current_opacity)
+        # Log pre-animation state
+        logger.info(f"Pre-animation window state:")
+        logger.info(f"  - Current opacity: {self.attributes('-alpha')}")
+        logger.info(f"  - Window exists: {self.winfo_exists()}")
+        logger.info(f"  - Window viewable: {self.winfo_viewable() if self.winfo_exists() else 'N/A'}")
 
+        self.is_animating = True
+        self.current_opacity = 0.0  # Start fully transparent
+        self.target_opacity = 1.0   # End fully opaque
+        
+        # Set initial transparent state
+        logger.debug(f"Setting initial alpha to {self.current_opacity}")
+        self.attributes("-alpha", self.current_opacity)
+        
+        # Verify alpha was set correctly
+        actual_alpha = self.attributes("-alpha")
+        logger.debug(f"Actual alpha after setting: {actual_alpha}")
+        
+        # Create and start animation thread
+        logger.debug(f"Creating animation thread with parameters: steps={self.animation_steps}, duration={self.fade_in_duration}ms")
         self.animation_thread = threading.Thread(
             target=self._fade_animation_worker,
-            daemon=True
+            daemon=True,
+            name="OverlayFadeInThread"
         )
+        
+        logger.debug("Starting animation thread...")
         self.animation_thread.start()
+        logger.info(f"Fade-in animation thread started: {self.animation_thread.name}")
 
     def _start_fade_out(self, callback: Optional[Callable] = None):
         """Start fade out animation.
@@ -334,39 +429,68 @@ class OverlayWindow(ctk.CTkToplevel):
 
     def _fade_animation_worker(self, callback: Optional[Callable] = None):
         """Worker function for fade animation."""
-        step_duration = self.fade_in_duration / self.animation_steps if self.target_opacity > self.current_opacity else self.fade_out_duration / self.animation_steps
+        logger.info(f"Fade animation worker started")
+        
+        # Calculate animation parameters
+        is_fade_in = self.target_opacity > self.current_opacity
+        animation_type = "fade-in" if is_fade_in else "fade-out"
+        step_duration = self.fade_in_duration / self.animation_steps if is_fade_in else self.fade_out_duration / self.animation_steps
         opacity_step = (self.target_opacity - self.current_opacity) / self.animation_steps
+        
+        logger.debug(f"Animation parameters: type={animation_type}, steps={self.animation_steps}, " +
+                     f"step_duration={step_duration:.2f}ms, opacity_step={opacity_step:.3f}")
+        logger.debug(f"Starting opacity: {self.current_opacity}, target opacity: {self.target_opacity}")
 
-        for _ in range(self.animation_steps):
+        for step in range(self.animation_steps):
             if self.is_destroyed:
+                logger.warning("Window destroyed during animation, stopping animation")
                 break
 
+            # Calculate new opacity
             self.current_opacity += opacity_step
             self.current_opacity = max(0.0, min(1.0, self.current_opacity))
+            
+            # Log animation progress every few steps
+            if step == 0 or step == self.animation_steps - 1 or step % 5 == 0:
+                logger.debug(f"Animation step {step+1}/{self.animation_steps}: opacity={self.current_opacity:.3f}")
 
             # Update opacity on main thread - with error handling
             try:
                 self.after(0, self._update_opacity)
+                
+                # Verify opacity was actually applied (log every few steps)
+                if step == 0 or step == self.animation_steps - 1 or step % 5 == 0:
+                    # This verification would need to run on the main thread too
+                    self.after(10, lambda s=step: self._verify_opacity_step(s, self.current_opacity))
+                    
             except RuntimeError as e:
                 if "main thread is not in main loop" in str(e):
-                    logger.debug("Animation stopped: main loop not running")
+                    logger.warning(f"Animation step {step+1} failed: main loop not running")
                     break
                 else:
+                    logger.error(f"Animation error: {e}", exc_info=True)
                     raise
             
+            # Sleep for the step duration
             time.sleep(step_duration / 1000.0)
 
+        # Animation completed or interrupted
         self.is_animating = False
-
+        logger.info(f"Animation completed: final opacity={self.current_opacity:.3f}")
+        
+        # Execute callback if provided
         if callback and not self.is_destroyed:
+            logger.debug("Executing animation completion callback")
             try:
                 self.after(0, callback)
             except RuntimeError as e:
                 if "main thread is not in main loop" in str(e):
-                    logger.debug("Callback skipped: main loop not running")
+                    logger.warning("Callback scheduling failed: main loop not running")
                     # Call callback directly if main loop is not running
+                    logger.debug("Attempting to call callback directly")
                     callback()
                 else:
+                    logger.error(f"Callback error: {e}", exc_info=True)
                     raise
 
     def _position_window(self, position: Tuple[int, int]):

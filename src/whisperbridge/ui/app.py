@@ -685,7 +685,7 @@ class WhisperBridgeApp:
             return
 
         try:
-            logger.debug(f"Calling overlay_service.show_overlay for '{overlay_id}'")
+            logger.info(f"Calling overlay_service.show_overlay for '{overlay_id}'")
             success = self.overlay_service.show_overlay(
                 overlay_id,
                 original_text,
@@ -693,13 +693,16 @@ class WhisperBridgeApp:
                 position,
                 show_loading_first=False  # Assuming direct show
             )
-            logger.debug(f"overlay_service.show_overlay returned: {success}")
+            logger.info(f"overlay_service.show_overlay returned: {success}")
 
             if success:
-                # Verification step
-                self.root.after(100, self._verify_overlay_visibility, overlay_id)
+                # Schedule multiple verification steps at different intervals
+                # to catch transient visibility issues
+                self.root.after(100, lambda: self._verify_overlay_visibility(overlay_id, "initial"))
+                self.root.after(500, lambda: self._verify_overlay_visibility(overlay_id, "medium"))
+                self.root.after(1000, lambda: self._verify_overlay_visibility(overlay_id, "final"))
             else:
-                logger.warning(f"Failed to show overlay '{overlay_id}' via service.")
+                logger.error(f"Failed to show overlay '{overlay_id}' via service.")
 
         except Exception as e:
             logger.error(f"An exception occurred in show_overlay_window: {e}", exc_info=True)
@@ -913,39 +916,132 @@ class WhisperBridgeApp:
         self.minimize_to_tray = enabled
         logger.info(f"Minimize to tray behavior set to: {enabled}")
 
-    def _verify_overlay_visibility(self, overlay_id: str):
-        """Verify and log the state of the overlay window shortly after showing it."""
-        logger.debug(f"Verifying visibility for overlay '{overlay_id}'...")
+    def _verify_overlay_visibility(self, overlay_id: str, check_stage: str):
+        """Verify and log the state of the overlay window at different stages after showing it.
+        
+        Args:
+            overlay_id: The ID of the overlay to verify
+            check_stage: The verification stage (initial, medium, final)
+        """
+        logger.info(f"=== VERIFYING OVERLAY '{overlay_id}' VISIBILITY ({check_stage} check) ===")
+        
+        # Check if the service is available
         if not self.overlay_service:
-            logger.warning("Verification failed: Overlay service is gone.")
+            logger.error(f"[{check_stage}] Verification failed: Overlay service is gone.")
             return
 
+        # Get the overlay window
         overlay = self.overlay_service.get_overlay(overlay_id)
         if not overlay:
-            logger.warning(f"Verification failed: Overlay '{overlay_id}' not found in service.")
+            logger.error(f"[{check_stage}] Verification failed: Overlay '{overlay_id}' not found in service.")
             return
 
         try:
+            # Check if window exists
             if not overlay.winfo_exists():
-                logger.warning(f"Verification failed: Overlay '{overlay_id}' window does not exist.")
+                logger.error(f"[{check_stage}] Verification failed: Overlay '{overlay_id}' window does not exist.")
                 return
 
+            # Gather detailed window state information
             is_visible = overlay.winfo_viewable()
+            is_mapped = overlay.winfo_ismapped()
             state = overlay.state()
             geometry = overlay.geometry()
             alpha = overlay.attributes('-alpha')
             topmost = overlay.attributes('-topmost')
+            
+            # Get window coordinates and sizes
+            try:
+                x = overlay.winfo_x()
+                y = overlay.winfo_y()
+                width = overlay.winfo_width()
+                height = overlay.winfo_height()
+                rootx = overlay.winfo_rootx()
+                rooty = overlay.winfo_rooty()
+                screen_width = overlay.winfo_screenwidth()
+                screen_height = overlay.winfo_screenheight()
+                coord_info = f"x={x}, y={y}, width={width}, height={height}, rootx={rootx}, rooty={rooty}"
+                screen_info = f"screen={screen_width}x{screen_height}"
+            except Exception as e:
+                coord_info = f"Error getting coordinates: {e}"
+                screen_info = "Unknown"
 
-            logger.info(f"--- Overlay '{overlay_id}' Visibility Report ---")
+            # Check for window manager issues
+            wm_info = {}
+            try:
+                wm_info = {
+                    "wm_state": overlay.wm_state() if hasattr(overlay, 'wm_state') else "N/A",
+                    "override_redirect": overlay.winfo_toplevel().wm_overrideredirect() if hasattr(overlay, 'winfo_toplevel') else "N/A"
+                }
+            except Exception as e:
+                wm_info = {"error": f"Failed to get WM info: {e}"}
+            
+            # Check Z-order
+            z_order_info = "Unknown"
+            try:
+                if overlay.winfo_exists():
+                    # Force the window to the top again, just for verification
+                    overlay.lift()
+                    overlay.attributes("-topmost", True)
+                    z_order_info = "Forced to top (lift + topmost)"
+            except Exception as e:
+                z_order_info = f"Error checking Z-order: {e}"
+
+            # Check parent window state
+            parent_info = {}
+            try:
+                if overlay.master and overlay.master.winfo_exists():
+                    parent_info = {
+                        "exists": overlay.master.winfo_exists(),
+                        "viewable": overlay.master.winfo_viewable(),
+                        "mapped": overlay.master.winfo_ismapped(),
+                        "state": overlay.master.state() if hasattr(overlay.master, 'state') else "N/A"
+                    }
+                else:
+                    parent_info = {"exists": False, "error": "Parent window does not exist"}
+            except Exception as e:
+                parent_info = {"error": f"Failed to get parent info: {e}"}
+
+            # Log detailed visibility report
+            logger.info(f"=== OVERLAY '{overlay_id}' VISIBILITY REPORT ({check_stage}) ===")
             logger.info(f"  - Is Viewable: {is_visible}")
+            logger.info(f"  - Is Mapped: {is_mapped}")
             logger.info(f"  - State: {state}")
             logger.info(f"  - Geometry: {geometry}")
+            logger.info(f"  - Coordinates: {coord_info}")
+            logger.info(f"  - Screen: {screen_info}")
             logger.info(f"  - Alpha (Opacity): {alpha}")
             logger.info(f"  - Topmost: {topmost}")
-            logger.info("-------------------------------------------------")
+            logger.info(f"  - Z-Order: {z_order_info}")
+            logger.info(f"  - Window Manager: {wm_info}")
+            logger.info(f"  - Parent Window: {parent_info}")
+            
+            # Log overall visibility status
+            visibility_status = "VISIBLE" if is_visible and is_mapped and state != "withdrawn" else "NOT VISIBLE"
+            logger.info(f"  - VISIBILITY STATUS: {visibility_status}")
+            
+            # Additional checks based on verification stage
+            if check_stage == "medium" or check_stage == "final":
+                # For medium and final checks, try to force visibility again if not visible
+                if not is_visible or not is_mapped or state == "withdrawn":
+                    logger.warning(f"[{check_stage}] Overlay not fully visible, attempting to force visibility...")
+                    try:
+                        # Attempt to bring window back to visibility
+                        overlay.deiconify()
+                        overlay.lift()
+                        overlay.attributes("-topmost", True)
+                        overlay.focus_force()
+                        overlay.update_idletasks()
+                        
+                        # Log forced visibility attempt
+                        logger.info(f"[{check_stage}] Forced visibility attempt made for '{overlay_id}'")
+                    except Exception as e:
+                        logger.error(f"[{check_stage}] Error forcing visibility: {e}")
+            
+            logger.info("=" * 50)
 
         except Exception as e:
-            logger.error(f"Error during overlay verification for '{overlay_id}': {e}", exc_info=True)
+            logger.error(f"Error during overlay verification ({check_stage}) for '{overlay_id}': {e}", exc_info=True)
 
 
 # Global application instance
