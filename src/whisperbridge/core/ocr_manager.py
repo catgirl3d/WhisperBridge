@@ -17,7 +17,6 @@ from loguru import logger
 class OCREngine(Enum):
     """Supported OCR engines."""
     EASYOCR = "easyocr"
-    PADDLEOCR = "paddleocr"
 
 
 @dataclass
@@ -57,13 +56,12 @@ class OCREngineManager:
         self.stats: Dict[OCREngine, EngineStats] = {}
         self.lock = threading.RLock()
 
-        # Initialize stats for all engines
-        for engine in OCREngine:
-            self.stats[engine] = EngineStats()
+        # Initialize stats for EasyOCR engine
+        self.stats[OCREngine.EASYOCR] = EngineStats()
 
     def initialize_engine(self, engine: OCREngine,
-                         languages: List[str] = None,
-                         **kwargs) -> bool:
+                          languages: List[str] = None,
+                          **kwargs) -> bool:
         """Initialize specific OCR engine.
 
         Args:
@@ -74,6 +72,10 @@ class OCREngineManager:
         Returns:
             True if initialization successful
         """
+        start_time = time.time()
+        logger.info(f"Starting initialization of {engine.value} OCR engine")
+        logger.debug(f"Initialization parameters: languages={languages}, kwargs={kwargs}")
+
         try:
             if languages is None:
                 languages = ['en']
@@ -90,73 +92,46 @@ class OCREngineManager:
                     reader = easyocr.Reader(languages, **kwargs)
                     self.engines[engine] = reader
 
-                elif engine == OCREngine.PADDLEOCR:
-                    try:
-                        from paddleocr import PaddleOCR
-                    except ImportError:
-                        logger.error("PaddleOCR not installed")
-                        return False
-
-                    # Initialize PaddleOCR
-                    try:
-                        logger.info(f"Initializing PaddleOCR with languages: {languages}")
-                        # PaddleOCR uses different language format
-                        # Use only the first language or default to English
-                        paddle_lang = languages[0] if languages else "en"
-                        ocr = PaddleOCR(
-                            use_angle_cls=True,
-                            lang=paddle_lang,
-                            **kwargs
-                        )
-                        self.engines[engine] = ocr
-                    except Exception as e:
-                        logger.error(f"Failed to initialize PaddleOCR: {e}")
-                        return False
-
                 else:
                     logger.error(f"Unknown OCR engine: {engine}")
                     return False
 
-                logger.info(f"Successfully initialized {engine.value}")
+                initialization_time = time.time() - start_time
+                logger.info(f"Successfully initialized {engine.value} in {initialization_time:.2f}s")
+                logger.debug(f"EasyOCR reader created with {len(languages)} languages: {languages}")
                 return True
 
         except Exception as e:
-            logger.error(f"Failed to initialize {engine.value}: {e}")
+            initialization_time = time.time() - start_time
+            logger.error(f"Failed to initialize {engine.value} after {initialization_time:.2f}s: {e}")
+            logger.debug(f"Initialization error details: {type(e).__name__}: {str(e)}", exc_info=True)
             return False
 
-    def initialize_engines(self, primary_engine: OCREngine,
-                          fallback_engine: OCREngine,
-                          languages: List[str] = None) -> bool:
-        """Initialize primary and fallback OCR engines.
+    def initialize_engines(self, languages: List[str] = None) -> bool:
+        """Initialize EasyOCR engine.
 
         Args:
-            primary_engine: Primary OCR engine
-            fallback_engine: Fallback OCR engine
             languages: List of languages
 
         Returns:
-            True if at least one engine initialized successfully
+            True if engine initialized successfully
         """
-        success = False
-
-        # Initialize primary engine
-        if self.initialize_engine(primary_engine, languages):
-            success = True
-
-        # Initialize fallback engine
-        if fallback_engine != primary_engine:
-            if self.initialize_engine(fallback_engine, languages):
-                success = True
-
+        logger.info("Starting OCR engines initialization")
+        if languages:
+            logger.debug(f"Requested languages: {languages}")
+        success = self.initialize_engine(OCREngine.EASYOCR, languages)
+        if success:
+            logger.info("OCR engines initialization completed successfully")
+        else:
+            logger.error("OCR engines initialization failed")
         return success
 
-    def process_image(self, engine: OCREngine, image_path: str,
-                     languages: List[str] = None,
-                     timeout: float = 10.0) -> OCRResult:
-        """Process image with specific OCR engine.
+    def process_image(self, image_path: str,
+                       languages: List[str] = None,
+                       timeout: float = 10.0) -> OCRResult:
+        """Process image with EasyOCR engine.
 
         Args:
-            engine: OCR engine to use
             image_path: Path to image file
             languages: Languages for OCR (optional)
             timeout: Processing timeout in seconds
@@ -165,11 +140,15 @@ class OCREngineManager:
             OCRResult with processing results
         """
         start_time = time.time()
+        engine = OCREngine.EASYOCR
+        logger.debug(f"Starting OCR processing for image: {image_path}")
+        logger.debug(f"Processing parameters: languages={languages}, timeout={timeout}s")
 
         try:
             with self.lock:
                 if engine not in self.engines:
                     processing_time = time.time() - start_time
+                    logger.warning(f"OCR engine {engine.value} not initialized - processing aborted")
                     # Update statistics for unavailable engine
                     self._update_stats(engine, 0.0, processing_time, False)
 
@@ -182,19 +161,18 @@ class OCREngineManager:
                         success=False
                     )
 
-                # Process with specific engine
-                if engine == OCREngine.EASYOCR:
-                    result = self._process_easyocr(image_path, languages)
-                elif engine == OCREngine.PADDLEOCR:
-                    result = self._process_paddleocr(image_path, languages)
-                else:
-                    result = "", 0.0
+                logger.info(f"OCR engine {engine.value} is available, starting processing")
+                # Process with EasyOCR engine
+                result = self._process_easyocr(image_path, languages)
 
                 processing_time = time.time() - start_time
 
                 # Determine success based on actual result
                 has_text = bool(result[0].strip()) if len(result) > 0 else False
                 confidence = result[1] if len(result) > 1 else 0.0
+
+                logger.info(f"OCR processing completed in {processing_time:.2f}s, confidence: {confidence:.3f}, has_text: {has_text}")
+                logger.debug(f"OCR result text length: {len(result[0])} characters")
 
                 # Update statistics
                 self._update_stats(engine, confidence, processing_time, has_text)
@@ -210,6 +188,90 @@ class OCREngineManager:
         except Exception as e:
             processing_time = time.time() - start_time
             logger.error(f"Error processing with {engine.value}: {e}")
+            logger.debug(f"Processing error details: {type(e).__name__}: {str(e)}", exc_info=True)
+
+            # Update failure statistics
+            self._update_stats(engine, 0.0, processing_time, False)
+
+            return OCRResult(
+                text="",
+                confidence=0.0,
+                engine=engine,
+                processing_time=processing_time,
+                error_message=str(e),
+                success=False
+            )
+
+    def process_image_array(self, image_array: Any,
+                            languages: List[str] = None,
+                            timeout: float = 10.0) -> OCRResult:
+        """Process image array with EasyOCR engine.
+
+        Args:
+            image_array: Numpy array of image
+            languages: Languages for OCR (optional)
+            timeout: Processing timeout in seconds
+
+        Returns:
+            OCRResult with processing results
+        """
+        start_time = time.time()
+        engine = OCREngine.EASYOCR
+        logger.debug("Starting OCR processing for image array")
+        logger.debug(f"Processing parameters: languages={languages}, timeout={timeout}s")
+
+        # Log image array details
+        try:
+            import numpy as np
+            logger.debug(f"Image array shape: {image_array.shape}, dtype: {image_array.dtype}")
+        except Exception as e:
+            logger.debug(f"Could not read array info: {e}")
+
+        try:
+            with self.lock:
+                if engine not in self.engines:
+                    processing_time = time.time() - start_time
+                    logger.warning(f"OCR engine {engine.value} not initialized - processing aborted")
+                    # Update statistics for unavailable engine
+                    self._update_stats(engine, 0.0, processing_time, False)
+
+                    return OCRResult(
+                        text="",
+                        confidence=0.0,
+                        engine=engine,
+                        processing_time=processing_time,
+                        error_message=f"Engine {engine.value} not initialized",
+                        success=False
+                    )
+
+                logger.info(f"OCR engine {engine.value} is available, starting processing")
+                # Process with EasyOCR engine
+                result = self._process_easyocr_array(image_array, languages)
+
+                processing_time = time.time() - start_time
+
+                # Determine success based on actual result
+                has_text = bool(result[0].strip()) if len(result) > 0 else False
+                confidence = result[1] if len(result) > 1 else 0.0
+
+                logger.info(f"OCR processing completed in {processing_time:.2f}s, confidence: {confidence:.3f}, has_text: {has_text}")
+                logger.debug(f"OCR result text length: {len(result[0])} characters")
+
+                # Update statistics
+                self._update_stats(engine, confidence, processing_time, has_text)
+
+                return OCRResult(
+                    text=result[0],
+                    confidence=confidence,
+                    engine=engine,
+                    processing_time=processing_time,
+                    success=has_text
+                )
+
+        except Exception as e:
+            processing_time = time.time() - start_time
+            logger.error(f"Error processing with {engine.value}: {e}")
+            logger.debug(f"Processing error details: {type(e).__name__}: {str(e)}", exc_info=True)
 
             # Update failure statistics
             self._update_stats(engine, 0.0, processing_time, False)
@@ -224,7 +286,7 @@ class OCREngineManager:
             )
 
     def _process_easyocr(self, image_path: str,
-                         languages: List[str] = None) -> Tuple[str, float]:
+                           languages: List[str] = None) -> Tuple[str, float]:
         """Process image with EasyOCR.
 
         Args:
@@ -235,6 +297,15 @@ class OCREngineManager:
             Tuple of (text, confidence)
         """
         reader = self.engines[OCREngine.EASYOCR]
+        logger.debug(f"Processing image file: {image_path}")
+
+        # Get image info if possible
+        try:
+            from PIL import Image
+            with Image.open(image_path) as img:
+                logger.debug(f"Image dimensions: {img.size}, mode: {img.mode}, format: {img.format}")
+        except Exception as e:
+            logger.debug(f"Could not read image info: {e}")
 
         # EasyOCR returns list of detections
         results = reader.readtext(image_path)
@@ -253,53 +324,57 @@ class OCREngineManager:
             bbox, text, confidence = detection
             text_parts.append(text)
             confidences.append(confidence)
-            logger.info(f"EasyOCR Fragment {i+1}: Text='{text}', Confidence={confidence:.3f}")
+            logger.debug(f"EasyOCR Fragment {i+1}: bbox={bbox}, text='{text}', confidence={confidence:.3f}")
 
         combined_text = " ".join(text_parts)
         avg_confidence = sum(confidences) / len(confidences) if confidences else 0.0
 
-        logger.info(f"EasyOCR: Combined text='{combined_text}', Average confidence={avg_confidence:.3f}")
+        logger.info(f"EasyOCR: Combined text length={len(combined_text)}, average confidence={avg_confidence:.3f}")
+        logger.debug(f"EasyOCR: Full combined text='{combined_text}'")
 
         return combined_text, avg_confidence
 
-    def _process_paddleocr(self, image_path: str,
-                          languages: List[str] = None) -> Tuple[str, float]:
-        """Process image with PaddleOCR.
+    def _process_easyocr_array(self, image_array: Any,
+                               languages: List[str] = None) -> Tuple[str, float]:
+        """Process image array with EasyOCR.
 
         Args:
-            image_path: Path to image
+            image_array: Numpy array of image
             languages: Languages for OCR
 
         Returns:
             Tuple of (text, confidence)
         """
-        ocr = self.engines[OCREngine.PADDLEOCR]
+        reader = self.engines[OCREngine.EASYOCR]
+        logger.debug("Processing image array with EasyOCR")
 
-        # PaddleOCR returns list of results
-        results = ocr.ocr(image_path)
+        # EasyOCR can process numpy arrays directly
+        results = reader.readtext(image_array)
 
-        if not results or not results[0]:
+        if not results:
+            logger.info("EasyOCR: No text detected in image array")
             return "", 0.0
+
+        logger.info(f"EasyOCR: Found {len(results)} text fragments in image array")
 
         # Combine all detected text
         text_parts = []
         confidences = []
 
-        # The result from paddlex is a list containing a single OCRResult object.
-        # This object has attributes like `text` and `confidence`.
-        # We need to handle this specific structure.
-        for detection_result in results[0]:
-            # The structure is [bbox, (text, confidence)]
-            if len(detection_result) == 2:
-                text = detection_result[1][0]
-                confidence = detection_result[1][1]
-                text_parts.append(text)
-                confidences.append(confidence)
+        for i, detection in enumerate(results):
+            bbox, text, confidence = detection
+            text_parts.append(text)
+            confidences.append(confidence)
+            logger.debug(f"EasyOCR Fragment {i+1}: bbox={bbox}, text='{text}', confidence={confidence:.3f}")
 
         combined_text = " ".join(text_parts)
         avg_confidence = sum(confidences) / len(confidences) if confidences else 0.0
 
+        logger.info(f"EasyOCR: Combined text length={len(combined_text)}, average confidence={avg_confidence:.3f}")
+        logger.debug(f"EasyOCR: Full combined text='{combined_text}'")
+
         return combined_text, avg_confidence
+
 
     def _update_stats(self, engine: OCREngine, confidence: float,
                      processing_time: float, success: bool):
@@ -344,33 +419,9 @@ class OCREngineManager:
         """Get the best performing engine based on statistics.
 
         Returns:
-            Best performing engine or None
+            EasyOCR engine if available, None otherwise
         """
-        if not self.engines:
-            return None
-
-        best_engine = None
-        best_score = -1
-
-        for engine in self.engines:
-            stats = self.stats[engine]
-
-            if stats.total_calls == 0:
-                continue
-
-            # Calculate performance score
-            success_rate = stats.successful_calls / stats.total_calls
-            avg_confidence = stats.average_confidence
-            avg_time = stats.average_processing_time
-
-            # Score = success_rate * confidence / time (higher is better)
-            score = success_rate * avg_confidence / max(avg_time, 0.1)
-
-            if score > best_score:
-                best_score = score
-                best_engine = engine
-
-        return best_engine
+        return OCREngine.EASYOCR if OCREngine.EASYOCR in self.engines else None
 
     def is_engine_available(self, engine: OCREngine) -> bool:
         """Check if engine is available and initialized.
@@ -387,17 +438,16 @@ class OCREngineManager:
         """Get list of available engines.
 
         Returns:
-            List of available OCR engines
+            List of available OCR engines (only EasyOCR)
         """
-        return list(self.engines.keys())
+        return [OCREngine.EASYOCR] if OCREngine.EASYOCR in self.engines else []
 
-    async def process_image_async(self, engine: OCREngine, image_path: str,
-                                 languages: List[str] = None,
-                                 timeout: float = 10.0) -> OCRResult:
-        """Asynchronously process image with OCR engine.
+    async def process_image_async(self, image_path: str,
+                                  languages: List[str] = None,
+                                  timeout: float = 10.0) -> OCRResult:
+        """Asynchronously process image with EasyOCR engine.
 
         Args:
-            engine: OCR engine to use
             image_path: Path to image file
             languages: Languages for OCR
             timeout: Processing timeout
@@ -409,8 +459,29 @@ class OCREngineManager:
         return await loop.run_in_executor(
             self.executor,
             self.process_image,
-            engine,
             image_path,
+            languages,
+            timeout
+        )
+
+    async def process_image_array_async(self, image_array: Any,
+                                       languages: List[str] = None,
+                                       timeout: float = 10.0) -> OCRResult:
+        """Asynchronously process image array with EasyOCR engine.
+
+        Args:
+            image_array: Numpy array of image
+            languages: Languages for OCR
+            timeout: Processing timeout
+
+        Returns:
+            OCRResult with processing results
+        """
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(
+            self.executor,
+            self.process_image_array,
+            image_array,
             languages,
             timeout
         )

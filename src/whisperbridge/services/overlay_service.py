@@ -9,6 +9,7 @@ import threading
 import time
 from typing import Optional, Dict, List, Callable, Tuple
 import customtkinter as ctk
+from loguru import logger
 from ..ui.overlay_window import OverlayWindow
 from ..utils.overlay_utils import (
     get_screen_bounds,
@@ -94,61 +95,47 @@ class OverlayService:
         on_close_callback: Optional[Callable] = None
     ) -> OverlayWindow:
         """Create a new overlay window.
-
         Args:
             overlay_id: Unique identifier for the overlay
             timeout: Auto-close timeout in seconds
             on_close_callback: Callback when overlay closes
-
         Returns:
             OverlayWindow: Created overlay window
         """
-        print(f"=== CREATE_OVERLAY STARTED: {overlay_id} ===")
         with self.lock:
-            print(f"Checking if overlay {overlay_id} already exists...")
-            # Check if overlay already exists
+            logger.debug(f"Request to create/get overlay '{overlay_id}'.")
+
             if overlay_id in self.overlays:
-                print(f"Overlay {overlay_id} already exists, returning existing")
-                existing = self.overlays[overlay_id]
-                existing.update_last_shown()
-                return existing.window
+                logger.debug(f"Overlay '{overlay_id}' exists. Returning instance.")
+                instance = self.overlays[overlay_id]
+                instance.update_last_shown()
+                return instance.window
 
-            print(f"Creating new overlay {overlay_id}")
-            # Create new overlay
-            timeout = timeout or self.overlay_timeout
-            print(f"Using timeout: {timeout}")
+            logger.info(f"Creating new overlay '{overlay_id}'.")
+            if len(self.overlays) >= self.max_overlays:
+                self._cleanup_old_overlays()
 
-            def close_callback():
-                print(f"Close callback called for overlay {overlay_id}")
+            def close_callback_wrapper():
+                logger.debug(f"Close callback triggered for overlay '{overlay_id}'.")
                 self._on_overlay_closed(overlay_id)
                 if on_close_callback:
                     on_close_callback()
 
-            print("Creating OverlayWindow...")
             try:
-                overlay = OverlayWindow(
-                    parent=self.root,
-                    timeout=timeout,
-                    on_close_callback=close_callback
+                overlay_window = OverlayWindow(
+                    self.root,
+                    timeout=(timeout or self.overlay_timeout),
+                    on_close_callback=close_callback_wrapper
                 )
-                print(f"OverlayWindow created: {overlay}")
-                print(f"OverlayWindow type: {type(overlay)}")
+                logger.debug(f"OverlayWindow for '{overlay_id}' instantiated successfully.")
             except Exception as e:
-                print(f"ERROR creating OverlayWindow: {e}")
-                import traceback
-                traceback.print_exc()
-                raise
+                logger.error(f"Failed to instantiate OverlayWindow for '{overlay_id}': {e}", exc_info=True)
+                return None
 
-            print("Creating OverlayInstance...")
-            instance = OverlayInstance(overlay, overlay_id)
+            instance = OverlayInstance(overlay_window, overlay_id)
             self.overlays[overlay_id] = instance
-            print(f"Overlay stored with ID: {overlay_id}")
-
-            # Cleanup old overlays if limit exceeded
-            self._cleanup_old_overlays()
-            print(f"Overlay {overlay_id} creation completed")
-
-            return overlay
+            logger.info(f"Overlay '{overlay_id}' created and stored.")
+            return overlay_window
 
     def show_overlay(
         self,
@@ -171,45 +158,57 @@ class OverlayService:
             bool: True if overlay was shown successfully
         """
         with self.lock:
-            if overlay_id not in self.overlays:
+            logger.debug(f"Request to show overlay '{overlay_id}'.")
+
+            # Get or create the overlay instance
+            overlay = self.create_overlay(overlay_id)
+            if not overlay:
+                logger.error(f"Failed to create or get overlay '{overlay_id}'. Cannot show.")
                 return False
 
-            overlay = self.overlays[overlay_id].window
-            instance = self.overlays[overlay_id]
+            instance = self.overlays.get(overlay_id)
+            if not instance:
+                 logger.error(f"Overlay instance for '{overlay_id}' disappeared after creation.")
+                 return False
 
-            # Calculate adaptive size
-            total_text_length = len(original_text) + len(translated_text)
-            adaptive_size = calculate_adaptive_size(total_text_length)
-            overlay.geometry(f"{adaptive_size[0]}x{adaptive_size[1]}")
+            logger.debug(f"Preparing to show overlay '{overlay_id}'.")
 
-            # Calculate smart position if not provided
-            if position is None:
-                # Use center of screen as fallback
+            try:
+                # Calculate adaptive size and smart position
+                total_text_length = len(original_text) + len(translated_text)
+                adaptive_size = calculate_adaptive_size(total_text_length)
+                logger.debug(f"Adaptive size for '{overlay_id}': {adaptive_size}")
+
                 screen_bounds = get_screen_bounds(self.root)
-                position = (
-                    screen_bounds.width // 2,
-                    screen_bounds.height // 2
+                final_position = calculate_smart_position(
+                    position or (screen_bounds.width // 2, screen_bounds.height // 2),
+                    adaptive_size,
+                    screen_bounds
                 )
+                logger.debug(f"Smart position for '{overlay_id}': {final_position.as_tuple()}")
 
-            smart_position = calculate_smart_position(
-                position,
-                adaptive_size,
-                get_screen_bounds(self.root)
-            )
+                # Set geometry before showing
+                overlay.geometry(f"{adaptive_size[0]}x{adaptive_size[1]}+{final_position.x}+{final_position.y}")
 
-            if show_loading_first:
-                overlay.show_loading(smart_position.as_tuple())
-            else:
-                overlay.show_result(
-                    original_text,
-                    translated_text,
-                    smart_position.as_tuple()
-                )
+                if show_loading_first:
+                    logger.debug(f"Showing loading state for '{overlay_id}'.")
+                    overlay.show_loading(final_position.as_tuple())
+                else:
+                    logger.debug(f"Showing result for '{overlay_id}'.")
+                    overlay.show_result(
+                        original_text,
+                        translated_text,
+                        final_position.as_tuple()
+                    )
 
-            instance.update_last_shown()
-            instance.is_visible = True
+                instance.update_last_shown()
+                instance.is_visible = True
+                logger.info(f"Overlay '{overlay_id}' is now marked as visible.")
+                return True
 
-            return True
+            except Exception as e:
+                logger.error(f"Exception while showing overlay '{overlay_id}': {e}", exc_info=True)
+                return False
 
     def show_loading_overlay(
         self,

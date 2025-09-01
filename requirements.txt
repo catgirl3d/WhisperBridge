@@ -14,8 +14,6 @@ mss>=9.0.1
 
 # OCR Engines
 easyocr>=1.7.0
-paddlepaddle>=2.5.0
-paddleocr>=2.7.0
 
 # AI/API Integration
 openai>=1.3.0

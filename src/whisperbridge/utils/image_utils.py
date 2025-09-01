@@ -346,22 +346,14 @@ def preprocess_for_ocr(image: Image.Image,
     processor = get_image_processor()
 
     # Scale up small images to improve OCR accuracy
-    min_height = 50  # Minimum height in pixels for effective OCR
-    scale_factor = 1.0
-    if image.height < min_height:
-        scale_factor = min_height / image.height
-        logger.info(f"Image height is too small ({image.height}px). Scaling by {scale_factor:.2f}.")
+    scale_factor = 1.5
 
     # Apply preprocessing
     processed = processor.preprocess_image(
         image,
-        enhance_contrast=enhance_contrast,
-        reduce_noise=reduce_noise,
+        enhance_contrast=True,
+        reduce_noise=False,
         scale_factor=scale_factor
     )
-
-    # Deskew if requested
-    if deskew:
-        processed = processor.deskew_image(processed)
 
     return processed

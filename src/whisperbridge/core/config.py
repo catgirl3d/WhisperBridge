@@ -45,8 +45,6 @@ class Settings(BaseSettings):
     )
 
     # OCR Settings
-    primary_ocr_engine: str = Field(default="easyocr", description="Primary OCR engine")
-    fallback_ocr_engine: str = Field(default="paddleocr", description="Fallback OCR engine")
     ocr_languages: List[str] = Field(default=["en", "ru"], description="OCR languages")
     ocr_confidence_threshold: float = Field(default=0.7, description="OCR confidence threshold")
     ocr_timeout: int = Field(default=10, description="OCR timeout in seconds")
@@ -100,14 +98,6 @@ class Settings(BaseSettings):
             raise ValueError(f'Invalid theme: {v}. Must be one of {valid_themes}')
         return v
 
-    @field_validator('primary_ocr_engine', 'fallback_ocr_engine')
-    @classmethod
-    def validate_ocr_engine(cls, v: str) -> str:
-        """Validate OCR engine."""
-        valid_engines = ['easyocr', 'paddleocr']
-        if v not in valid_engines:
-            raise ValueError(f'Invalid OCR engine: {v}. Must be one of {valid_engines}')
-        return v
 
     @field_validator('api_provider')
     @classmethod
@@ -132,8 +122,6 @@ class Settings(BaseSettings):
         """Validate interdependent settings."""
         if self.source_language == self.target_language and self.source_language != 'auto':
             raise ValueError('Source and target languages cannot be the same')
-        if self.primary_ocr_engine == self.fallback_ocr_engine:
-            raise ValueError('Primary and fallback OCR engines cannot be the same')
         return self
 
 

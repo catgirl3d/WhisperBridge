@@ -8,251 +8,62 @@ Enhanced with animations, loading indicators, and improved positioning.
 
 import customtkinter as ctk
 from typing import Optional, Tuple, Callable
-import tkinter as tk
 import threading
 import time
-import math
-from unittest.mock import MagicMock
+from loguru import logger
 
 from ..services.clipboard_service import ClipboardService
 from ..services.paste_service import PasteService
 
 
 class OverlayWindow(ctk.CTkToplevel):
-    """Enhanced overlay window for displaying translation results with animations and loading states."""
+    """A simplified overlay window for displaying translation results."""
 
-    def __init__(self, parent=None, timeout: int = 10, on_close_callback: Optional[Callable] = None,
-                 clipboard_service: Optional[ClipboardService] = None,
-                 paste_service: Optional[PasteService] = None):
-        """Initialize the overlay window.
+    def __init__(self, parent, **kwargs):
+        """Initialize the simplified overlay window."""
+        super().__init__(parent, **kwargs)
+        logger.debug("OverlayWindow __init__ started.")
 
-        Args:
-            parent: Parent window
-            timeout: Auto-close timeout in seconds
-            on_close_callback: Callback when window closes
-            clipboard_service: Clipboard service instance
-            paste_service: Paste service instance
-        """
-        print("=== OverlayWindow.__init__ STARTED ===")
-        print(f"Parent: {parent}")
-        print(f"Timeout: {timeout}")
-        print(f"On close callback: {on_close_callback is not None}")
-
-        try:
-            print("Calling super().__init__(parent)...")
-            print(f"Parent window details: {parent}")
-
-            # Check if we have display access
-            try:
-                print("Testing display access...")
-                test_window = tk.Tk()
-                test_window.destroy()
-                print("Display access confirmed, creating real window")
-
-                # Check parent window if it exists
-                if parent:
-                    try:
-                        print(f"Parent window exists: {parent.winfo_exists()}")
-                        print(f"Parent window geometry: {parent.geometry()}")
-                    except Exception as parent_error:
-                        print(f"Parent window check failed: {parent_error}")
-
-                super().__init__(parent)
-            except Exception as display_error:
-                print(f"No display access: {display_error}")
-                print("Creating mock window for headless environment")
-                # Create a mock object that mimics Tkinter window behavior
-                self.mock_mode = True
-                self._mock_init()
-                return
-
-            print("OverlayWindow super().__init__() completed successfully")
-
-            # Additional checks after creation
-            print(f"Window created successfully: {self}")
-            print(f"Window exists: {self.winfo_exists()}")
-            print(f"Window geometry: {self.geometry()}")
-
-        except Exception as e:
-            print(f"ERROR in OverlayWindow super().__init__(): {e}")
-            import traceback
-            traceback.print_exc()
-            raise
-
-        print("Setting instance variables...")
-        self.timeout = timeout
-        self.on_close_callback = on_close_callback
-        self.timer_thread: Optional[threading.Thread] = None
-        self.animation_thread: Optional[threading.Thread] = None
-        self.is_destroyed = False
-        self.is_animating = False
-        self.current_opacity = 0.0
-        self.target_opacity = 1.0
-
-        print("Setting up services...")
-
-        # Services
-        print("Creating clipboard service...")
-        self.clipboard_service = clipboard_service or ClipboardService()
-        print("Creating paste service...")
-        self.paste_service = paste_service or PasteService()
-        self.paste_service.set_clipboard_service(self.clipboard_service)
-
-        # Start services if they were created internally
-        print("Starting services...")
-        if not clipboard_service:
-            self.clipboard_service.start()
-        if not paste_service:
-            self.paste_service.start()
-        print("Services started successfully")
-
-        # Animation settings
-        self.fade_in_duration = 200  # ms
-        self.fade_out_duration = 150  # ms
-        self.animation_steps = 20
-
-        print("Configuring window properties...")
-        # Configure window properties
-        self.title("")
+        # Basic window configuration
+        self.attributes("-topmost", True)
+        self.overrideredirect(True)
         self.geometry("500x300")
-        self.resizable(False, False)
-        self.attributes("-topmost", True, "-alpha", 0.95)  # Start visible instead of transparent
-        self.overrideredirect(True)  # Remove window decorations
+        logger.debug("OverlayWindow basic configuration set.")
 
-        # Force window to stay on top and be always visible
-        self.lift()
-        self.focus_force()
-        self.attributes("-topmost", True)  # Ensure it's always on top
-        self.attributes("-alpha", 0.95)    # Ensure it's visible
-        print("Window properties configured")
-
-        print("Configuring grid layout...")
-        # Configure grid layout
-        self.grid_columnconfigure(0, weight=1)
-        self.grid_rowconfigure(0, weight=1)
-
-        print("Creating main frame...")
-        # Create main frame with transparency
-        self.main_frame = ctk.CTkFrame(
-            self,
-            corner_radius=12,
-            fg_color=("gray90", "gray13"),
-            border_width=1,
-            border_color=("gray70", "gray30")
-        )
-        self.main_frame.grid(row=0, column=0, padx=2, pady=2, sticky="nsew")
+        # Main frame
+        self.main_frame = ctk.CTkFrame(self, corner_radius=10, border_width=1)
+        self.main_frame.pack(fill="both", expand=True, padx=5, pady=5)
         self.main_frame.grid_columnconfigure(0, weight=1)
-        print("Main frame created")
+        self.main_frame.grid_rowconfigure(0, weight=1)
+        logger.debug("Main frame created and packed.")
+        
+        self.content_frame = ctk.CTkFrame(self.main_frame, fg_color="transparent")
+        self.content_frame.grid(row=0, column=0, sticky="nsew", padx=1, pady=1)
+        self.content_frame.grid_columnconfigure(0, weight=1)
 
-        # Initialize UI components
-        self._create_widgets()
-
-        # Bind events
+        self._create_original_section()
+        self._create_translation_section()
+        self._create_buttons_section()
         self._bind_events()
-
-        # Temporarily disable fade in animation for debugging
-        # self._start_fade_in()
-        print("Fade-in animation disabled for debugging")
-
-    def _mock_init(self):
-        """Initialize mock window for headless environments."""
-        print("=== MOCK WINDOW INITIALIZATION STARTED ===")
-        self.mock_mode = True
-
-        # Mock all the attributes and methods that would be set by real Tkinter
-        self.timeout = 10
+        
+        self.is_destroyed = False
+        self.timeout = 10  # seconds
         self.on_close_callback = None
         self.timer_thread = None
         self.animation_thread = None
-        self.is_destroyed = False
         self.is_animating = False
         self.current_opacity = 0.95
         self.target_opacity = 1.0
+        self.fade_in_duration = 200  # ms
+        self.fade_out_duration = 200  # ms
+        self.animation_steps = 20
 
-        # Mock window methods
-        self.winfo_exists = lambda: True
-        self.geometry = lambda: "500x300+100+100"
-        self.attributes = MagicMock()
-        self.title = MagicMock()
-        self.resizable = MagicMock()
-        self.overrideredirect = MagicMock()
-        self.grid_columnconfigure = MagicMock()
-        self.grid_rowconfigure = MagicMock()
-        self.deiconify = MagicMock()
-        self.lift = MagicMock()
-        self.focus_force = MagicMock()
-        self.after = MagicMock()
-        self.bind = MagicMock()
-        self.destroy = MagicMock()
+        self.clipboard_service = ClipboardService()
+        self.paste_service = PasteService()
+        
+        logger.debug("OverlayWindow __init__ finished.")
 
-        # Mock widgets
-        self.main_frame = MagicMock()
-        self.content_frame = MagicMock()
-        self.original_textbox = MagicMock()
-        self.translation_textbox = MagicMock()
-        self.loading_label = MagicMock()
-        self.progress_bar = MagicMock()
-        self.copy_original_button = MagicMock()
-        self.copy_translation_button = MagicMock()
-        self.paste_button = MagicMock()
-        self.close_button = MagicMock()
 
-        # Mock services
-        self.clipboard_service = MagicMock()
-        self.paste_service = MagicMock()
-
-        print("Mock window initialized successfully")
-        print("=== MOCK WINDOW READY ===")
-
-    def _create_widgets(self):
-        """Create all UI widgets."""
-        # Loading indicator (initially hidden)
-        self._create_loading_section()
-
-        # Content frame (initially hidden)
-        self.content_frame = ctk.CTkFrame(self.main_frame, fg_color="transparent")
-        self.content_frame.grid(row=0, column=0, sticky="nsew")
-        self.content_frame.grid_columnconfigure(0, weight=1)
-
-        # Original text section
-        self._create_original_section()
-
-        # Separator
-        separator = ctk.CTkFrame(self.content_frame, height=1, fg_color=("gray75", "gray25"))
-        separator.grid(row=1, column=0, padx=20, pady=8, sticky="ew")
-
-        # Translation text section
-        self._create_translation_section()
-
-        # Buttons section
-        self._create_buttons_section()
-
-        # Initially hide content, show loading
-        self.content_frame.grid_remove()
-
-    def _create_loading_section(self):
-        """Create loading indicator section."""
-        loading_frame = ctk.CTkFrame(self.main_frame, fg_color="transparent")
-        loading_frame.grid(row=0, column=0, padx=20, pady=20, sticky="nsew")
-        loading_frame.grid_columnconfigure(0, weight=1)
-        loading_frame.grid_rowconfigure(0, weight=1)
-
-        # Loading label
-        self.loading_label = ctk.CTkLabel(
-            loading_frame,
-            text="Обработка...",
-            font=ctk.CTkFont(size=14, weight="bold")
-        )
-        self.loading_label.grid(row=0, column=0, pady=(0, 10), sticky="s")
-
-        # Progress bar
-        self.progress_bar = ctk.CTkProgressBar(
-            loading_frame,
-            width=200,
-            mode="indeterminate"
-        )
-        self.progress_bar.grid(row=1, column=0, sticky="s")
-        self.progress_bar.start()
 
     def _create_original_section(self):
         """Create original text display section."""
@@ -435,12 +246,12 @@ class OverlayWindow(ctk.CTkToplevel):
             translated_text: Translated text to display
             position: (x, y) coordinates to position the window
         """
-        print("=== SHOW_RESULT DEBUG ===")
-        print(f"Original text: '{original_text}'")
-        print(f"Translated text: '{translated_text}'")
-        print(f"Position: {position}")
-        print(f"Window exists: {self.winfo_exists()}")
-        print(f"Current alpha: {self.attributes('-alpha')}")
+        logger.debug(f"show_result called. Position: {position}")
+        logger.debug(f"Original text: '{original_text}'")
+        logger.debug(f"Translated text: '{translated_text}'")
+        logger.debug(f"Position: {position}")
+        logger.debug(f"Window exists: {self.winfo_exists()}")
+        logger.debug(f"Current alpha: {self.attributes('-alpha')}")
 
         # Update text content
         self._set_text_content(self.original_textbox, original_text)
@@ -449,43 +260,37 @@ class OverlayWindow(ctk.CTkToplevel):
         # Position the window
         if position:
             self._position_window(position)
-            print(f"Positioned window at: {position}")
+            logger.debug(f"Positioned window at: {position}")
         else:
             # Default position if none provided
             screen_width = self.winfo_screenwidth()
             screen_height = self.winfo_screenheight()
             default_pos = (screen_width // 2 - 250, screen_height // 2 - 150)  # Center the 500x300 window
             self._position_window(default_pos)
-            print(f"Using default position: {default_pos}")
+            logger.debug(f"Using default position: {default_pos}")
 
         # Hide loading, show content
-        print("Showing content frame...")
-        self.main_frame.grid()  # Ensure main frame is visible
-        self.content_frame.grid()  # Show content
-
-        # Force window to be visible
-        print("Making window visible...")
-        self.attributes("-alpha", 0.95)  # Ensure visible
-        self.attributes("-topmost", True)  # Force on top
+        logger.debug("Showing content frame...")
+        
+        # Force window to be visible and responsive
+        logger.debug("Making window visible.")
+        
+        # Update window content and make it visible
         self.update_idletasks()
         self.deiconify()
         self.lift()
+        self.attributes("-topmost", True)
         self.focus_force()
 
-        # Additional force to stay on top
-        self.after(100, lambda: self.attributes("-topmost", True))
-        self.after(200, lambda: self.lift())
-        self.after(300, lambda: self.focus_force())
+        # Start fade in animation
+        self._start_fade_in()
 
-        print(f"Final geometry: {self.geometry()}")
-        print(f"Final alpha: {self.attributes('-alpha')}")
+        logger.debug(f"Final geometry: {self.geometry()}")
+        logger.debug(f"Final alpha: {self.attributes('-alpha')}")
+        logger.debug("Overlay window should now be visible and responsive")
 
-        # Start auto-close timer
-        self._start_auto_close_timer()
-        print("Auto-close timer started")
-
-    def _set_text_content(self, textbox: ctk.CTkTextbox, text: str):
-        """Set text content in a textbox."""
+    def _set_text_content(self, textbox, text: str):
+        """Set text content in a CTkTextbox."""
         textbox.configure(state="normal")
         textbox.delete("0.0", "end")
         textbox.insert("0.0", text)
@@ -544,7 +349,7 @@ class OverlayWindow(ctk.CTkToplevel):
                 self.after(0, self._update_opacity)
             except RuntimeError as e:
                 if "main thread is not in main loop" in str(e):
-                    print(f"Animation stopped: main loop not running")
+                    logger.debug("Animation stopped: main loop not running")
                     break
                 else:
                     raise
@@ -558,7 +363,7 @@ class OverlayWindow(ctk.CTkToplevel):
                 self.after(0, callback)
             except RuntimeError as e:
                 if "main thread is not in main loop" in str(e):
-                    print(f"Callback skipped: main loop not running")
+                    logger.debug("Callback skipped: main loop not running")
                     # Call callback directly if main loop is not running
                     callback()
                 else:
@@ -609,7 +414,7 @@ class OverlayWindow(ctk.CTkToplevel):
     def _copy_original(self):
         """Copy original text to clipboard."""
         try:
-            original_text = self.original_textbox.get("0.0", "end").strip()
+            original_text = self.original_textbox.get("1.0", "end-1c").strip()
             if self.clipboard_service.copy_text(original_text):
                 self._show_feedback("Оригинальный текст скопирован")
             else:
@@ -620,7 +425,7 @@ class OverlayWindow(ctk.CTkToplevel):
     def _copy_translation(self):
         """Copy translated text to clipboard."""
         try:
-            translated_text = self.translation_textbox.get("0.0", "end").strip()
+            translated_text = self.translation_textbox.get("1.0", "end-1c").strip()
             if self.clipboard_service.copy_text(translated_text):
                 self._show_feedback("Переведенный текст скопирован")
             else:
@@ -631,7 +436,7 @@ class OverlayWindow(ctk.CTkToplevel):
     def _paste_to_response(self):
         """Paste translated text to active application."""
         try:
-            translated_text = self.translation_textbox.get("0.0", "end").strip()
+            translated_text = self.translation_textbox.get("1.0", "end-1c").strip()
 
             if self.paste_service.paste_text(translated_text):
                 self._show_feedback("Текст вставлен в активное окно")
@@ -660,7 +465,7 @@ class OverlayWindow(ctk.CTkToplevel):
                     if hasattr(self, 'paste_service') and self.paste_service:
                         self.paste_service.stop()
                 except Exception as e:
-                    print(f"Error stopping services: {e}")
+                    logger.error(f"Error stopping services: {e}")
                 if self.on_close_callback:
                     self.on_close_callback()
                 self.destroy()
@@ -694,7 +499,7 @@ class OverlayWindow(ctk.CTkToplevel):
                 has_focus = self.focus_get() is not None
             except RuntimeError as e:
                 if "main thread is not in main loop" in str(e):
-                    print(f"Auto-close timer stopped: main loop not running")
+                    logger.debug("Auto-close timer stopped: main loop not running")
                     return
                 else:
                     # Assume no focus if we can't check
@@ -706,7 +511,7 @@ class OverlayWindow(ctk.CTkToplevel):
                     self.after(0, self._close_window)
                 except RuntimeError as e:
                     if "main thread is not in main loop" in str(e):
-                        print(f"Auto-close skipped: main loop not running")
+                        logger.debug("Auto-close skipped: main loop not running")
                         # Call close directly if main loop is not running
                         self._close_window()
                     else:
@@ -733,13 +538,34 @@ class OverlayWindow(ctk.CTkToplevel):
             self.paste_service.set_clipboard_service(self.clipboard_service)
 
     def _show_feedback(self, message: str, error: bool = False):
-        """Show feedback message to user."""
-        # For now, just print to console
-        # In real implementation, could show a tooltip or status message
+        """Show feedback message to user with temporary notification."""
         if error:
-            print(f"Error: {message}")
+            logger.error(f"Overlay feedback: {message}")
         else:
-            print(f"Info: {message}")
+            logger.info(f"Overlay feedback: {message}")
+        
+        # Create temporary feedback label
+        feedback_label = ctk.CTkLabel(
+            self.main_frame,
+            text=message,
+            font=ctk.CTkFont(size=10, weight="bold"),
+            text_color=("red", "red") if error else ("green", "lightgreen"),
+            fg_color=("white", "gray20"),
+            corner_radius=5
+        )
+        
+        # Position feedback at the bottom of the window
+        feedback_label.place(relx=0.5, rely=0.9, anchor="center")
+        
+        # Auto-hide feedback after 2 seconds
+        def hide_feedback():
+            try:
+                if feedback_label.winfo_exists():
+                    feedback_label.destroy()
+            except:
+                pass
+        
+        self.after(2000, hide_feedback)
 
 
 if __name__ == "__main__":

@@ -6,9 +6,13 @@ theme configuration, and coordination between different windows.
 """
 
 import asyncio
+import os
+import tempfile
+import time
 import threading
 import customtkinter as ctk
 from typing import Optional
+from loguru import logger
 from .main_window import MainWindow
 from ..core.config import settings
 from ..services.tray_service import TrayService
@@ -186,28 +190,37 @@ class WhisperBridgeApp:
 
     def _initialize_ocr_service(self):
         """Initialize OCR service in the background."""
+        logger.info("Starting OCR service initialization in app")
         try:
             ocr_service = get_ocr_service()
+            logger.debug(f"OCR service instance: {ocr_service}")
             # Start background initialization and provide a callback
             ocr_service.start_background_initialization(
                 on_complete=self._on_ocr_service_ready
             )
             # Update tray icon to show loading state
             self.update_tray_status(is_loading=True)
-            print("OCR service background initialization started.")
+            logger.info("OCR service background initialization started successfully")
         except Exception as e:
-            print(f"Failed to start OCR service initialization: {e}")
+            logger.error(f"Failed to start OCR service initialization: {e}")
+            logger.debug(f"Initialization error details: {type(e).__name__}: {str(e)}", exc_info=True)
             self.update_tray_status(has_error=True)
 
     def _on_ocr_service_ready(self):
         """Callback for when OCR service is ready."""
-        print("OCR service is now ready.")
+        logger.info("OCR service initialization completed - service is now ready")
+        ocr_service = get_ocr_service()
+        logger.debug(f"OCR service status: initialized={ocr_service.is_initialized}")
+
         # Update tray icon to show normal state
         self.update_tray_status(is_loading=False)
+        logger.debug("Tray status updated to normal (loading=False)")
+
         self.show_tray_notification(
             "WhisperBridge",
             "OCR service is ready."
         )
+        logger.info("User notification shown: OCR service ready")
 
     def _initialize_translation_service(self):
         """Initialize translation service."""
@@ -259,129 +272,117 @@ class WhisperBridgeApp:
 
     def _on_translate_hotkey(self):
         """Handle main translation hotkey press."""
-        print("Translation hotkey pressed - starting screen capture")
+        logger.info("Main translation hotkey pressed")
+        logger.debug(f"Hotkey: {settings.translate_hotkey}")
 
-        # Update tray status to show we're active
+        # Check OCR service readiness
+        ocr_service = get_ocr_service()
+        logger.debug(f"OCR service initialized: {ocr_service.is_initialized}, initializing: {ocr_service.is_initializing}")
+
+        # Run the capture and processing in a separate thread to avoid blocking the UI
+        thread = threading.Thread(target=self._capture_and_process)
+        thread.daemon = True
+        thread.start()
+
+    def _capture_and_process(self):
+        """Capture screen area and process it."""
         self.update_tray_status(is_active=True)
 
-        # Import here to avoid circular imports
-        from ..services.screen_capture_service import capture_area_interactive, CaptureResult
+        from ..services.screen_capture_service import capture_area_interactive, CaptureResult, CaptureOptions
 
-        # Start interactive screen capture
+        # Create a temporary file path
+        temp_dir = tempfile.gettempdir()
+        temp_path = os.path.join(temp_dir, f"whisperbridge_capture_{int(time.time())}.png")
+
+        capture_options = CaptureOptions(
+            save_to_file=True,
+            output_path=temp_path,
+            format="PNG"
+        )
+
         def on_capture_complete(result: CaptureResult):
-            print("=== CAPTURE COMPLETE CALLBACK STARTED ===")
-            print(f"Result success: {result.success}")
-            print(f"Result has image: {result.image is not None}")
-            print(f"Result has rectangle: {result.rectangle is not None}")
-            if result.image:
-                print(f"Image size: {result.image.size}")
-            print(f"Error message: {result.error_message}")
-
             try:
-                if result.success and result.image:
-                    print("=== STARTING OCR PROCESSING ===")
-                    # Process captured image with OCR synchronously
-                    try:
-                        print("Getting OCR service...")
-                        ocr_service = get_ocr_service()
-                        print(f"OCR service initialized: {ocr_service.is_initialized}")
+                if not result.success or not result.image:
+                    self._show_capture_error(result.error_message or "Capture failed or was cancelled.")
+                    return
 
-                        if not ocr_service.is_initialized:
-                            print("OCR service not initialized, initializing now...")
-                            ocr_service._initialize_engines()
-                            print(f"OCR service initialized: {ocr_service.is_initialized}")
+                logger.info(f"Image captured and saved to: {result.file_path}")
 
-                        # Simple test first
-                        print("Testing OCR service availability...")
-                        test_result = ocr_service.get_engine_stats()
-                        print(f"OCR engine stats: {test_result}")
+                # Now, process the OCR and translation
+                self._process_ocr_and_translate(result)
 
-                        ocr_request = OCRRequest(
-                            image=result.image,
-                            languages=settings.ocr_languages,
-                            preprocess=True,
-                            use_cache=True
-                        )
-
-                        # Process synchronously
-                        print(f"Processing OCR with request: image_size={result.image.size}, languages={settings.ocr_languages}")
-                        print(f"OCR request details: preprocess={ocr_request.preprocess}, use_cache={ocr_request.use_cache}")
-                        ocr_response = ocr_service.process_image(ocr_request)
-                        print(f"OCR response: success={ocr_response.success}, has_text={bool(ocr_response.text.strip())}, error='{ocr_response.error_message}'")
-                        if ocr_response.text:
-                            print(f"OCR text (first 100 chars): '{ocr_response.text[:100]}'")
-                        print(f"OCR confidence: {ocr_response.confidence}")
-                        print(f"OCR engine used: {ocr_response.engine_used}")
-
-                        if ocr_response.success and ocr_response.text.strip():
-                            print(f"OCR successful, showing overlay with text: '{ocr_response.text[:50]}...'")
-                            # Show overlay with recognized text
-                            try:
-                                print("=== CALLING SHOW_OVERLAY_WINDOW ===")
-                                print(f"Overlay service available: {self.overlay_service is not None}")
-                                self.show_overlay_window(
-                                    ocr_response.text,
-                                    f"Confidence: {ocr_response.confidence:.1%}\n"
-                                    f"Engine: {ocr_response.engine_used.value}"
-                                )
-                                print("Overlay window shown successfully")
-                            except Exception as e:
-                                print(f"Error showing overlay window: {e}")
-                                import traceback
-                                traceback.print_exc()
-
-                            # Process translation synchronously
-                            translation_service = get_translation_service()
-                            translation_response = translation_service.translate_text(
-                                text=ocr_response.text,
-                                source_lang=settings.source_language,
-                                target_lang=settings.target_language,
-                                use_cache=True
-                            )
-
-                            if translation_response.success:
-                                # Update overlay with translation
-                                self.show_overlay_window(
-                                    ocr_response.text,
-                                    f"Translation: {translation_response.translated_text}\n"
-                                    f"Source: {translation_response.source_lang} → Target: {translation_response.target_lang}\n"
-                                    f"Model: {translation_response.model}"
-                                )
-                            else:
-                                self.show_overlay_window(
-                                    ocr_response.text,
-                                    f"Translation Failed: {translation_response.error_message}"
-                                )
-                        else:
-                            print(f"OCR failed or no text found: success={ocr_response.success}, text='{ocr_response.text}', error='{ocr_response.error_message}'")
-                            self.show_overlay_window(
-                                "OCR Failed",
-                                f"Error: {ocr_response.error_message or 'No text recognized'}"
-                            )
-
-                    except Exception as e:
-                        print(f"Exception in OCR processing: {type(e).__name__}: {e}")
-                        import traceback
-                        traceback.print_exc()
-                        self._show_ocr_error(f"Processing failed: {e}")
-            except Exception as e:
-                print(f"Exception in capture processing: {type(e).__name__}: {e}")
-                import traceback
-                traceback.print_exc()
-                self._show_capture_error("Failed to process captured image")
             finally:
-                # Reset tray status
                 self.update_tray_status(is_active=False)
+        
+        capture_area_interactive(on_capture_complete, options=capture_options)
 
+    def _process_ocr_and_translate(self, capture_result: "CaptureResult"):
+        """Process OCR and translation."""
+        logger.info("Starting OCR and translation processing")
+        logger.debug(f"Capture result: success={capture_result.success}, image_size={capture_result.image.size if capture_result.image else None}")
 
-        print("Calling capture_area_interactive...")
-        success = capture_area_interactive(on_capture_complete)
-        print(f"capture_area_interactive returned: {success}")
+        try:
+            ocr_service = get_ocr_service()
+            if not ocr_service.is_initialized:
+                logger.warning("OCR service not ready for processing")
+                self.root.after(0, self._show_ocr_error, "OCR service not ready.")
+                return
 
-        if not success:
-            print("Failed to start screen capture")
-            self._show_capture_error("Failed to start screen capture")
-            self.update_tray_status(is_active=False)
+            logger.debug("OCR service is ready, creating OCR request")
+            ocr_request = OCRRequest(
+                image=capture_result.image,
+                languages=settings.ocr_languages,
+                preprocess=True,
+                use_cache=True
+            )
+            logger.debug(f"OCR request: languages={ocr_request.languages}, preprocess={ocr_request.preprocess}")
+
+            ocr_response = ocr_service.process_image(ocr_request)
+            logger.info(f"OCR processing result: success={ocr_response.success}, confidence={ocr_response.confidence:.3f}, text_length={len(ocr_response.text)}")
+            logger.debug(f"OCR raw text: '{ocr_response.text}'")
+
+            # if not ocr_response.success or not ocr_response.text.strip():
+            #     logger.warning(f"OCR failed: success={ocr_response.success}, has_text={bool(ocr_response.text.strip())}, error={ocr_response.error_message}")
+            #     self.root.after(0, self._show_ocr_error, ocr_response.error_message or "No text recognized.")
+            #     return
+
+            logger.info("OCR successful, showing initial overlay")
+            # Show initial overlay with OCR text
+            self.root.after(0, self.show_overlay_window,
+                ocr_response.text,
+                f"Confidence: {ocr_response.confidence:.1%}\nEngine: {ocr_response.engine_used.value}"
+            )
+
+            # Translate
+            logger.debug("Starting translation process")
+            translation_service = get_translation_service()
+            translation_response = translation_service.translate_text_sync(
+                text=ocr_response.text,
+                source_lang=settings.source_language,
+                target_lang=settings.target_language,
+                use_cache=True
+            )
+
+            logger.info(f"Translation result: success={translation_response.success}")
+            if translation_response.success:
+                logger.debug(f"Translation completed: {len(translation_response.translated_text)} characters")
+                self.root.after(0, self.show_overlay_window,
+                    ocr_response.text,
+                    f"Translation: {translation_response.translated_text}\n"
+                    f"Source: {translation_response.source_lang} → Target: {translation_response.target_lang}\n"
+                    f"Model: {translation_response.model}"
+                )
+            else:
+                logger.warning(f"Translation failed: {translation_response.error_message}")
+                self.root.after(0, self.show_overlay_window,
+                    ocr_response.text,
+                    f"Translation Failed: {translation_response.error_message}"
+                )
+
+        except Exception as e:
+            logger.error(f"Error in processing: {e}", exc_info=True)
+            logger.debug(f"Processing error details: {type(e).__name__}: {str(e)}", exc_info=True)
+            self.root.after(0, self._show_ocr_error, f"An unexpected error occurred: {e}")
 
     async def _handle_capture_result(self, result):
         """Handle the result of screen capture.
@@ -581,23 +582,27 @@ class WhisperBridgeApp:
 
     def _on_quick_translate_hotkey(self):
         """Handle quick translation hotkey press."""
-        print("Quick translation hotkey pressed")
+        logger.info("Quick translation hotkey pressed")
+        logger.debug(f"Hotkey: {settings.quick_translate_hotkey}")
         # TODO: Implement quick translation (maybe from clipboard)
         if self.tray_service:
             self.tray_service.show_notification(
                 "WhisperBridge",
                 "Quick translation hotkey activated"
             )
+            logger.debug("Tray notification shown for quick translation")
 
     def _on_activation_hotkey(self):
         """Handle application activation hotkey press."""
-        print("Activation hotkey pressed - showing main window")
+        logger.info("Application activation hotkey pressed")
+        logger.debug(f"Hotkey: {settings.activation_hotkey}")
         self.show_main_window()
         if self.tray_service:
             self.tray_service.show_notification(
                 "WhisperBridge",
                 "Application activated"
             )
+            logger.debug("Tray notification shown for application activation")
 
     def _update_hotkeys(self):
         """Update hotkeys when settings change."""
@@ -672,50 +677,32 @@ class WhisperBridgeApp:
             position: (x, y) coordinates for window positioning
             overlay_id: Unique identifier for the overlay
         """
-        print("=== SHOW_OVERLAY_WINDOW STARTED ===")
-        print(f"Original text: '{original_text}'")
-        print(f"Translated text: '{translated_text}'")
-        print(f"Position: {position}")
-        print(f"Overlay ID: {overlay_id}")
-        print(f"Overlay service available: {self.overlay_service is not None}")
+        logger.debug("Executing show_overlay_window on main thread.")
+        logger.debug(f"Attempting to show overlay '{overlay_id}' with position: {position}")
 
-        if self.overlay_service:
-            try:
-                print("=== CREATING/GETTING OVERLAY ===")
-                # Create or get overlay
-                overlay = self.overlay_service.create_overlay(overlay_id)
-                print(f"Overlay created/retrieved: {overlay}")
-                print(f"Overlay type: {type(overlay)}")
+        if not self.overlay_service:
+            logger.error("Overlay service is not available. Cannot show overlay.")
+            return
 
-                # Check if overlay exists
-                existing_overlay = self.overlay_service.get_overlay(overlay_id)
-                print(f"Existing overlay: {existing_overlay}")
+        try:
+            logger.debug(f"Calling overlay_service.show_overlay for '{overlay_id}'")
+            success = self.overlay_service.show_overlay(
+                overlay_id,
+                original_text,
+                translated_text,
+                position,
+                show_loading_first=False  # Assuming direct show
+            )
+            logger.debug(f"overlay_service.show_overlay returned: {success}")
 
-                # Show the result
-                print("=== CALLING SHOW_OVERLAY ===")
-                self.overlay_service.show_overlay(
-                    overlay_id,
-                    original_text,
-                    translated_text,
-                    position
-                )
-                print("show_overlay method called successfully")
+            if success:
+                # Verification step
+                self.root.after(100, self._verify_overlay_visibility, overlay_id)
+            else:
+                logger.warning(f"Failed to show overlay '{overlay_id}' via service.")
 
-                # Verify overlay is visible
-                if existing_overlay:
-                    print(f"Overlay window exists: {existing_overlay.winfo_exists()}")
-                    try:
-                        print(f"Overlay geometry: {existing_overlay.geometry()}")
-                        print(f"Overlay state: {existing_overlay.state()}")
-                    except Exception as e:
-                        print(f"Error getting overlay properties: {e}")
-
-            except Exception as e:
-                print(f"Error in show_overlay_window: {e}")
-                import traceback
-                traceback.print_exc()
-        else:
-            print("ERROR: No overlay service available")
+        except Exception as e:
+            logger.error(f"An exception occurred in show_overlay_window: {e}", exc_info=True)
 
     def hide_overlay_window(self, overlay_id: str = "main"):
         """Hide the overlay window.
@@ -858,8 +845,12 @@ class WhisperBridgeApp:
 
         # Destroy root window
         if self.root:
-            self.root.quit()
-            self.root.destroy()
+            try:
+                if self.root.winfo_exists():
+                    self.root.quit()
+                    self.root.destroy()
+            except Exception as e:
+                logger.warning(f"Error during root window destruction: {e}")
 
         print("WhisperBridge GUI shutdown complete")
 
@@ -916,12 +907,45 @@ class WhisperBridgeApp:
 
     def toggle_minimize_to_tray(self, enabled: bool):
         """Toggle minimize to tray behavior.
-
         Args:
             enabled: Whether to minimize to tray on close
         """
         self.minimize_to_tray = enabled
-        print(f"Minimize to tray: {enabled}")
+        logger.info(f"Minimize to tray behavior set to: {enabled}")
+
+    def _verify_overlay_visibility(self, overlay_id: str):
+        """Verify and log the state of the overlay window shortly after showing it."""
+        logger.debug(f"Verifying visibility for overlay '{overlay_id}'...")
+        if not self.overlay_service:
+            logger.warning("Verification failed: Overlay service is gone.")
+            return
+
+        overlay = self.overlay_service.get_overlay(overlay_id)
+        if not overlay:
+            logger.warning(f"Verification failed: Overlay '{overlay_id}' not found in service.")
+            return
+
+        try:
+            if not overlay.winfo_exists():
+                logger.warning(f"Verification failed: Overlay '{overlay_id}' window does not exist.")
+                return
+
+            is_visible = overlay.winfo_viewable()
+            state = overlay.state()
+            geometry = overlay.geometry()
+            alpha = overlay.attributes('-alpha')
+            topmost = overlay.attributes('-topmost')
+
+            logger.info(f"--- Overlay '{overlay_id}' Visibility Report ---")
+            logger.info(f"  - Is Viewable: {is_visible}")
+            logger.info(f"  - State: {state}")
+            logger.info(f"  - Geometry: {geometry}")
+            logger.info(f"  - Alpha (Opacity): {alpha}")
+            logger.info(f"  - Topmost: {topmost}")
+            logger.info("-------------------------------------------------")
+
+        except Exception as e:
+            logger.error(f"Error during overlay verification for '{overlay_id}': {e}", exc_info=True)
 
 
 # Global application instance
@@ -930,7 +954,6 @@ _app_instance: Optional[WhisperBridgeApp] = None
 
 def get_app() -> WhisperBridgeApp:
     """Get the global application instance.
-
     Returns:
         WhisperBridgeApp: Global application instance
     """

@@ -152,48 +152,31 @@ class OCRService:
         self._initialization_lock = threading.Lock()
 
     def _initialize_engines(self):
-        """Initialize OCR engines based on settings."""
+        """Initialize EasyOCR engine."""
+        start_time = time.time()
+        logger.info("Starting OCR service engine initialization")
+        logger.debug(f"OCR languages from settings: {settings.ocr_languages}")
+
         try:
             languages = settings.ocr_languages
 
-            # Initialize primary engine
-            primary_engine = OCREngine(settings.primary_ocr_engine)
-            primary_success = False
-            if not self.manager.is_engine_available(primary_engine):
-                primary_success = self.manager.initialize_engine(primary_engine, languages)
+            # Initialize EasyOCR engine
+            success = self.manager.initialize_engines(languages)
 
-            # Initialize fallback engine
-            fallback_engine = OCREngine(settings.fallback_ocr_engine)
-            fallback_success = False
-            if fallback_engine != primary_engine and not self.manager.is_engine_available(fallback_engine):
-                fallback_success = self.manager.initialize_engine(fallback_engine, languages)
-
-            # Try to initialize PaddleOCR if available and not already initialized
-            paddle_success = False
-            if (fallback_engine != OCREngine.PADDLEOCR and
-                primary_engine != OCREngine.PADDLEOCR and
-                not self.manager.is_engine_available(OCREngine.PADDLEOCR)):
-                try:
-                    from paddleocr import PaddleOCR
-                    if PaddleOCR is not None:
-                        paddle_success = self.manager.initialize_engine(OCREngine.PADDLEOCR, languages)
-                except ImportError:
-                    pass
-
-            success = primary_success or fallback_success or paddle_success
-            logger.info(f"OCR initialization results: primary={primary_success}, fallback={fallback_success}, paddle={paddle_success}, success={success}")
+            initialization_time = time.time() - start_time
 
             if success:
-                logger.info("OCR engines initialized successfully")
-                available = self.manager.get_available_engines()
-                logger.info(f"Available engines: {[e.value for e in available]}")
+                logger.info(f"EasyOCR engine initialized successfully in {initialization_time:.2f}s")
                 self.is_initialized = True
                 logger.info(f"OCR service marked as initialized: {self.is_initialized}")
+                logger.debug(f"OCR service ready with {len(languages)} languages: {languages}")
             else:
-                logger.error("Failed to initialize any OCR engines")
+                logger.error(f"Failed to initialize EasyOCR engine after {initialization_time:.2f}s")
 
         except Exception as e:
-            logger.error(f"Error initializing OCR engines: {e}")
+            initialization_time = time.time() - start_time
+            logger.error(f"Error initializing OCR engines after {initialization_time:.2f}s: {e}")
+            logger.debug(f"Initialization error details: {type(e).__name__}: {str(e)}", exc_info=True)
 
     def start_background_initialization(self, on_complete=None):
         """Start OCR engine initialization in a background thread."""
@@ -237,10 +220,16 @@ class OCRService:
             OCR processing response
         """
         start_time = time.time()
+        logger.debug("Starting OCR service image processing")
+        logger.debug(f"Request parameters: preprocess={request.preprocess}, use_cache={request.use_cache}, timeout={request.timeout}")
+
+        # Log image details
+        logger.debug(f"Input image size: {request.image.size}, mode: {request.image.mode}")
+        logger.debug(f"OCR languages: {request.languages or settings.ocr_languages}")
 
         if not self.is_initialized:
             error_msg = "OCR service is still initializing." if self.is_initializing else "OCR service is not initialized."
-            logger.warning(error_msg)
+            logger.warning(f"OCR service not ready: {error_msg}")
             return OCRResponse(
                 text="",
                 confidence=0.0,
@@ -255,158 +244,116 @@ class OCRService:
             if request.use_cache and settings.cache_enabled:
                 cached_result = self.cache.get(request.image, request.languages or [])
                 if cached_result:
-                    logger.debug("OCR result retrieved from cache")
+                    logger.info("OCR result retrieved from cache")
+                    logger.debug(f"Cached result: confidence={cached_result.confidence:.3f}, text_length={len(cached_result.text)}")
                     return cached_result
 
             # Preprocess image if requested
             processed_image = request.image
             if request.preprocess:
+                logger.debug("Applying image preprocessing")
                 processed_image = preprocess_for_ocr(
                     request.image,
                     enhance_contrast=True,
                     reduce_noise=True,
                     deskew=True
                 )
+                logger.debug(f"Preprocessed image size: {processed_image.size}")
 
-            # Save processed image to temporary file
-            with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as temp_file:
-                temp_path = temp_file.name
-                processed_image.save(temp_path, 'PNG')
+            # Convert PIL image to numpy array for EasyOCR
+            import numpy as np
+            image_array = np.array(processed_image)
+            logger.debug(f"Converted to numpy array: shape={image_array.shape}, dtype={image_array.dtype}")
 
-            try:
-                # Try primary engine first
-                primary_engine = OCREngine(settings.primary_ocr_engine)
-                result = self._process_with_engine(
-                    primary_engine, temp_path,
-                    request.languages or settings.ocr_languages,
-                    request.timeout or settings.ocr_timeout
-                )
+            # Process with EasyOCR engine
+            result = self._process_with_numpy_array(
+                image_array,
+                request.languages or settings.ocr_languages,
+                request.timeout or settings.ocr_timeout
+            )
 
-                # Determine if result is actually successful
-                has_valid_text = bool(result.text.strip())
-                meets_confidence = result.confidence >= settings.ocr_confidence_threshold
+            # Determine if result is actually successful
+            has_valid_text = bool(result.text.strip())
+            meets_confidence = result.confidence >= settings.ocr_confidence_threshold
+            final_success = result.success and has_valid_text and meets_confidence
 
-                if result.success and has_valid_text and meets_confidence:
-                    response = OCRResponse(
-                        text=result.text,
-                        confidence=result.confidence,
-                        engine_used=result.engine,
-                        processing_time=time.time() - start_time,
-                        success=True
-                    )
-                else:
-                    # Try fallback engines in order of preference
-                    tried_engines = [primary_engine]
+            processing_time = time.time() - start_time
+            logger.info(f"OCR processing completed in {processing_time:.2f}s")
+            logger.info(f"OCR results: confidence={result.confidence:.3f}, has_text={has_valid_text}, meets_threshold={meets_confidence}, final_success={final_success}")
+            logger.debug(f"OCR text length: {len(result.text)} characters")
 
-                    # First try the configured fallback engine
-                    fallback_engine = OCREngine(settings.fallback_ocr_engine)
-                    if fallback_engine != primary_engine and self.manager.is_engine_available(fallback_engine):
-                        logger.info(f"Primary engine failed or low confidence, trying {fallback_engine.value}")
-                        tried_engines.append(fallback_engine)
-                        fallback_result = self._process_with_engine(
-                            fallback_engine, temp_path,
-                            request.languages or settings.ocr_languages,
-                            request.timeout or settings.ocr_timeout
-                        )
+            response = OCRResponse(
+                text=result.text,
+                confidence=result.confidence,
+                engine_used=result.engine,
+                processing_time=processing_time,
+                success=final_success,
+                error_message=result.error_message if not final_success else None
+            )
 
-                        # Check if fallback result is better
-                        fallback_has_text = bool(fallback_result.text.strip())
-                        fallback_meets_confidence = fallback_result.confidence >= settings.ocr_confidence_threshold
+            # Cache successful results with valid text
+            if response.success and response.text.strip() and request.use_cache and settings.cache_enabled:
+                self.cache.put(request.image, request.languages or [], response)
+                logger.debug("OCR result cached")
 
-                        if fallback_result.success and fallback_has_text and fallback_meets_confidence:
-                            result = fallback_result
-
-                    # If still no good result, try other available engines
-                    for engine in [OCREngine.EASYOCR, OCREngine.PADDLEOCR]:
-                        if engine not in tried_engines and self.manager.is_engine_available(engine):
-                            logger.info(f"Trying additional engine: {engine.value}")
-                            tried_engines.append(engine)
-                            additional_result = self._process_with_engine(
-                                engine, temp_path,
-                                request.languages or settings.ocr_languages,
-                                request.timeout or settings.ocr_timeout
-                            )
-
-                            # Check if this result is better
-                            additional_has_text = bool(additional_result.text.strip())
-                            additional_meets_confidence = additional_result.confidence >= settings.ocr_confidence_threshold
-
-                            if additional_result.success and additional_has_text and additional_meets_confidence:
-                                result = additional_result
-                                break
-
-                    # Create final response
-                    final_has_text = bool(result.text.strip())
-                    final_success = result.success and final_has_text
-
-                    response = OCRResponse(
-                        text=result.text,
-                        confidence=result.confidence,
-                        engine_used=result.engine,
-                        processing_time=time.time() - start_time,
-                        success=final_success,
-                        error_message=result.error_message if not final_success else None
-                    )
-
-                # Cache successful results with valid text
-                if response.success and response.text.strip() and request.use_cache and settings.cache_enabled:
-                    self.cache.put(request.image, request.languages or [], response)
-
-                return response
-
-            finally:
-                # Clean up temporary file
-                Path(temp_path).unlink(missing_ok=True)
+            return response
 
         except Exception as e:
-            logger.error(f"Error in OCR processing: {e}")
+            processing_time = time.time() - start_time
+            logger.error(f"Error in OCR processing after {processing_time:.2f}s: {e}")
+            logger.debug(f"Processing error details: {type(e).__name__}: {str(e)}", exc_info=True)
             return OCRResponse(
                 text="",
                 confidence=0.0,
                 engine_used=OCREngine.EASYOCR,  # Default
-                processing_time=time.time() - start_time,
+                processing_time=processing_time,
                 success=False,
                 error_message=str(e)
             )
 
-    def _process_with_engine(self, engine: OCREngine, image_path: str,
-                           languages: List[str], timeout: float) -> OCRResult:
-        """Process image with specific OCR engine.
+    def _process_with_numpy_array(self, image_array: Any,
+                                  languages: List[str], timeout: float) -> OCRResult:
+        """Process image with EasyOCR engine using numpy array.
 
         Args:
-            engine: OCR engine to use
-            image_path: Path to image file
+            image_array: Numpy array of image
             languages: Languages for OCR
             timeout: Processing timeout
 
         Returns:
             OCR result from engine
         """
+        logger.debug(f"Processing numpy array with EasyOCR: shape={image_array.shape}, languages={languages}, timeout={timeout}s")
+
         try:
-            # Check if engine is available
-            if not self.manager.is_engine_available(engine):
+            # Check if EasyOCR is available
+            if not self.manager.is_engine_available(OCREngine.EASYOCR):
+                logger.warning("EasyOCR engine not available for processing")
                 return OCRResult(
                     text="",
                     confidence=0.0,
-                    engine=engine,
+                    engine=OCREngine.EASYOCR,
                     processing_time=0.0,
-                    error_message=f"Engine {engine.value} not available",
+                    error_message="EasyOCR engine not available",
                     success=False
                 )
 
-            # Process with engine
-            result = self.manager.process_image(
-                engine, image_path, languages, timeout
+            logger.debug("EasyOCR engine is available, starting processing")
+            # Process with EasyOCR engine
+            result = self.manager.process_image_array(
+                image_array, languages, timeout
             )
 
+            logger.debug(f"EasyOCR processing result: success={result.success}, confidence={result.confidence:.3f}, text_length={len(result.text)}")
             return result
 
         except Exception as e:
-            logger.error(f"Error processing with {engine.value}: {e}")
+            logger.error(f"Error processing with EasyOCR: {e}")
+            logger.debug(f"EasyOCR processing error details: {type(e).__name__}: {str(e)}", exc_info=True)
             return OCRResult(
                 text="",
                 confidence=0.0,
-                engine=engine,
+                engine=OCREngine.EASYOCR,
                 processing_time=0.0,
                 error_message=str(e),
                 success=False
@@ -428,6 +375,38 @@ class OCRService:
             request
         )
 
+    async def process_image_array_async(self, image_array: Any,
+                                       languages: List[str] = None,
+                                       preprocess: bool = True,
+                                       use_cache: bool = True) -> OCRResponse:
+        """Asynchronously process image array with OCR.
+
+        Args:
+            image_array: Numpy array of image
+            languages: Languages for OCR
+            preprocess: Whether to preprocess image
+            use_cache: Whether to use caching
+
+        Returns:
+            OCR processing response
+        """
+        # Create a mock PIL image for caching purposes
+        # This is a simplified approach - in production you might want to hash the array
+        import numpy as np
+        from PIL import Image
+
+        # Convert numpy array back to PIL for caching compatibility
+        pil_image = Image.fromarray(image_array)
+
+        request = OCRRequest(
+            image=pil_image,
+            languages=languages,
+            preprocess=preprocess,
+            use_cache=use_cache
+        )
+
+        return await self.process_image_async(request)
+
     def get_cache_stats(self) -> Dict[str, Any]:
         """Get cache statistics.
 
@@ -444,12 +423,12 @@ class OCRService:
         """Get OCR engine statistics.
 
         Returns:
-            Dictionary with engine statistics
+            Dictionary with engine statistics for EasyOCR
         """
-        stats = {}
-        for engine in OCREngine:
-            engine_stats = self.manager.get_engine_stats(engine)
-            stats[engine.value] = {
+        engine = OCREngine.EASYOCR
+        engine_stats = self.manager.get_engine_stats(engine)
+        return {
+            engine.value: {
                 "total_calls": engine_stats.total_calls,
                 "successful_calls": engine_stats.successful_calls,
                 "failed_calls": engine_stats.failed_calls,
@@ -458,7 +437,7 @@ class OCRService:
                 "consecutive_failures": engine_stats.consecutive_failures,
                 "available": self.manager.is_engine_available(engine)
             }
-        return stats
+        }
 
     def clear_cache(self):
         """Clear OCR result cache."""
@@ -513,9 +492,9 @@ def get_ocr_service() -> OCRService:
 
 
 async def recognize_text(image: Image.Image,
-                        languages: Optional[List[str]] = None,
-                        preprocess: bool = True,
-                        use_cache: bool = True) -> OCRResponse:
+                         languages: Optional[List[str]] = None,
+                         preprocess: bool = True,
+                         use_cache: bool = True) -> OCRResponse:
     """Convenience function for text recognition.
 
     Args:
@@ -537,3 +516,30 @@ async def recognize_text(image: Image.Image,
     )
 
     return await service.process_image_async(request)
+
+
+def recognize_text_sync(image: Image.Image,
+                       languages: Optional[List[str]] = None,
+                       preprocess: bool = True,
+                       use_cache: bool = True) -> OCRResponse:
+    """Synchronous convenience function for text recognition.
+
+    Args:
+        image: PIL image to process
+        languages: Languages for OCR (optional)
+        preprocess: Whether to preprocess image
+        use_cache: Whether to use caching
+
+    Returns:
+        OCR response with recognized text
+    """
+    service = get_ocr_service()
+
+    request = OCRRequest(
+        image=image,
+        languages=languages,
+        preprocess=preprocess,
+        use_cache=use_cache
+    )
+
+    return service.process_image(request)

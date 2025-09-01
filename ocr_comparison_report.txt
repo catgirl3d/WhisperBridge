@@ -1,0 +1,132 @@
+================================================================================
+OCR ENGINE COMPARISON REPORT
+================================================================================
+Generated: 2025-09-01 01:03:52
+
+📊 OVERVIEW
+----------------------------------------
+Available engines: easyocr, paddleocr
+Test scenarios: 6
+
+🔍 SCENARIO RESULTS
+----------------------------------------
+
+Scenario: simple_english
+Description: Simple English text on white background
+Expected: Hello World Test
+  EASYOCR:
+    - Processing time: 2.393s
+    - Confidence: 0.885
+    - Success rate: 100.0%
+    - Memory usage: -10.2MB
+  PADDLEOCR:
+    - Processing time: 6.365s
+    - Confidence: 0.000
+    - Success rate: 0.0%
+    - Memory usage: -115.9MB
+
+Scenario: multiline_text
+Description: Multi-line text with structure
+Expected: First Line Second Line Third Line
+  EASYOCR:
+    - Processing time: 1.620s
+    - Confidence: 0.836
+    - Success rate: 100.0%
+    - Memory usage: 20.1MB
+  PADDLEOCR:
+    - Processing time: 3.249s
+    - Confidence: 0.000
+    - Success rate: 0.0%
+    - Memory usage: 76.2MB
+
+Scenario: noisy_text
+Description: Text with random noise
+Expected: Noisy Text Recognition
+  EASYOCR:
+    - Processing time: 2.388s
+    - Confidence: 0.014
+    - Success rate: 100.0%
+    - Memory usage: -1.3MB
+  PADDLEOCR:
+    - Processing time: 2.858s
+    - Confidence: 0.000
+    - Success rate: 0.0%
+    - Memory usage: 2.4MB
+
+Scenario: multilingual
+Description: Mixed English and Russian text
+Expected: Hello Привет Test Тест
+  EASYOCR:
+    - Processing time: 2.057s
+    - Confidence: 0.651
+    - Success rate: 100.0%
+    - Memory usage: 7.3MB
+  PADDLEOCR:
+    - Processing time: 4.907s
+    - Confidence: 0.000
+    - Success rate: 0.0%
+    - Memory usage: -169.1MB
+
+Scenario: small_font
+Description: Text with small font size
+Expected: Small Font Test
+  EASYOCR:
+    - Processing time: 2.731s
+    - Confidence: 0.972
+    - Success rate: 100.0%
+    - Memory usage: 3.9MB
+  PADDLEOCR:
+    - Processing time: 3.314s
+    - Confidence: 0.000
+    - Success rate: 0.0%
+    - Memory usage: 16.1MB
+
+Scenario: blurred_text
+Description: Blurred text for quality testing
+Expected: Blurred Text Test
+  EASYOCR:
+    - Processing time: 2.055s
+    - Confidence: 0.821
+    - Success rate: 100.0%
+    - Memory usage: 0.1MB
+  PADDLEOCR:
+    - Processing time: 3.241s
+    - Confidence: 0.000
+    - Success rate: 0.0%
+    - Memory usage: 6.0MB
+
+⚠️  IDENTIFIED ISSUES
+----------------------------------------
+1. Slow processing in simple_english for easyocr: 2.393s
+2. Slow processing in simple_english for paddleocr: 6.365s
+3. Low success rate in simple_english for paddleocr: 0.0%
+4. Slow processing in multiline_text for paddleocr: 3.249s
+5. Low success rate in multiline_text for paddleocr: 0.0%
+6. Slow processing in noisy_text for easyocr: 2.388s
+7. Slow processing in noisy_text for paddleocr: 2.858s
+8. Low success rate in noisy_text for paddleocr: 0.0%
+9. Slow processing in multilingual for easyocr: 2.057s
+10. Slow processing in multilingual for paddleocr: 4.907s
+11. Low success rate in multilingual for paddleocr: 0.0%
+12. Slow processing in small_font for easyocr: 2.731s
+13. Slow processing in small_font for paddleocr: 3.314s
+14. Low success rate in small_font for paddleocr: 0.0%
+15. Slow processing in blurred_text for easyocr: 2.055s
+16. Slow processing in blurred_text for paddleocr: 3.241s
+17. Low success rate in blurred_text for paddleocr: 0.0%
+18. PaddleOCR may have issues with multilingual text (uses only first language)
+
+💡 RECOMMENDATIONS
+----------------------------------------
+1. Optimize performance for slow scenarios: simple_english (easyocr), simple_english (paddleocr), multiline_text (easyocr)
+2. Improve OCR quality for: simple_english (paddleocr), multiline_text (paddleocr), noisy_text (paddleocr)
+3. Consider implementing direct numpy array processing to avoid temporary files
+4. Add better error handling for edge cases (empty images, corrupted files)
+5. Implement adaptive confidence thresholds based on image quality
+6. Add support for more languages in PaddleOCR initialization
+7. Consider caching frequently used OCR results
+8. Add image preprocessing options (contrast enhancement, noise reduction)
+
+================================================================================
+END OF REPORT
+================================================================================
