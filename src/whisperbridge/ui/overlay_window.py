@@ -19,8 +19,14 @@ from ..services.paste_service import PasteService
 class OverlayWindow(ctk.CTkToplevel):
     """A simplified overlay window for displaying translation results."""
 
-    def __init__(self, parent, **kwargs):
-        """Initialize the simplified overlay window."""
+    def __init__(self, parent, timeout: int = 10, on_close_callback: Optional[Callable] = None, **kwargs):
+        """Initialize the simplified overlay window.
+
+        Args:
+            parent: Parent window
+            timeout: Auto-close timeout in seconds
+            on_close_callback: Callback function when window closes
+        """
         super().__init__(parent, **kwargs)
         logger.debug("OverlayWindow __init__ started.")
         
@@ -39,8 +45,7 @@ class OverlayWindow(ctk.CTkToplevel):
 
         # Basic window configuration
         self.attributes("-topmost", True)
-        self.overrideredirect(True)
-        self.geometry("500x300")
+        # Don't set overrideredirect here - will be set in show_result after geometry
         logger.debug("OverlayWindow basic configuration set.")
 
         # Main frame
@@ -60,8 +65,8 @@ class OverlayWindow(ctk.CTkToplevel):
         self._bind_events()
         
         self.is_destroyed = False
-        self.timeout = 10  # seconds
-        self.on_close_callback = None
+        self.timeout = timeout  # seconds
+        self.on_close_callback = on_close_callback
         self.timer_thread = None
         self.animation_thread = None
         self.is_animating = False
@@ -268,13 +273,14 @@ class OverlayWindow(ctk.CTkToplevel):
         self.focus_force()
 
     def show_result(self, original_text: str, translated_text: str,
-                    position: Optional[Tuple[int, int]] = None):
+                    position: Optional[Tuple[int, int]] = None, size: Optional[Tuple[int, int]] = None):
         """Show translation result in the overlay.
 
         Args:
             original_text: Original text to display
             translated_text: Translated text to display
             position: (x, y) coordinates to position the window
+            size: Optional (width, height) tuple for window size
         """
         logger.info(f"=== OVERLAY WINDOW SHOW_RESULT CALLED ===")
         logger.debug(f"Original text: '{original_text[:50]}{'...' if len(original_text) > 50 else ''}'")
@@ -300,7 +306,7 @@ class OverlayWindow(ctk.CTkToplevel):
         # Position the window
         if position:
             logger.info(f"Positioning window at requested position: {position}")
-            self._position_window(position)
+            self._position_window(position, size)
             logger.debug(f"Window positioned at: {position}")
         else:
             # Default position if none provided
@@ -308,7 +314,7 @@ class OverlayWindow(ctk.CTkToplevel):
             screen_height = self.winfo_screenheight()
             default_pos = (screen_width // 2 - 250, screen_height // 2 - 150)  # Center the 500x300 window
             logger.info(f"Using default center position: {default_pos}")
-            self._position_window(default_pos)
+            self._position_window(default_pos, size)
             logger.debug(f"Window positioned at default center")
 
         # Log window dimensions after positioning
@@ -493,18 +499,24 @@ class OverlayWindow(ctk.CTkToplevel):
                     logger.error(f"Callback error: {e}", exc_info=True)
                     raise
 
-    def _position_window(self, position: Tuple[int, int]):
+    def _position_window(self, position: Tuple[int, int], size: Optional[Tuple[int, int]] = None):
         """Position the window at specified coordinates with smart positioning.
 
         Args:
             position: (x, y) coordinates
+            size: Optional (width, height) tuple. If not provided, uses current window size.
         """
         x, y = position
 
         # Get window dimensions
-        self.update_idletasks()
-        width = self.winfo_width()
-        height = self.winfo_height()
+        if size:
+            width, height = size
+            logger.debug(f"Using provided size: {width}x{height}")
+        else:
+            self.update_idletasks()
+            width = self.winfo_width()
+            height = self.winfo_height()
+            logger.debug(f"Using current window size: {width}x{height}")
 
         # Get screen dimensions
         screen_width = self.winfo_screenwidth()
@@ -533,6 +545,7 @@ class OverlayWindow(ctk.CTkToplevel):
         final_x = max(0, min(preferred_x, screen_width - width))
         final_y = max(0, min(preferred_y, screen_height - height))
 
+        logger.debug(f"Final positioning: {width}x{height}+{final_x}+{final_y}")
         self.geometry(f"{width}x{height}+{final_x}+{final_y}")
 
     def _copy_original(self):

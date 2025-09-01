@@ -311,7 +311,8 @@ class OverlayService:
                     overlay.show_result(
                         original_text,
                         translated_text,
-                        final_position.as_tuple()
+                        final_position.as_tuple(),
+                        adaptive_size
                     )
 
                 # Update instance metadata

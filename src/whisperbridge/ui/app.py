@@ -97,6 +97,9 @@ class WhisperBridgeApp:
             self.is_running = True
             print("WhisperBridge GUI initialized successfully")
 
+            # Show test overlay immediately after initialization
+            self._show_test_overlay_on_startup()
+
         except Exception as e:
             print(f"Failed to initialize GUI: {e}")
             raise
@@ -239,6 +242,25 @@ class WhisperBridgeApp:
         except Exception as e:
             print(f"Warning: Failed to initialize translation service: {e}")
 
+    def _show_test_overlay_on_startup(self):
+        """Show test overlay immediately after app initialization."""
+        try:
+            print("Showing test overlay on startup...")
+            test_original = "WhisperBridge загружен успешно!\nЭто тестовый текст для проверки оверлея."
+            test_translated = "WhisperBridge loaded successfully!\nThis is test text for overlay verification.\n\nTranslation: DISABLED (as requested)"
+
+            # Show overlay with test content
+            self.show_overlay_window(
+                original_text=test_original,
+                translated_text=test_translated,
+                position=(100, 100),  # Position near top-left corner
+                overlay_id="startup_test"
+            )
+            print("Test overlay displayed successfully")
+
+        except Exception as e:
+            print(f"Failed to show test overlay on startup: {e}")
+
     def _on_settings_saved(self):
         """Handle settings saved event."""
         print("Settings saved, updating application...")
@@ -346,38 +368,14 @@ class WhisperBridgeApp:
             #     self.root.after(0, self._show_ocr_error, ocr_response.error_message or "No text recognized.")
             #     return
 
-            logger.info("OCR successful, showing initial overlay")
-            # Show initial overlay with OCR text
+            logger.info("OCR successful, showing overlay with OCR text only (translation disabled)")
+            # Show overlay with OCR text only, no translation
             self.root.after(0, self.show_overlay_window,
                 ocr_response.text,
-                f"Confidence: {ocr_response.confidence:.1%}\nEngine: {ocr_response.engine_used.value}"
+                f"OCR Result (Translation disabled)\n"
+                f"Confidence: {ocr_response.confidence:.1%}\n"
+                f"Engine: {ocr_response.engine_used.value}"
             )
-
-            # Translate
-            logger.debug("Starting translation process")
-            translation_service = get_translation_service()
-            translation_response = translation_service.translate_text_sync(
-                text=ocr_response.text,
-                source_lang=settings.source_language,
-                target_lang=settings.target_language,
-                use_cache=True
-            )
-
-            logger.info(f"Translation result: success={translation_response.success}")
-            if translation_response.success:
-                logger.debug(f"Translation completed: {len(translation_response.translated_text)} characters")
-                self.root.after(0, self.show_overlay_window,
-                    ocr_response.text,
-                    f"Translation: {translation_response.translated_text}\n"
-                    f"Source: {translation_response.source_lang} → Target: {translation_response.target_lang}\n"
-                    f"Model: {translation_response.model}"
-                )
-            else:
-                logger.warning(f"Translation failed: {translation_response.error_message}")
-                self.root.after(0, self.show_overlay_window,
-                    ocr_response.text,
-                    f"Translation Failed: {translation_response.error_message}"
-                )
 
         except Exception as e:
             logger.error(f"Error in processing: {e}", exc_info=True)
@@ -468,16 +466,17 @@ class WhisperBridgeApp:
                         f"Text recognized ({ocr_response.confidence:.1%} confidence)"
                     )
 
-                # Show overlay with recognized text
+                # Show overlay with recognized text (translation disabled)
                 self.show_overlay_window(
                     ocr_response.text,
+                    f"OCR Result (Translation disabled)\n"
                     f"Confidence: {ocr_response.confidence:.1%}\n"
                     f"Engine: {ocr_response.engine_used.value}\n"
                     f"Time: {ocr_response.processing_time:.2f}s"
                 )
 
-                # Pass recognized text to translation service
-                await self._process_translation_async(ocr_response.text, capture_result)
+                # Translation disabled - skip translation processing
+                logger.info("Translation processing skipped (temporarily disabled)")
 
             else:
                 print(f"OCR failed: {ocr_response.error_message}")
