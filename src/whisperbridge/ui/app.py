@@ -52,6 +52,7 @@ class WhisperBridgeApp:
         self.is_running = False
         self.minimize_to_tray = True  # Whether to minimize to tray on close
         self.shutdown_requested = threading.Event()
+        self.pending_callbacks = []
 
     def _get_appearance_mode(self) -> str:
         """Get appearance mode from settings.
@@ -347,7 +348,8 @@ class WhisperBridgeApp:
             ocr_service = get_ocr_service()
             if not ocr_service.is_initialized:
                 logger.warning("OCR service not ready for processing")
-                self.root.after(0, lambda: self._show_ocr_error("OCR service not ready."))
+                callback_id = self.root.after(0, lambda: self._show_ocr_error("OCR service not ready."))
+                self.pending_callbacks.append(callback_id)
                 return
 
             logger.debug("OCR service is ready, creating OCR request")
@@ -397,7 +399,8 @@ class WhisperBridgeApp:
                 
                 # Schedule from timer thread
                 try:
-                    self.root.after(0, show_overlay)
+                    callback_id = self.root.after(0, show_overlay)
+                    self.pending_callbacks.append(callback_id)
                     logger.info("Overlay scheduled from timer thread")
                 except Exception as e:
                     logger.error(f"Failed to schedule overlay from timer: {e}")
@@ -411,7 +414,8 @@ class WhisperBridgeApp:
         except Exception as e:
             logger.error(f"Error in processing: {e}", exc_info=True)
             logger.debug(f"Processing error details: {type(e).__name__}: {str(e)}", exc_info=True)
-            self.root.after(0, lambda: self._show_ocr_error(f"An unexpected error occurred: {e}"))
+            callback_id = self.root.after(0, lambda: self._show_ocr_error(f"An unexpected error occurred: {e}"))
+            self.pending_callbacks.append(callback_id)
 
     async def _handle_capture_result(self, result):
         """Handle the result of screen capture.
@@ -732,9 +736,12 @@ class WhisperBridgeApp:
             if success:
                 # Schedule multiple verification steps at different intervals
                 # to catch transient visibility issues
-                self.root.after(100, lambda: self._verify_overlay_visibility(overlay_id, "initial"))
-                self.root.after(500, lambda: self._verify_overlay_visibility(overlay_id, "medium"))
-                self.root.after(1000, lambda: self._verify_overlay_visibility(overlay_id, "final"))
+                callback_id = self.root.after(100, lambda: self._verify_overlay_visibility(overlay_id, "initial"))
+                self.pending_callbacks.append(callback_id)
+                callback_id = self.root.after(500, lambda: self._verify_overlay_visibility(overlay_id, "medium"))
+                self.pending_callbacks.append(callback_id)
+                callback_id = self.root.after(1000, lambda: self._verify_overlay_visibility(overlay_id, "final"))
+                self.pending_callbacks.append(callback_id)
             else:
                 logger.error(f"Failed to show overlay '{overlay_id}' via service.")
 
@@ -869,6 +876,15 @@ class WhisperBridgeApp:
         if self.overlay_service:
             self.overlay_service.stop()
             self.overlay_service = None
+
+        # Cancel all pending callbacks before destroying windows
+        if hasattr(self, 'root') and self.root:
+            for callback_id in self.pending_callbacks:
+                try:
+                    self.root.after_cancel(callback_id)
+                except Exception as e:
+                    logger.warning(f"Failed to cancel callback {callback_id}: {e}")
+            self.pending_callbacks.clear()
 
         # Close main window
         try:

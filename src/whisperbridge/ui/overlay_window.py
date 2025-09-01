@@ -75,6 +75,7 @@ class OverlayWindow(ctk.CTkToplevel):
         self.fade_in_duration = 200  # ms
         self.fade_out_duration = 200  # ms
         self.animation_steps = 20
+        self.pending_callbacks = []  # Track scheduled callbacks
 
         self.clipboard_service = ClipboardService()
         self.paste_service = PasteService()
@@ -469,12 +470,14 @@ class OverlayWindow(ctk.CTkToplevel):
 
             # Update opacity on main thread - with error handling
             try:
-                self.after(0, self._update_opacity)
+                callback_id = self.after(0, self._update_opacity)
+                self.pending_callbacks.append(callback_id)
                 
                 # Verify opacity was actually applied (log every few steps)
                 if step == 0 or step == self.animation_steps - 1 or step % 5 == 0:
                     # This verification would need to run on the main thread too
-                    self.after(10, lambda s=step: self._verify_opacity_step(s, self.current_opacity))
+                    callback_id = self.after(10, lambda s=step: self._verify_opacity_step(s, self.current_opacity))
+                    self.pending_callbacks.append(callback_id)
                     
             except RuntimeError as e:
                 if "main thread is not in main loop" in str(e):
@@ -495,7 +498,8 @@ class OverlayWindow(ctk.CTkToplevel):
         if callback and not self.is_destroyed:
             logger.debug("Executing animation completion callback")
             try:
-                self.after(0, callback)
+                callback_id = self.after(0, callback)
+                self.pending_callbacks.append(callback_id)
             except RuntimeError as e:
                 if "main thread is not in main loop" in str(e):
                     logger.warning("Callback scheduling failed: main loop not running")
@@ -585,12 +589,22 @@ class OverlayWindow(ctk.CTkToplevel):
             if self.paste_service.paste_text(translated_text):
                 self._show_feedback("Текст вставлен в активное окно")
                 # Close window after successful pasting
-                self.after(500, self._close_window)
+                callback_id = self.after(500, self._close_window)
+                self.pending_callbacks.append(callback_id)
             else:
                 self._show_feedback("Ошибка вставки текста", error=True)
 
         except Exception as e:
             self._show_feedback(f"Ошибка вставки: {str(e)}", error=True)
+
+    def _cancel_pending_callbacks(self):
+        """Cancel all pending callbacks to prevent invalid command errors."""
+        for callback_id in self.pending_callbacks:
+            try:
+                self.after_cancel(callback_id)
+            except Exception as e:
+                logger.warning(f"Failed to cancel callback {callback_id}: {e}")
+        self.pending_callbacks.clear()
 
     def _close_window(self):
         """Close the overlay window with fade out animation."""
@@ -598,6 +612,7 @@ class OverlayWindow(ctk.CTkToplevel):
             return
 
         self._cancel_auto_close_timer()
+        self._cancel_pending_callbacks()
 
         def destroy_window():
             if not self.is_destroyed:
@@ -652,7 +667,8 @@ class OverlayWindow(ctk.CTkToplevel):
             if not has_focus:
                 try:
                     # Use after() to safely close from main thread
-                    self.after(0, self._close_window)
+                    callback_id = self.after(0, self._close_window)
+                    self.pending_callbacks.append(callback_id)
                 except RuntimeError as e:
                     if "main thread is not in main loop" in str(e):
                         logger.debug("Auto-close skipped: main loop not running")
@@ -709,7 +725,8 @@ class OverlayWindow(ctk.CTkToplevel):
             except:
                 pass
         
-        self.after(2000, hide_feedback)
+        callback_id = self.after(2000, hide_feedback)
+        self.pending_callbacks.append(callback_id)
 
 
 if __name__ == "__main__":

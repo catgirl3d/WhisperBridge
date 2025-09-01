@@ -82,6 +82,14 @@ class OverlayService:
         with self.lock:
             self.is_running = False
 
+            # Cancel pending callbacks in all overlays before closing them
+            for overlay_id, instance in self.overlays.items():
+                if instance.window and hasattr(instance.window, '_cancel_pending_callbacks'):
+                    try:
+                        instance.window._cancel_pending_callbacks()
+                    except Exception as e:
+                        logger.warning(f"Failed to cancel callbacks for overlay {overlay_id}: {e}")
+
             # Close all overlays
             for overlay_id in list(self.overlays.keys()):
                 self._close_overlay(overlay_id)

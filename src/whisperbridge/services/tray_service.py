@@ -31,6 +31,7 @@ class TrayService:
         self._is_running = False
         self._status_callbacks: dict = {}
         self._menu_items: dict = {}
+        self.pending_callbacks = []
 
         # Threading
         self._tray_thread: Optional[threading.Thread] = None
@@ -166,7 +167,8 @@ class TrayService:
         if hasattr(self.app, '_on_translate_hotkey'):
             try:
                 # Schedule the translation on the main GUI thread
-                self.app.root.after(0, self.app._on_translate_hotkey)
+                callback_id = self.app.root.after(0, self.app._on_translate_hotkey)
+                self.pending_callbacks.append(callback_id)
                 logger.info("Translation workflow triggered from tray")
             except Exception as e:
                 logger.error(f"Failed to trigger translation from tray: {e}")
@@ -204,7 +206,8 @@ class TrayService:
             try:
                 # Schedule the main application to shut down.
                 # This must be done on the main GUI thread.
-                self.app.root.after(50, self.app.shutdown)
+                callback_id = self.app.root.after(50, self.app.shutdown)
+                self.pending_callbacks.append(callback_id)
             except Exception as e:
                 logger.error(f"Failed to schedule app shutdown from tray: {e}")
                 # As a fallback, try to stop the tray directly
@@ -228,7 +231,8 @@ class TrayService:
         """
         try:
             if hasattr(self.app, 'root') and self.app.root:
-                self.app.root.after(0, self.app.show_main_window)
+                callback_id = self.app.root.after(0, self.app.show_main_window)
+                self.pending_callbacks.append(callback_id)
                 logger.debug("Scheduled main window to be shown from tray")
         except Exception as e:
             logger.error(f"Failed to schedule showing main window: {e}")
@@ -240,7 +244,8 @@ class TrayService:
         """
         try:
             if hasattr(self.app, 'root') and self.app.root:
-                self.app.root.after(0, self.app.hide_main_window)
+                callback_id = self.app.root.after(0, self.app.hide_main_window)
+                self.pending_callbacks.append(callback_id)
                 logger.debug("Scheduled main window to be hidden from tray")
         except Exception as e:
             logger.error(f"Failed to schedule hiding main window: {e}")
@@ -284,20 +289,26 @@ class TrayService:
             logger.error(f"Failed to update status icon: {e}")
 
     def shutdown(self):
-        """
-        Shutdown the tray service gracefully.
-        This method should be called from the main thread as part of the
-        application's shutdown sequence.
-        """
+        """Shutdown the tray service and cancel pending callbacks."""
+        # Cancel all pending callbacks
+        if hasattr(self.app, 'root') and self.app.root:
+            for callback_id in self.pending_callbacks:
+                try:
+                    self.app.root.after_cancel(callback_id)
+                except Exception as e:
+                    # Log the error but continue with shutdown
+                    logger.warning(f"Failed to cancel callback {callback_id}: {e}")
+            self.pending_callbacks.clear()
+
         logger.info("Shutting down tray service...")
         self._is_running = False
-    
+
         if self.tray_icon:
             try:
                 self.tray_icon.stop()
             except Exception as e:
                 logger.error(f"Error stopping tray icon: {e}")
-    
+
         # The thread is a daemon, so it will exit with the main application.
         # No need to join it here, especially since this can be called from the
         # tray thread itself.

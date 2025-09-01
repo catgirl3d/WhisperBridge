@@ -3,6 +3,7 @@ tasks/
 temp/
 .roo/
 .rooignore
+.kiloignore
 AGENTS.md
 .toml
 
