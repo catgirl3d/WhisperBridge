@@ -80,7 +80,8 @@ class Settings(BaseSettings):
     model_config = ConfigDict(
         env_file=".env",
         case_sensitive=False,
-        validate_assignment=True
+        validate_assignment=True,
+        extra='ignore'
     )
 
     @field_validator('source_language', 'target_language')

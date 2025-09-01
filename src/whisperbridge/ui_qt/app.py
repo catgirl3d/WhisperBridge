@@ -7,12 +7,13 @@ import sys
 import threading
 from typing import Optional, Dict, Any
 from PySide6.QtWidgets import QApplication
-from PySide6.QtCore import QTimer, Qt
+from PySide6.QtCore import QTimer, Qt, QObject, Signal, Slot
 from PySide6.QtGui import QPalette, QColor
 
 from .main_window import MainWindow
 from .overlay_window import OverlayWindow
 from .tray import TrayManager
+from .selection_overlay import SelectionOverlayQt
 from ..core.config import settings
 from ..services.hotkey_service import HotkeyService
 from ..services.overlay_service import init_overlay_service, get_overlay_service
@@ -20,14 +21,24 @@ from ..core.keyboard_manager import KeyboardManager
 from ..services.ocr_service import get_ocr_service, OCRRequest
 from ..services.translation_service import get_translation_service
 from ..core.api_manager import init_api_manager
+from ..utils.screen_utils import Rectangle
+from ..services.screen_capture_service import get_capture_service
 from loguru import logger
 
 
-class QtApp:
+class OcrWorker(QObject):
+    """Worker to handle OCR results and signal completion."""
+    finished = Signal(str)
+
+    def process_and_emit(self, text):
+        self.finished.emit(text)
+
+class QtApp(QObject):
     """Qt-based application class with compatible interface."""
 
     def __init__(self):
         """Initialize the Qt application."""
+        super().__init__()
         self.qt_app = QApplication.instance()
         if self.qt_app is None:
             self.qt_app = QApplication(sys.argv)
@@ -40,6 +51,7 @@ class QtApp:
         # Window instances
         self.main_window: Optional[MainWindow] = None
         self.overlay_windows: Dict[str, OverlayWindow] = {}
+        self.selection_overlay: Optional[SelectionOverlayQt] = None
 
         # Services
         self.tray_manager: Optional[TrayManager] = None
@@ -111,6 +123,11 @@ class QtApp:
             # Initialize overlay service
             self._initialize_overlay_service()
 
+            # Create selection overlay
+            self.selection_overlay = SelectionOverlayQt()
+            self.selection_overlay.selectionCompleted.connect(self._on_selection_completed)
+            self.selection_overlay.selectionCanceled.connect(self._on_selection_canceled)
+
             # Create tray manager and connect signals
             self._create_tray_manager()
 
@@ -123,6 +140,10 @@ class QtApp:
 
             # Initialize OCR service
             self._initialize_ocr_service()
+
+            # Create OCR worker
+            self.ocr_worker = OcrWorker()
+            self.ocr_worker.finished.connect(self._show_ocr_result)
 
             # Initialize translation service
             self._initialize_translation_service()
@@ -177,7 +198,8 @@ class QtApp:
                 on_show_main_window=self.show_main_window,
                 on_toggle_overlay=self.toggle_overlay,
                 on_open_settings=self.open_settings,
-                on_exit_app=self.exit_app
+                on_exit_app=self.exit_app,
+                on_activate_ocr=self.activate_ocr
             )
             if not self.tray_manager.create():
                 logger.warning("Failed to initialize system tray")
@@ -430,6 +452,145 @@ class QtApp:
                 "Application activated"
             )
             logger.debug("Tray notification shown for application activation")
+
+    def activate_ocr(self):
+        """Activate OCR selection overlay."""
+        logger.info("Activating OCR selection overlay")
+        if self.selection_overlay:
+            self.selection_overlay.start()
+        else:
+            logger.error("Selection overlay not initialized")
+            if self.tray_manager:
+                self.tray_manager.show_notification(
+                    "WhisperBridge",
+                    "OCR selection overlay not available"
+                )
+
+    def _on_selection_completed(self, rect):
+        """Handle selection completion."""
+        logger.info(f"Selection completed: {rect}")
+        try:
+            # Convert logical coordinates to absolute pixels
+            x, y, width, height = self._convert_rect_to_pixels(rect)
+            logger.debug(f"Converted to pixels: x={x}, y={y}, w={width}, h={height}")
+
+            # Run capture and OCR in background thread
+            thread = threading.Thread(target=self._process_selection, args=(x, y, width, height))
+            thread.daemon = True
+            thread.start()
+        except Exception as e:
+            logger.error(f"Error processing selection: {e}")
+            if self.tray_manager:
+                self.tray_manager.show_notification(
+                    "WhisperBridge",
+                    f"Error processing selection: {e}"
+                )
+
+    def _on_selection_canceled(self):
+        """Handle selection cancellation."""
+        logger.info("Selection canceled")
+        if self.tray_manager:
+            self.tray_manager.show_notification(
+                "WhisperBridge",
+                "Отменено"
+            )
+
+    def _convert_rect_to_pixels(self, rect):
+        """Convert QRect logical coordinates to absolute pixels."""
+        # Use screen_utils to handle DPI
+        logical_x = rect.x()
+        logical_y = rect.y()
+        logical_width = rect.width()
+        logical_height = rect.height()
+
+        # Get the screen for this rectangle (assume single screen for MVP)
+        screen = self.qt_app.screenAt(rect.center())
+        if screen:
+            dpr = screen.devicePixelRatio()
+            # Convert to pixels
+            pixel_x = int(logical_x * dpr)
+            pixel_y = int(logical_y * dpr)
+            pixel_width = int(logical_width * dpr)
+            pixel_height = int(logical_height * dpr)
+            return pixel_x, pixel_y, pixel_width, pixel_height
+        else:
+            # Fallback: assume 1.0 DPR
+            return logical_x, logical_y, logical_width, logical_height
+
+    def _process_selection(self, x, y, width, height):
+        """Process the selected area: capture and OCR."""
+        try:
+            logger.info("Starting capture and OCR processing")
+
+            # Get screen capture service
+            capture_service = get_capture_service()
+
+            # Capture the selected area
+            rect = Rectangle(x, y, width, height)
+            capture_result = capture_service.capture_area(rect)
+            if not capture_result.success or capture_result.image is None:
+                logger.error("Failed to capture screen area")
+                QTimer.singleShot(0, lambda: self._show_error("Failed to capture screen area"))
+                return
+
+            image = capture_result.image
+            if image is None:
+                logger.error("Failed to capture screen area")
+                QTimer.singleShot(0, lambda: self._show_error("Failed to capture screen area"))
+                return
+
+            logger.info("Screen capture successful")
+
+            # Get OCR service
+            ocr_service = get_ocr_service()
+            if not ocr_service.is_initialized:
+                logger.warning("OCR service not ready")
+                QTimer.singleShot(0, lambda: self._show_error("OCR service not ready"))
+                return
+
+            # Process OCR
+            ocr_request = OCRRequest(
+                image=image,
+                languages=settings.ocr_languages,
+                preprocess=True,
+                use_cache=True
+            )
+            ocr_response = ocr_service.process_image(ocr_request)
+
+            logger.info(f"OCR processing result: success={ocr_response.success}, text_length={len(ocr_response.text)}")
+
+            if ocr_response.success:
+                # Show overlay with OCR text
+                self.ocr_worker.process_and_emit(ocr_response.text)
+            else:
+                logger.error("OCR processing failed")
+                QTimer.singleShot(0, lambda: self._show_error("OCR processing failed"))
+
+        except Exception as e:
+            logger.error(f"Error in _process_selection: {e}")
+            QTimer.singleShot(0, lambda: self._show_error(f"Processing error: {e}"))
+
+    @Slot(str)
+    def _show_ocr_result(self, text):
+        """Show OCR result in overlay window."""
+        try:
+            # Get or create overlay window
+            if "ocr" not in self.overlay_windows:
+                self.overlay_windows["ocr"] = OverlayWindow()
+
+            overlay = self.overlay_windows["ocr"]
+            overlay.show_result(text)
+        except Exception as e:
+            logger.error(f"Error showing OCR result: {e}", exc_info=True)
+
+    def _show_error(self, message):
+        """Show error notification."""
+        logger.error(f"Showing error: {message}")
+        if self.tray_manager:
+            self.tray_manager.show_notification(
+                "WhisperBridge",
+                f"Error: {message}"
+            )
 
     def show_main_window(self):
         """Show the main settings window."""

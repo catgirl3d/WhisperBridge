@@ -11,7 +11,6 @@ import io
 from typing import Optional, Tuple, Dict, Any
 from pathlib import Path
 from PIL import Image, ImageDraw
-import pkg_resources
 
 from loguru import logger
 

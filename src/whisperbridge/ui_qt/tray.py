@@ -16,7 +16,7 @@ class TrayManager(QObject):
     """Manager for system tray functionality."""
 
     def __init__(self, on_show_main_window: Callable, on_toggle_overlay: Callable,
-                 on_open_settings: Callable, on_exit_app: Callable):
+                 on_open_settings: Callable, on_exit_app: Callable, on_activate_ocr: Callable):
         """
         Initialize the tray manager.
 
@@ -25,6 +25,7 @@ class TrayManager(QObject):
             on_toggle_overlay: Callback for toggling overlay
             on_open_settings: Callback for opening settings
             on_exit_app: Callback for exiting application
+            on_activate_ocr: Callback for activating OCR
         """
         super().__init__()
 
@@ -32,6 +33,7 @@ class TrayManager(QObject):
         self.on_toggle_overlay = on_toggle_overlay
         self.on_open_settings = on_open_settings
         self.on_exit_app = on_exit_app
+        self.on_activate_ocr = on_activate_ocr
 
         self.tray_icon: Optional[QSystemTrayIcon] = None
         self.tray_menu: Optional[QMenu] = None
@@ -141,6 +143,11 @@ class TrayManager(QObject):
             settings_action.triggered.connect(self._on_open_settings)
             self.tray_menu.addAction(settings_action)
 
+            # Activate OCR action
+            activate_ocr_action = QAction("Активировать OCR", self)
+            activate_ocr_action.triggered.connect(self._on_activate_ocr)
+            self.tray_menu.addAction(activate_ocr_action)
+
             self.tray_menu.addSeparator()
 
             # Exit action
@@ -190,6 +197,15 @@ class TrayManager(QObject):
                 self.on_open_settings()
         except Exception as e:
             logger.error(f"Error opening settings from tray: {e}")
+
+    def _on_activate_ocr(self):
+        """Handle activate OCR action."""
+        try:
+            logger.info("Tray: Activate OCR requested")
+            if self.on_activate_ocr:
+                self.on_activate_ocr()
+        except Exception as e:
+            logger.error(f"Error activating OCR from tray: {e}")
 
     def _on_exit_app(self):
         """Handle exit application action."""

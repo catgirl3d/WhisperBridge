@@ -200,6 +200,15 @@ class OverlayWindow(QWidget):
         self.activateWindow()
         logger.debug("Overlay window shown and activated")
 
+    def show_result(self, original_text: str, translated_text: str | None = None):
+        """Show the overlay with OCR result.
+
+        Args:
+            original_text: OCR text to display
+            translated_text: Translated text to display (optional)
+        """
+        self.show_overlay(original_text, translated_text or "")
+
     def hide_overlay(self):
         """Hide the overlay window."""
         logger.info("Hiding overlay window")

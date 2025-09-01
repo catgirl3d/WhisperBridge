@@ -10,18 +10,37 @@ from .main_window import MainWindow
 from .overlay_window import OverlayWindow
 from .app import WhisperBridgeApp, get_app, init_app
 
-# Import Qt implementation
+# Import Qt implementation with granular availability checks
+_qt_available = False
+_qt_app_import_ok = False
+QtApp = None
+get_qt_app = None
+init_qt_app = None
+
+# Step 1: Check if PySide6 is available
 try:
-    # First check if PySide6 is available
     import PySide6
-    from ..ui_qt import QtApp
-    from ..ui_qt.app import get_qt_app, init_qt_app
     _qt_available = True
 except ImportError:
     _qt_available = False
-    QtApp = None
-    get_qt_app = None
-    init_qt_app = None
+
+# Step 2: Try Qt app imports only if PySide6 is available
+if _qt_available:
+    try:
+        from ..ui_qt import QtApp
+        _qt_app_import_ok = True
+    except ImportError:
+        _qt_app_import_ok = False
+        QtApp = None
+
+    # Step 3: Try Qt app functions import only if QtApp succeeded
+    if _qt_app_import_ok:
+        try:
+            from ..ui_qt.app import get_qt_app, init_qt_app
+        except ImportError:
+            get_qt_app = None
+            init_qt_app = None
+            _qt_app_import_ok = False
 
 
 def _get_ui_backend():
@@ -37,6 +56,8 @@ def get_app_class():
     if backend == 'qt':
         if not _qt_available:
             raise ImportError("Qt UI backend requested but PySide6 is not available")
+        if not _qt_app_import_ok:
+            raise ImportError("Qt UI backend requested but Qt application imports failed (PySide6 is available)")
         return QtApp
     else:
         # Default to CTK
@@ -50,6 +71,8 @@ def get_app_instance():
     if backend == 'qt':
         if not _qt_available:
             raise ImportError("Qt UI backend requested but PySide6 is not available")
+        if not _qt_app_import_ok:
+            raise ImportError("Qt UI backend requested but Qt application imports failed (PySide6 is available)")
         return get_qt_app()
     else:
         # Default to CTK
@@ -63,6 +86,8 @@ def init_app():
     if backend == 'qt':
         if not _qt_available:
             raise ImportError("Qt UI backend requested but PySide6 is not available")
+        if not _qt_app_import_ok:
+            raise ImportError("Qt UI backend requested but Qt application imports failed (PySide6 is available)")
         return init_qt_app()
     else:
         # Default to CTK - import here to avoid circular imports

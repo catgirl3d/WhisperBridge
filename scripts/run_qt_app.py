@@ -3,12 +3,12 @@
 Small launcher to start WhisperBridge with the Qt UI backend.
 
 Usage (PowerShell):
-  PS> cd C:\git\WhisperBridge
-  PS> python .\scripts\run_qt_app.py
+  PS> cd C:\\git\\WhisperBridge
+  PS> python .\\scripts\\run_qt_app.py
 
 Usage (cmd):
-  C:\> cd /d C:\git\WhisperBridge
-  C:\> python scripts\run_qt_app.py
+  C:\\> cd /d C:\\git\\WhisperBridge
+  C:\\> python scripts\\run_qt_app.py
 
 This script sets UI_BACKEND=qt and invokes the application's entry point.
 It runs the async main() properly via asyncio.run and prints helpful diagnostics.
