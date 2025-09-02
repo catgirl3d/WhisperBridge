@@ -4,10 +4,10 @@ Provides compatible interface with the existing CTK-based application.
 """
 
 import sys
-import threading
 from typing import Optional, Dict, Any
+import time
 from PySide6.QtWidgets import QApplication
-from PySide6.QtCore import QTimer, Qt, QObject, Signal, Slot
+from PySide6.QtCore import Qt, QObject, Signal, Slot, QThread
 from PySide6.QtGui import QPalette, QColor
 
 from .main_window import MainWindow
@@ -26,12 +26,107 @@ from ..services.screen_capture_service import get_capture_service
 from loguru import logger
 
 
-class OcrWorker(QObject):
-    """Worker to handle OCR results and signal completion."""
-    finished = Signal(str)
+class CaptureOcrTranslateWorker(QObject):
+    """Worker for synchronous capture, OCR, and optional translation."""
+    started = Signal()
+    progress = Signal(str)
+    ocr_finished = Signal(str)
+    finished = Signal(str, str, str)
+    error = Signal(str)
+
+    def __init__(self, region=None, image=None, capture_options=None):
+        super().__init__()
+        self.region = region
+        self.image = image
+        self.capture_options = capture_options or {}
+        self._cancel_requested = False
+
+    def request_cancel(self):
+        self._cancel_requested = True
+
+    def run(self):
+        logger.info("CaptureOcrTranslateWorker run started")
+        
+        try:
+            self.started.emit()
+            
+            image_to_process = None
+
+            if self.image is not None:
+                logger.debug("Processing pre-captured image")
+                image_to_process = self.image
+            elif self.region is not None:
+                logger.debug("Starting synchronous capture for region")
+                capture_service = get_capture_service()
+                capture_result = capture_service.capture_area(self.region)
+
+                if not capture_result.success or capture_result.image is None:
+                    logger.error("Capture failed")
+                    self.error.emit("Capture failed")
+                    return
+                
+                image_to_process = capture_result.image
+                self.progress.emit("Capture completed, starting OCR")
+            else:
+                self.error.emit("No image or region provided")
+                return
+
+            if self._cancel_requested:
+                return
+
+            # OCR
+            ocr_service = get_ocr_service()
+            if not ocr_service.is_initialized:
+                self.error.emit("OCR service not initialized")
+                return
+
+            logger.debug("Starting OCR")
+            ocr_request = OCRRequest(
+                image=image_to_process,
+                languages=settings.ocr_languages,
+                preprocess=True,
+                use_cache=True
+            )
+            ocr_response = ocr_service.process_image(ocr_request)
+
+            if self._cancel_requested:
+                return
+
+            original_text = ocr_response.text
+
+            self.progress.emit("OCR completed, checking translation")
+
+            # Translation
+            translated_text = ""
+            try:
+                if settings.openai_api_key:
+                    translation_service = get_translation_service()
+                    translated_text = translation_service.translate(original_text)
+                    logger.debug("Translation completed")
+                else:
+                    logger.debug("No API key, skipping translation")
+            except Exception as e:
+                logger.warning(f"Translation failed, using empty: {e}")
+
+            overlay_id = f"ocr_{int(time.time() * 1000)}"
+
+            if self._cancel_requested:
+                return
+
+            self.progress.emit("Processing completed")
+            self.ocr_finished.emit(original_text)
+            self.finished.emit(original_text, translated_text, overlay_id)
+
+            logger.info("CaptureOcrTranslateWorker run completed successfully")
+
+        except Exception as e:
+            logger.error(f"Error in worker run: {e}", exc_info=True)
+            self.error.emit(str(e))
 
     def process_and_emit(self, text):
-        self.finished.emit(text)
+        """Backward compatibility method for existing callers in _process_selection."""
+        self.ocr_finished.emit(text)
+        self.finished.emit(text, "", "")
 
 class QtApp(QObject):
     """Qt-based application class with compatible interface."""
@@ -52,6 +147,7 @@ class QtApp(QObject):
         self.main_window: Optional[MainWindow] = None
         self.overlay_windows: Dict[str, OverlayWindow] = {}
         self.selection_overlay: Optional[SelectionOverlayQt] = None
+        self._worker_threads: list = []  # Holds (thread, worker) pairs to prevent garbage collection
 
         # Services
         self.tray_manager: Optional[TrayManager] = None
@@ -62,7 +158,7 @@ class QtApp(QObject):
         # Application state
         self.is_running = False
         self.minimize_to_tray = True
-        self.shutdown_requested = threading.Event()
+        self.shutdown_requested = False
 
         # Theme settings
         self._current_theme = self._get_theme_from_settings()
@@ -140,11 +236,7 @@ class QtApp(QObject):
 
             # Initialize OCR service
             self._initialize_ocr_service()
-
-            # Create OCR worker
-            self.ocr_worker = OcrWorker()
-            self.ocr_worker.finished.connect(self._show_ocr_result)
-
+            
             # Initialize translation service
             self._initialize_translation_service()
 
@@ -314,9 +406,7 @@ class QtApp(QObject):
         logger.debug(f"OCR service initialized: {ocr_service.is_initialized}, initializing: {ocr_service.is_initializing}")
 
         # Run the capture and processing in a separate thread to avoid blocking the UI
-        thread = threading.Thread(target=self._capture_and_process)
-        thread.daemon = True
-        thread.start()
+        self._capture_and_process()
 
     def _capture_and_process(self):
         """Capture screen area and process it."""
@@ -343,73 +433,50 @@ class QtApp(QObject):
                     return
 
                 logger.info(f"Image captured and saved to: {result.file_path}")
+                logger.info("Creating CaptureOcrTranslateWorker with pre-captured image")
 
-                # Now, process the OCR and translation
-                self._process_ocr_and_translate(result)
+                # Create worker with pre-captured image
+                worker = CaptureOcrTranslateWorker(image=result.image)
+                thread = QThread()
+                logger.info("Moving worker to QThread")
+                worker.moveToThread(thread)
+
+                # Add info/debug logging for worker signals with named slots
+                def on_worker_started():
+                    logger.info("Worker started successfully")
+
+                def on_worker_progress(msg):
+                    logger.info(f"Worker progress: {msg}")
+
+                def on_worker_error(msg):
+                    logger.error(f"Worker error: {msg}")
+
+                worker.started.connect(on_worker_started)
+                worker.progress.connect(on_worker_progress)
+                worker.error.connect(on_worker_error)
+
+                logger.info("Connecting worker.run to thread.started and starting thread")
+                thread.started.connect(worker.run)
+
+                # Ensure UI actions are executed on the main thread via Qt slots on self
+                worker.finished.connect(self._handle_worker_finished)
+                worker.error.connect(self._show_ocr_error)
+
+                # Resource management - mirror the selection path
+                worker.finished.connect(thread.quit)
+                worker.finished.connect(worker.deleteLater)
+                thread.finished.connect(thread.deleteLater)
+                
+                # Store (thread, worker) in self._worker_threads for lifecycle tracking
+                self._worker_threads.append((thread, worker))
+                logger.info(f"QThread starting and worker-thread pair stored in self._worker_threads (count: {len(self._worker_threads)})")
+                
+                thread.start()
 
             finally:
                 self.update_tray_status(is_active=False)
 
         capture_area_interactive(on_capture_complete, options=capture_options)
-
-    def _process_ocr_and_translate(self, capture_result):
-        """Process OCR and translation."""
-        logger.info("Starting OCR and translation processing")
-        logger.debug(f"Capture result: success={capture_result.success}, image_size={capture_result.image.size if capture_result.image else None}")
-
-        try:
-            ocr_service = get_ocr_service()
-            if not ocr_service.is_initialized:
-                logger.warning("OCR service not ready for processing")
-                # Schedule error display on main thread
-                QTimer.singleShot(0, lambda: self._show_ocr_error("OCR service not ready."))
-                return
-
-            logger.debug("OCR service is ready, creating OCR request")
-            ocr_request = OCRRequest(
-                image=capture_result.image,
-                languages=settings.ocr_languages,
-                preprocess=True,
-                use_cache=True
-            )
-            logger.debug(f"OCR request: languages={ocr_request.languages}, preprocess={ocr_request.preprocess}")
-
-            ocr_response = ocr_service.process_image(ocr_request)
-            logger.info(f"OCR processing result: success={ocr_response.success}, confidence={ocr_response.confidence:.3f}, text_length={len(ocr_response.text)}")
-            logger.debug(f"OCR raw text: '{ocr_response.text}'")
-
-            logger.info("OCR successful, showing overlay with OCR text only (translation disabled)")
-            # Show overlay with OCR text only, no translation
-
-            # Use unique overlay_id for each OCR result to avoid conflicts
-            import time
-            unique_overlay_id = f"ocr_{int(time.time() * 1000)}"
-            logger.info(f"Using unique overlay ID: {unique_overlay_id}")
-
-            # Store OCR data for the callback
-            ocr_text = ocr_response.text
-            ocr_info = f"OCR Result (Translation disabled)\nConfidence: {ocr_response.confidence:.1%}\nEngine: {ocr_response.engine_used.value}"
-
-            def show_overlay():
-                logger.info("About to call show_overlay_window from timer -> main thread")
-                try:
-                    self.show_overlay_window(
-                        ocr_text,
-                        ocr_info,
-                        overlay_id=unique_overlay_id
-                    )
-                    logger.info("show_overlay_window call completed from timer -> main thread")
-                except Exception as e:
-                    logger.error(f"Error in show_overlay callback: {e}", exc_info=True)
-
-            # Schedule overlay display on main thread
-            QTimer.singleShot(100, show_overlay)
-            logger.info("Overlay scheduled for display")
-
-        except Exception as e:
-            logger.error(f"Error in processing: {e}", exc_info=True)
-            logger.debug(f"Processing error details: {type(e).__name__}: {str(e)}", exc_info=True)
-            QTimer.singleShot(0, lambda: self._show_ocr_error(f"An unexpected error occurred: {e}"))
 
     def _show_capture_error(self, message: str):
         """Show capture error notification."""
@@ -472,12 +539,43 @@ class QtApp(QObject):
         try:
             # Convert logical coordinates to absolute pixels
             x, y, width, height = self._convert_rect_to_pixels(rect)
-            logger.debug(f"Converted to pixels: x={x}, y={y}, w={width}, h={height}")
+            logger.info(f"Converted to pixels: x={x}, y={y}, w={width}, h={height}")
 
             # Run capture and OCR in background thread
-            thread = threading.Thread(target=self._process_selection, args=(x, y, width, height))
-            thread.daemon = True
+            region = Rectangle(x, y, width, height)
+            logger.info(f"Creating CaptureOcrTranslateWorker with region: {region}")
+            worker = CaptureOcrTranslateWorker(region=region)
+            thread = QThread()
+            logger.info("Moving worker to QThread")
+            worker.moveToThread(thread)
+
+            # Add info/debug logging for worker signals with named slots
+            def on_worker_started():
+                logger.info("Worker started successfully")
+
+            def on_worker_progress(msg):
+                logger.info(f"Worker progress: {msg}")
+
+            def on_worker_error(msg):
+                logger.error(f"Worker error: {msg}")
+
+            worker.started.connect(on_worker_started)
+            worker.progress.connect(on_worker_progress)
+            worker.error.connect(on_worker_error)
+
+            logger.info("Connecting worker.run to thread.started and starting thread")
+            thread.started.connect(worker.run)
+
+            # Ensure UI actions are executed on the main thread via a Qt slot on self
+            worker.finished.connect(self._handle_worker_finished)
+            worker.error.connect(self._show_ocr_error)
+
+            worker.finished.connect(thread.quit)
+            worker.finished.connect(worker.deleteLater)
+            thread.finished.connect(thread.deleteLater)
             thread.start()
+            self._worker_threads.append((thread, worker))  # Store both to prevent GC
+            logger.info(f"QThread started and worker-thread pair stored in self._worker_threads (count: {len(self._worker_threads)})")
         except Exception as e:
             logger.error(f"Error processing selection: {e}")
             if self.tray_manager:
@@ -517,71 +615,20 @@ class QtApp(QObject):
             # Fallback: assume 1.0 DPR
             return logical_x, logical_y, logical_width, logical_height
 
-    def _process_selection(self, x, y, width, height):
-        """Process the selected area: capture and OCR."""
+    @Slot(str, str, str)
+    def _handle_worker_finished(self, original_text: str, translated_text: str, overlay_id: str):
+        """Slot to handle worker finished signal — guaranteed to run in QtApp (main) thread.
+
+        Use a canonical overlay id for OCR results to avoid creating duplicate windows.
+        """
         try:
-            logger.info("Starting capture and OCR processing")
-
-            # Get screen capture service
-            capture_service = get_capture_service()
-
-            # Capture the selected area
-            rect = Rectangle(x, y, width, height)
-            capture_result = capture_service.capture_area(rect)
-            if not capture_result.success or capture_result.image is None:
-                logger.error("Failed to capture screen area")
-                QTimer.singleShot(0, lambda: self._show_error("Failed to capture screen area"))
-                return
-
-            image = capture_result.image
-            if image is None:
-                logger.error("Failed to capture screen area")
-                QTimer.singleShot(0, lambda: self._show_error("Failed to capture screen area"))
-                return
-
-            logger.info("Screen capture successful")
-
-            # Get OCR service
-            ocr_service = get_ocr_service()
-            if not ocr_service.is_initialized:
-                logger.warning("OCR service not ready")
-                QTimer.singleShot(0, lambda: self._show_error("OCR service not ready"))
-                return
-
-            # Process OCR
-            ocr_request = OCRRequest(
-                image=image,
-                languages=settings.ocr_languages,
-                preprocess=True,
-                use_cache=True
-            )
-            ocr_response = ocr_service.process_image(ocr_request)
-
-            logger.info(f"OCR processing result: success={ocr_response.success}, text_length={len(ocr_response.text)}")
-
-            if ocr_response.success:
-                # Show overlay with OCR text
-                self.ocr_worker.process_and_emit(ocr_response.text)
-            else:
-                logger.error("OCR processing failed")
-                QTimer.singleShot(0, lambda: self._show_error("OCR processing failed"))
-
+            logger.info("Worker finished slot invoked in main thread")
+            # Normalize to a single OCR overlay to avoid duplicates shown by other legacy slots
+            canonical_overlay_id = "ocr"
+            self.show_overlay_window(original_text, translated_text, overlay_id=canonical_overlay_id)
         except Exception as e:
-            logger.error(f"Error in _process_selection: {e}")
-            QTimer.singleShot(0, lambda: self._show_error(f"Processing error: {e}"))
+            logger.error(f"Error in _handle_worker_finished slot: {e}", exc_info=True)
 
-    @Slot(str)
-    def _show_ocr_result(self, text):
-        """Show OCR result in overlay window."""
-        try:
-            # Get or create overlay window
-            if "ocr" not in self.overlay_windows:
-                self.overlay_windows["ocr"] = OverlayWindow()
-
-            overlay = self.overlay_windows["ocr"]
-            overlay.show_result(text)
-        except Exception as e:
-            logger.error(f"Error showing OCR result: {e}", exc_info=True)
 
     def _show_error(self, message):
         """Show error notification."""
@@ -730,9 +777,9 @@ class QtApp(QObject):
 
     def shutdown(self):
         """Shutdown the application gracefully."""
-        if self.shutdown_requested.is_set():
+        if self.shutdown_requested:
             return
-        self.shutdown_requested.set()
+        self.shutdown_requested = True
 
         print("Shutting down Qt-based WhisperBridge...")
 
