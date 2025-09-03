@@ -31,7 +31,6 @@ classifiers = [
     "Topic :: Text Processing :: Linguistic",
 ]
 dependencies = [
-    "customtkinter>=5.2.0",
     "pynput>=1.7.6",
     "pystray>=0.19.4",
     "pillow>=10.0.0",
@@ -118,7 +117,7 @@ profile = "black"
 multi_line_output = 3
 line_length = 88
 known_first_party = ["whisperbridge"]
-known_third_party = ["customtkinter", "PIL", "pynput", "pystray", "mss", "easyocr", "openai", "httpx", "tenacity", "pydantic", "keyring", "appdirs", "loguru", "click"]
+known_third_party = ["PIL", "pynput", "pystray", "mss", "easyocr", "openai", "httpx", "tenacity", "pydantic", "keyring", "appdirs", "loguru", "click"]
 
 [tool.mypy]
 python_version = "3.8"
@@ -138,7 +137,6 @@ show_error_codes = true
 
 [[tool.mypy.overrides]]
 module = [
-    "customtkinter.*",
     "pynput.*",
     "pystray.*",
     "mss.*",

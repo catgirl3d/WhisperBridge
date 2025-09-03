@@ -150,6 +150,70 @@ class OverlayWindow(QWidget):
                 background-color: #e8e8e8;
             }
         """)
+        # Lifecycle helpers expected by overlay service
+        # Public flag used by services to determine if window was destroyed
+        self.is_destroyed = False
+        # Hold pending timers/callbacks so we can cancel them if requested
+        self._pending_timers: list[QTimer] = []
+
+    def show_loading(self, position: tuple | None = None):
+        """Show a minimal loading state at an optional absolute position."""
+        try:
+            logger.info("OverlayWindow: show_loading() called")
+            if position:
+                try:
+                    x, y = position
+                    self.move(x, y)
+                except Exception:
+                    logger.debug("Failed to position loading overlay")
+            # Simple loading placeholder: replace original text with 'Loading...'
+            try:
+                self.original_text.setPlainText("Загрузка...")
+            except Exception:
+                pass
+            self.show()
+            self.raise_()
+            self.activateWindow()
+            logger.debug("Loading overlay shown")
+        except Exception as e:
+            logger.error(f"Error in show_loading: {e}")
+
+    def _close_window(self):
+        """Close/hide the widget and mark as destroyed for services."""
+        try:
+            logger.info("OverlayWindow: _close_window called — hiding and marking destroyed")
+            # Cancel any pending callbacks/timers
+            self._cancel_pending_callbacks()
+            # Hide the widget instead of closing the app
+            try:
+                self.hide()
+            except Exception:
+                pass
+            # Mark destroyed so services won't reuse it
+            self.is_destroyed = True
+        except Exception as e:
+            logger.error(f"Error during _close_window: {e}")
+
+    def _cancel_pending_callbacks(self):
+        """Cancel any pending QTimer callbacks — no-op if none."""
+        try:
+            for t in list(self._pending_timers):
+                try:
+                    t.stop()
+                except Exception:
+                    pass
+            self._pending_timers.clear()
+            logger.debug("Cancelled pending overlay timers/callbacks")
+        except Exception as e:
+            logger.warning(f"Error cancelling pending callbacks: {e}")
+
+    def geometry_string(self) -> str:
+        """Return a geometry string similar to Tkinter 'WxH+X+Y' for logs."""
+        try:
+            g = self.geometry()
+            return f"{g.width()}x{g.height()}+{g.x()}+{g.y()}"
+        except Exception:
+            return "0x0+0+0"
 
     def keyPressEvent(self, event: QKeyEvent):
         """Handle key press events."""

@@ -50,7 +50,10 @@ class Settings(BaseSettings):
     ocr_timeout: int = Field(default=10, description="OCR timeout in seconds")
 
     # UI Settings
-    ui_backend: Literal["ctk", "qt"] = Field(default="ctk", description="UI backend framework")
+    ui_backend: Literal['qt'] = Field(
+        default='qt',
+        description="Deprecated: UI backend is fixed to Qt ('qt') and will be removed in a future release"
+    )
     theme: str = Field(default="light", description="UI theme")
     overlay_position: str = Field(default="cursor", description="Overlay position")
     overlay_timeout: int = Field(default=10, description="Overlay timeout in seconds")
@@ -111,14 +114,13 @@ class Settings(BaseSettings):
             raise ValueError(f'Invalid API provider: {v}. Must be one of {valid_providers}')
         return v
 
-    @field_validator('ui_backend')
+    @field_validator('ui_backend', mode='before')
     @classmethod
-    def validate_ui_backend(cls, v: str) -> str:
-        """Validate UI backend."""
-        valid_backends = ['ctk', 'qt']
-        if v not in valid_backends:
-            raise ValueError(f'Invalid UI backend: {v}. Must be one of {valid_backends}')
-        return v
+    def force_qt_backend(cls, v: Any) -> str:
+        """Deprecated: coerce any value to 'qt' to ensure Qt-only UI."""
+        if v != 'qt':
+            logger.warning(f"ui_backend is deprecated and fixed to 'qt'; ignoring value: {v!r}")
+        return 'qt'
 
     @field_validator('log_level')
     @classmethod

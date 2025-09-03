@@ -68,7 +68,7 @@ class SettingsManager:
         logger.info("Migrating settings from version 1.2.1")
 
         # Add UI backend field
-        data.setdefault('ui_backend', 'ctk')
+        data.setdefault('ui_backend', 'qt')
 
         return data
 

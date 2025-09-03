@@ -16,7 +16,7 @@ from .tray import TrayManager
 from .selection_overlay import SelectionOverlayQt
 from .settings_dialog import SettingsDialog
 from ..services.hotkey_service import HotkeyService
-from ..services.overlay_service import init_overlay_service, get_overlay_service
+from ..services.overlay_service_qt import init_overlay_service, get_overlay_service
 from ..core.keyboard_manager import KeyboardManager
 from ..services.ocr_service import get_ocr_service, OCRRequest
 from ..services.translation_service import get_translation_service

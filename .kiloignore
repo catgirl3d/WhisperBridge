@@ -4,7 +4,6 @@ temp/
 tests/
 .roo/
 .rooignore
-.kiloignore
 AGENTS.md
 .toml
 

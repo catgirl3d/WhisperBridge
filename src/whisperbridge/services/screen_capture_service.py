@@ -23,7 +23,7 @@ except ImportError:
 
 from loguru import logger
 from ..utils.screen_utils import ScreenUtils, Rectangle, Point, MonitorInfo
-from ..ui.selection_overlay import start_screen_selection, SelectionResult
+
 
 
 @dataclass

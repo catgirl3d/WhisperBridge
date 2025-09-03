@@ -2,7 +2,6 @@
 # Core dependencies for the WhisperBridge application
 
 # UI Framework
-customtkinter>=5.2.0
 PySide6>=6.5.0
 
 # System Integration

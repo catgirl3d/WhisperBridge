@@ -14,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from whisperbridge.core.config import settings
 from whisperbridge.core.logger import logger, setup_logging
-from whisperbridge.ui import init_app
+from whisperbridge.ui_qt.app import init_qt_app
 
 
 async def main():
@@ -25,8 +25,8 @@ async def main():
 
         logger.info("Starting WhisperBridge application...")
 
-        # Create and run application using factory
-        app = init_app()
+        # Create and run application using Qt initializer directly
+        app = init_qt_app()
         app.run()
 
     except KeyboardInterrupt:

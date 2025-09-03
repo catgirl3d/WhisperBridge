@@ -18,10 +18,10 @@ except ImportError:
     PIL_AVAILABLE = False
 
 try:
-    import tkinter as tk
-    TK_AVAILABLE = True
-except ImportError:
-    TK_AVAILABLE = False
+    from PySide6.QtGui import QCursor, QGuiApplication
+    PYSIDE_AVAILABLE = True
+except Exception:
+    PYSIDE_AVAILABLE = False
 
 from loguru import logger
 
@@ -371,15 +371,11 @@ class ScreenUtils:
             Point: Current cursor position
         """
         try:
-            if TK_AVAILABLE:
-                root = tk.Tk()
-                root.withdraw()
-                x = root.winfo_pointerx()
-                y = root.winfo_pointery()
-                root.destroy()
-                return Point(x, y)
+            if PYSIDE_AVAILABLE:
+                pos = QCursor.pos()
+                return Point(pos.x(), pos.y())
             else:
-                # Fallback for systems without tkinter
+                # Fallback for systems without PySide6
                 return Point(0, 0)
         except Exception as e:
             logger.error(f"Failed to get cursor position: {e}")
@@ -485,12 +481,11 @@ class ScreenUtils:
             float: DPI scale factor
         """
         try:
-            if TK_AVAILABLE:
-                root = tk.Tk()
-                root.withdraw()
-                dpi = root.winfo_fpixels('1i')
-                root.destroy()
-                return dpi / 72.0  # Tkinter uses 72 DPI as base
+            if PYSIDE_AVAILABLE:
+                # Try to get the screen where the cursor is, fallback to primary
+                screen = QGuiApplication.screenAt(QCursor.pos()) or QGuiApplication.primaryScreen()
+                dpi = screen.logicalDotsPerInch() if screen else 96.0
+                return dpi / 72.0  # preserves legacy "pixels-per-point" style scale
             else:
                 return 1.0
         except Exception as e:

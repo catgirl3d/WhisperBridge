@@ -6,8 +6,14 @@ handling screen boundaries, and managing smooth animations.
 """
 
 import math
-from typing import Tuple, Optional
-import tkinter as tk
+from typing import Tuple, Optional, Any
+
+try:
+    from PySide6.QtGui import QGuiApplication
+    from PySide6.QtWidgets import QWidget, QApplication
+    PYSIDE_AVAILABLE = True
+except Exception:
+    PYSIDE_AVAILABLE = False
 
 
 class OverlayPosition:
@@ -30,19 +36,25 @@ class ScreenBounds:
         self.height = height
 
 
-def get_screen_bounds(root: tk.Tk) -> ScreenBounds:
+def get_screen_bounds(root: Any = None) -> ScreenBounds:
     """Get screen dimensions.
 
     Args:
-        root: Tkinter root window
+        root: Ignored (kept for compatibility)
 
     Returns:
         ScreenBounds: Screen dimensions
     """
-    return ScreenBounds(
-        width=root.winfo_screenwidth(),
-        height=root.winfo_screenheight()
-    )
+    try:
+        if PYSIDE_AVAILABLE and QGuiApplication.primaryScreen():
+            screen = QGuiApplication.primaryScreen()
+            rect = screen.availableGeometry()
+            return ScreenBounds(width=rect.width(), height=rect.height())
+        else:
+            # Fallback to a sensible default if Qt not available
+            return ScreenBounds(width=1920, height=1080)
+    except Exception:
+        return ScreenBounds(width=1920, height=1080)
 
 
 def calculate_smart_position(
@@ -143,19 +155,49 @@ def calculate_position_with_preference(
     return OverlayPosition(preferred_x, preferred_y)
 
 
-def get_window_center(window: tk.Toplevel) -> Tuple[int, int]:
+def get_window_center(window: Any) -> Tuple[int, int]:
     """Get center coordinates of a window.
 
     Args:
-        window: Tkinter window
+        window: Window object (Tkinter Toplevel kept for signature compatibility, but Any is accepted)
 
     Returns:
         Tuple[int, int]: (center_x, center_y)
     """
-    window.update_idletasks()
-    x = window.winfo_x() + window.winfo_width() // 2
-    y = window.winfo_y() + window.winfo_height() // 2
-    return (x, y)
+    try:
+        # Qt path: QWidget-like objects
+        if PYSIDE_AVAILABLE and isinstance(window, QWidget):
+            try:
+                # Ensure geometry info is up-to-date
+                try:
+                    QApplication.processEvents()
+                except Exception:
+                    pass
+                geom = window.frameGeometry() if hasattr(window, "frameGeometry") else window.geometry()
+                center = geom.center()
+                return (center.x(), center.y())
+            except Exception:
+                pass
+
+        # Tkinter-compatible fallback (duck-typed)
+        if hasattr(window, "winfo_x") and hasattr(window, "winfo_width"):
+            try:
+                # Keep previous semantics
+                if hasattr(window, "update_idletasks"):
+                    try:
+                        window.update_idletasks()
+                    except Exception:
+                        pass
+                x = window.winfo_x() + window.winfo_width() // 2
+                y = window.winfo_y() + window.winfo_height() // 2
+                return (x, y)
+            except Exception:
+                pass
+
+        # Default fallback
+        return (0, 0)
+    except Exception:
+        return (0, 0)
 
 
 def calculate_distance(pos1: Tuple[int, int], pos2: Tuple[int, int]) -> float:
