@@ -1,6 +1,7 @@
 # Project specific
 tasks/
 temp/
+tests/
 .roo/
 .rooignore
 .kiloignore

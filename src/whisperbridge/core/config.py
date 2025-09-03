@@ -51,7 +51,7 @@ class Settings(BaseSettings):
 
     # UI Settings
     ui_backend: Literal["ctk", "qt"] = Field(default="ctk", description="UI backend framework")
-    theme: str = Field(default="dark", description="UI theme")
+    theme: str = Field(default="light", description="UI theme")
     overlay_position: str = Field(default="cursor", description="Overlay position")
     overlay_timeout: int = Field(default=10, description="Overlay timeout in seconds")
     window_opacity: float = Field(default=0.95, description="Window opacity")
@@ -137,8 +137,8 @@ class Settings(BaseSettings):
         return self
 
 
-# Global settings instance
-settings = Settings()
+# Global settings instance (will be loaded by load_settings() below)
+settings: Settings
 
 
 def get_config_path() -> Path:
@@ -205,8 +205,16 @@ def load_settings() -> Settings:
 
 
 def save_settings(settings: Settings) -> bool:
-    """Save settings to file with error handling."""
+    """Save settings to file with error handling and caller debug."""
+    import inspect
     try:
+        # Caller info for debugging unexpected overwrites
+        stack = inspect.stack()
+        caller_frame = stack[1]
+        caller_info = f"{caller_frame.function} in {caller_frame.filename}:{caller_frame.lineno}"
+        print(f"DEBUG: core.config.save_settings called from {caller_info}")
+        print(f"DEBUG: core.config.save_settings called with theme='{getattr(settings, 'theme', None)}'")
+
         config_path = ensure_config_dir()
         settings_file = config_path / "settings.json"
 
@@ -226,7 +234,7 @@ def save_settings(settings: Settings) -> bool:
         return True
 
     except Exception as e:
-        logger.error(f"Failed to save settings: {e}")
+        logger.error(f"Failed to save settings: {e}", exc_info=True)
         return False
 
 

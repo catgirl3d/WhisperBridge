@@ -8,7 +8,7 @@ API keys, language selection, hotkeys, and system prompts.
 import customtkinter as ctk
 from typing import Optional, Callable
 import tkinter.messagebox as messagebox
-from ..core.config import settings
+from ..services.config_service import config_service
 
 
 class MainWindow(ctk.CTk):
@@ -216,19 +216,21 @@ class MainWindow(ctk.CTk):
 
     def _load_current_settings(self):
         """Load current settings into UI components."""
+        current_settings = config_service.get_settings()
+
         # Load API key (masked)
-        if hasattr(settings, 'openai_api_key') and settings.openai_api_key:
-            self.api_key_entry.insert(0, settings.openai_api_key)
+        if hasattr(current_settings, 'openai_api_key') and current_settings.openai_api_key:
+            self.api_key_entry.insert(0, current_settings.openai_api_key)
 
         # Load model
-        self.model_combo.set(settings.model)
+        self.model_combo.set(current_settings.model)
 
         # Load languages
-        self.source_lang_combo.set(settings.source_language)
-        self.target_lang_combo.set(settings.target_language)
+        self.source_lang_combo.set(current_settings.source_language)
+        self.target_lang_combo.set(current_settings.target_language)
 
         # Load hotkey
-        self.hotkey_entry.insert(0, settings.translate_hotkey)
+        self.hotkey_entry.insert(0, current_settings.translate_hotkey)
 
         # Load default prompt
         default_prompt = "Translate the following text to {target_language}:"
@@ -286,17 +288,18 @@ class MainWindow(ctk.CTk):
             hotkey = self.hotkey_entry.get().strip()
             prompt = self.prompt_textbox.get("1.0", "end-1c").strip()
 
-            # Update settings
-            from ..core.config import settings, save_settings
-            settings.openai_api_key = api_key if api_key else None
-            settings.model = model
-            settings.source_language = source_lang
-            settings.target_language = target_lang
-            settings.translate_hotkey = hotkey
-            settings.system_prompt = prompt
+            # Prepare settings updates
+            updates = {
+                'openai_api_key': api_key if api_key else None,
+                'model': model,
+                'source_language': source_lang,
+                'target_language': target_lang,
+                'translate_hotkey': hotkey,
+                'system_prompt': prompt
+            }
 
-            # Save settings to file and keyring
-            if save_settings(settings):
+            # Use config_service to update and save all settings at once
+            if config_service.update_settings(updates):
                 messagebox.showinfo("Успех", "Настройки сохранены успешно!")
 
                 if self.on_save_callback:

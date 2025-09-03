@@ -199,7 +199,8 @@ class SettingsManager:
                 return self._settings
 
     def save_settings(self, settings: Optional[Settings] = None) -> bool:
-        """Save settings to file with backup."""
+        """Save settings to file with backup (with caller debug)."""
+        import inspect
         with self._lock:
             try:
                 if settings is None:
@@ -207,6 +208,13 @@ class SettingsManager:
                     if settings is None:
                         logger.warning("No settings to save")
                         return False
+
+                # Caller inspection for debugging unexpected saves
+                stack = inspect.stack()
+                caller_frame = stack[1]
+                caller_info = f"{caller_frame.function} in {caller_frame.filename}:{caller_frame.lineno}"
+                print(f"DEBUG: SettingsManager.save_settings called from {caller_info}")
+                print(f"DEBUG: SettingsManager.save_settings called with theme='{settings.theme}'")
 
                 settings_file = self._get_settings_file()
 
@@ -217,12 +225,17 @@ class SettingsManager:
                 data = settings.model_dump()
                 data['version'] = '1.2.1'  # Current version
 
+                print(f"DEBUG: Data to save - theme='{data.get('theme', 'NOT_FOUND')}'")
+                print(f"DEBUG: Full data keys: {list(data.keys())}")
+
                 # Remove API key from JSON (stored in keyring)
                 api_key = data.pop('openai_api_key', None)
 
                 # Save to JSON
                 with open(settings_file, 'w', encoding='utf-8') as f:
                     json.dump(data, f, indent=2, ensure_ascii=False)
+
+                print(f"DEBUG: Settings saved to file: {settings_file}")
 
                 # Save API key separately
                 if api_key:
@@ -233,7 +246,7 @@ class SettingsManager:
                 return True
 
             except Exception as e:
-                logger.error(f"Failed to save settings: {e}")
+                logger.error(f"Failed to save settings: {e}", exc_info=True)
                 return False
 
     def get_settings(self) -> Settings:

@@ -3,9 +3,12 @@ tasks/
 temp/
 .roo/
 .rooignore
+.kiloignore
 AGENTS.md
-.toml
 TR.MD
+.toml
+.env.example
+
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

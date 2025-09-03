@@ -1,0 +1,544 @@
+"""
+Settings Dialog for WhisperBridge Qt UI.
+
+Provides a comprehensive settings interface with tabs for different configuration categories.
+"""
+
+from PySide6.QtWidgets import (
+    QDialog, QVBoxLayout, QHBoxLayout, QTabWidget, QWidget, QLabel,
+    QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox, QCheckBox, QPushButton,
+    QFormLayout, QGroupBox, QMessageBox
+)
+from PySide6.QtCore import Qt, QThread, Signal, QObject
+
+from ..core.settings_manager import settings_manager
+from ..services.config_service import config_service, SettingsObserver
+from ..core.config import Settings
+from loguru import logger
+
+
+class ApiTestWorker(QObject):
+    """Worker for testing API key asynchronously."""
+    finished = Signal(bool, str)  # success, error_message
+
+    def __init__(self, provider: str, api_key: str, model: str):
+        super().__init__()
+        self.provider = provider
+        self.api_key = api_key
+        self.model = model
+
+    def run(self):
+        """Test the API key for the specified provider."""
+        try:
+            if self.provider == "openai":
+                self._test_openai()
+            elif self.provider == "anthropic":
+                self._test_anthropic()
+            elif self.provider == "google":
+                self._test_google()
+            else:
+                self.finished.emit(False, f"Unsupported provider: {self.provider}")
+
+        except Exception as e:
+            self.finished.emit(False, f"Ошибка подключения: {str(e)}")
+
+    def _test_openai(self):
+        """Test OpenAI API."""
+        try:
+            import openai
+
+            # Create a temporary client for testing
+            client = openai.OpenAI(api_key=self.api_key, timeout=10)
+
+            # Make a simple test request
+            response = client.chat.completions.create(
+                model=self.model,
+                messages=[{"role": "user", "content": "Hello"}],
+                max_tokens=5
+            )
+
+            # If we get here, the API key is valid
+            self.finished.emit(True, "")
+
+        except openai.AuthenticationError:
+            self.finished.emit(False, "Неверный API ключ")
+        except openai.RateLimitError:
+            self.finished.emit(False, "Превышен лимит запросов")
+        except openai.APIError as e:
+            self.finished.emit(False, f"Ошибка API: {str(e)}")
+        except ImportError:
+            self.finished.emit(False, "OpenAI library not installed")
+        except Exception as e:
+            self.finished.emit(False, f"Ошибка OpenAI: {str(e)}")
+
+    def _test_anthropic(self):
+        """Test Anthropic API."""
+        try:
+            import anthropic
+
+            # Create a temporary client for testing
+            client = anthropic.Anthropic(api_key=self.api_key, timeout=10)
+
+            # Make a simple test request
+            response = client.messages.create(
+                model=self.model,
+                max_tokens=5,
+                messages=[{"role": "user", "content": "Hello"}]
+            )
+
+            # If we get here, the API key is valid
+            self.finished.emit(True, "")
+
+        except Exception as e:
+            if "authentication" in str(e).lower() or "api key" in str(e).lower():
+                self.finished.emit(False, "Неверный API ключ")
+            elif "rate" in str(e).lower():
+                self.finished.emit(False, "Превышен лимит запросов")
+            else:
+                self.finished.emit(False, f"Ошибка Anthropic: {str(e)}")
+
+    def _test_google(self):
+        """Test Google API."""
+        try:
+            import google.generativeai as genai
+
+            # Configure the API
+            genai.configure(api_key=self.api_key)
+
+            # Create a model instance
+            model = genai.GenerativeModel(self.model)
+
+            # Make a simple test request
+            response = model.generate_content("Hello", generation_config={"max_output_tokens": 5})
+
+            # If we get here, the API key is valid
+            self.finished.emit(True, "")
+
+        except Exception as e:
+            if "api_key" in str(e).lower() or "authentication" in str(e).lower():
+                self.finished.emit(False, "Неверный API ключ")
+            elif "quota" in str(e).lower() or "rate" in str(e).lower():
+                self.finished.emit(False, "Превышен лимит запросов")
+            else:
+                self.finished.emit(False, f"Ошибка Google: {str(e)}")
+
+
+class SettingsDialog(QDialog, SettingsObserver):
+    """Settings dialog with tabbed interface for configuration."""
+
+    def __init__(self, parent=None):
+        """Initialize the settings dialog.
+
+        Args:
+            parent: Parent widget
+        """
+        super().__init__(parent)
+        self.setWindowTitle("WhisperBridge Settings")
+        self.setModal(False)  # Non-modal dialog
+        self.resize(500, 600)
+
+        # Initialize current settings first from config service
+        self.current_settings = config_service.get_settings()
+
+        # Apply proper color scheme for visibility
+        self._apply_proper_colors()
+
+        # Create main layout
+        layout = QVBoxLayout(self)
+
+        # Create tab widget
+        self.tab_widget = QTabWidget()
+        layout.addWidget(self.tab_widget)
+
+        # Create tabs
+        self._create_api_tab()
+        self._create_translation_tab()
+        self._create_ocr_tab()
+        self._create_hotkeys_tab()
+        self._create_general_tab()
+
+        # Create buttons
+        self._create_buttons(layout)
+
+        # Register as config service observer
+        config_service.add_observer(self)
+
+        # Load current values
+        self._load_settings()
+
+    def _apply_proper_colors(self):
+        """Apply proper color scheme to ensure text visibility."""
+        from PySide6.QtWidgets import QApplication
+        from PySide6.QtGui import QPalette, QColor
+        from PySide6.QtCore import Qt
+
+        # Create a palette that ensures good contrast
+        palette = QPalette()
+
+        # Check current theme setting from config service
+        current_theme = config_service.get_setting("theme", use_cache=False).lower()
+
+        if current_theme == "dark":
+            # Dark theme - use dark colors but ensure good contrast
+            palette.setColor(QPalette.ColorRole.Window, QColor(45, 45, 45))  # Dark gray background
+            palette.setColor(QPalette.ColorRole.WindowText, Qt.GlobalColor.white)  # White text
+            palette.setColor(QPalette.ColorRole.Base, QColor(30, 30, 30))  # Dark input background
+            palette.setColor(QPalette.ColorRole.Text, Qt.GlobalColor.white)  # White text in inputs
+            palette.setColor(QPalette.ColorRole.Button, QColor(45, 45, 45))  # Dark button background
+            palette.setColor(QPalette.ColorRole.ButtonText, Qt.GlobalColor.white)  # White button text
+            palette.setColor(QPalette.ColorRole.Highlight, QColor(42, 130, 218))  # Blue highlight
+            palette.setColor(QPalette.ColorRole.HighlightedText, Qt.GlobalColor.white)  # White text on highlight
+        else:
+            # Light theme (default) - use light colors
+            palette.setColor(QPalette.ColorRole.Window, QColor(240, 240, 240))  # Light gray background
+            palette.setColor(QPalette.ColorRole.WindowText, Qt.GlobalColor.black)  # Black text
+            palette.setColor(QPalette.ColorRole.Base, Qt.GlobalColor.white)  # White for input fields
+            palette.setColor(QPalette.ColorRole.Text, Qt.GlobalColor.black)  # Black text in inputs
+            palette.setColor(QPalette.ColorRole.Button, QColor(240, 240, 240))  # Light button background
+            palette.setColor(QPalette.ColorRole.ButtonText, Qt.GlobalColor.black)  # Black button text
+            palette.setColor(QPalette.ColorRole.Highlight, QColor(42, 130, 218))  # Blue highlight
+            palette.setColor(QPalette.ColorRole.HighlightedText, Qt.GlobalColor.white)  # White text on highlight
+
+        # Apply the palette to this dialog
+        self.setPalette(palette)
+
+        # Also set auto-fill background to ensure consistency
+        self.setAutoFillBackground(True)
+
+    def _create_api_tab(self):
+        """Create API settings tab."""
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+
+        # API Provider
+        provider_group = QGroupBox("API Provider")
+        provider_layout = QFormLayout(provider_group)
+
+        self.api_provider_combo = QComboBox()
+        self.api_provider_combo.addItems(["openai", "anthropic", "google"])
+        provider_layout.addRow("Provider:", self.api_provider_combo)
+
+        # API Key
+        self.api_key_edit = QLineEdit()
+        self.api_key_edit.setEchoMode(QLineEdit.EchoMode.Password)
+        provider_layout.addRow("API Key:", self.api_key_edit)
+
+        layout.addWidget(provider_group)
+
+        # Model and Timeout
+        model_group = QGroupBox("Model Settings")
+        model_layout = QFormLayout(model_group)
+
+        self.model_combo = QComboBox()
+        # Common ChatGPT/OpenAI models
+        model_list = [
+            "gpt-4o",
+            "gpt-4o-mini",
+            "gpt-4-turbo",
+            "gpt-4",
+            "gpt-3.5-turbo",
+            "gpt-3.5-turbo-16k"
+        ]
+        self.model_combo.addItems(model_list)
+        # Allow custom model input
+        self.model_combo.setEditable(True)
+        model_layout.addRow("Model:", self.model_combo)
+
+        self.api_timeout_spin = QSpinBox()
+        self.api_timeout_spin.setRange(1, 300)
+        self.api_timeout_spin.setSuffix(" seconds")
+        model_layout.addRow("Timeout:", self.api_timeout_spin)
+
+        layout.addWidget(model_group)
+
+        # Test API button
+        test_layout = QHBoxLayout()
+        test_layout.addStretch()
+
+        self.test_api_button = QPushButton("Test API")
+        self.test_api_button.clicked.connect(self._on_test_api)
+        test_layout.addWidget(self.test_api_button)
+
+        layout.addLayout(test_layout)
+        layout.addStretch()
+
+        self.tab_widget.addTab(tab, "API")
+
+    def _create_translation_tab(self):
+        """Create translation settings tab."""
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+
+        # Language settings
+        lang_group = QGroupBox("Language Settings")
+        lang_layout = QFormLayout(lang_group)
+
+        # Source language
+        self.source_lang_combo = QComboBox()
+        source_items = ["auto"] + self.current_settings.supported_languages
+        self.source_lang_combo.addItems(source_items)
+        lang_layout.addRow("Source Language:", self.source_lang_combo)
+
+        # Target language
+        self.target_lang_combo = QComboBox()
+        self.target_lang_combo.addItems(self.current_settings.supported_languages)
+        lang_layout.addRow("Target Language:", self.target_lang_combo)
+
+        layout.addWidget(lang_group)
+        layout.addStretch()
+
+        self.tab_widget.addTab(tab, "Translation")
+
+    def _create_ocr_tab(self):
+        """Create OCR settings tab."""
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+
+        # OCR settings
+        ocr_group = QGroupBox("OCR Configuration")
+        ocr_layout = QFormLayout(ocr_group)
+
+        # OCR Languages
+        self.ocr_languages_edit = QLineEdit()
+        self.ocr_languages_edit.setPlaceholderText("e.g., en,ru,es")
+        ocr_layout.addRow("OCR Languages:", self.ocr_languages_edit)
+
+        # Confidence threshold
+        self.ocr_confidence_spin = QDoubleSpinBox()
+        self.ocr_confidence_spin.setRange(0.0, 1.0)
+        self.ocr_confidence_spin.setSingleStep(0.05)
+        self.ocr_confidence_spin.setValue(0.7)
+        ocr_layout.addRow("Confidence Threshold:", self.ocr_confidence_spin)
+
+        layout.addWidget(ocr_group)
+        layout.addStretch()
+
+        self.tab_widget.addTab(tab, "OCR")
+
+    def _create_hotkeys_tab(self):
+        """Create hotkeys settings tab."""
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+
+        # Hotkey settings
+        hotkey_group = QGroupBox("Hotkey Configuration")
+        hotkey_layout = QFormLayout(hotkey_group)
+
+        self.translate_hotkey_edit = QLineEdit()
+        hotkey_layout.addRow("Translate Hotkey:", self.translate_hotkey_edit)
+
+        self.quick_translate_hotkey_edit = QLineEdit()
+        hotkey_layout.addRow("Quick Translate Hotkey:", self.quick_translate_hotkey_edit)
+
+        self.activation_hotkey_edit = QLineEdit()
+        hotkey_layout.addRow("Activation Hotkey:", self.activation_hotkey_edit)
+
+        layout.addWidget(hotkey_group)
+
+        # Help text
+        help_label = QLabel("Use format like 'ctrl+shift+t' or 'alt+f1'")
+        help_label.setStyleSheet("color: gray; font-style: italic;")
+        layout.addWidget(help_label)
+
+        layout.addStretch()
+
+        self.tab_widget.addTab(tab, "Hotkeys")
+
+    def _create_general_tab(self):
+        """Create general settings tab."""
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+
+        # UI settings
+        ui_group = QGroupBox("User Interface")
+        ui_layout = QFormLayout(ui_group)
+
+        self.theme_combo = QComboBox()
+        self.theme_combo.addItems(["dark", "light"])
+        ui_layout.addRow("Theme:", self.theme_combo)
+
+        self.show_notifications_check = QCheckBox("Show notifications")
+        ui_layout.addRow(self.show_notifications_check)
+
+        layout.addWidget(ui_group)
+        layout.addStretch()
+
+        self.tab_widget.addTab(tab, "General")
+
+    def _create_buttons(self, layout):
+        """Create dialog buttons."""
+        button_layout = QHBoxLayout()
+
+        self.save_button = QPushButton("Save")
+        self.save_button.clicked.connect(self._on_save)
+        button_layout.addWidget(self.save_button)
+
+        self.cancel_button = QPushButton("Cancel")
+        self.cancel_button.clicked.connect(self.reject)
+        button_layout.addWidget(self.cancel_button)
+
+        layout.addLayout(button_layout)
+
+    def _load_settings(self):
+        """Load current settings into the UI."""
+        # Get fresh settings from config service
+        settings = config_service.get_settings()
+
+        logger.debug(f"Loading settings - theme: '{settings.theme}'")
+
+        # API tab
+        self.api_provider_combo.setCurrentText(settings.api_provider)
+        if settings.openai_api_key:
+            self.api_key_edit.setText(settings.openai_api_key)
+        self.model_combo.setCurrentText(settings.model)
+        self.api_timeout_spin.setValue(settings.api_timeout)
+
+        # Translation tab
+        self.source_lang_combo.setCurrentText(settings.source_language)
+        self.target_lang_combo.setCurrentText(settings.target_language)
+
+        # OCR tab
+        self.ocr_languages_edit.setText(",".join(settings.ocr_languages))
+        self.ocr_confidence_spin.setValue(settings.ocr_confidence_threshold)
+
+        # Hotkeys tab
+        self.translate_hotkey_edit.setText(settings.translate_hotkey)
+        self.quick_translate_hotkey_edit.setText(settings.quick_translate_hotkey)
+        self.activation_hotkey_edit.setText(settings.activation_hotkey)
+
+        # General tab
+        self.theme_combo.setCurrentText(settings.theme)
+        self.show_notifications_check.setChecked(settings.show_notifications)
+
+    def _on_save(self):
+        """Handle save button click."""
+        try:
+            # Get current settings dict from config service to ensure we have the latest saved values
+            current_settings = config_service.get_settings()
+            current = current_settings.model_dump()
+
+            # Update from UI
+            current["api_provider"] = self.api_provider_combo.currentText()
+            current["openai_api_key"] = self.api_key_edit.text().strip() or None
+            current["model"] = self.model_combo.currentText().strip()
+            current["api_timeout"] = self.api_timeout_spin.value()
+            current["source_language"] = self.source_lang_combo.currentText()
+            current["target_language"] = self.target_lang_combo.currentText()
+            current["ocr_languages"] = [lang.strip() for lang in self.ocr_languages_edit.text().split(",") if lang.strip()]
+            current["ocr_confidence_threshold"] = self.ocr_confidence_spin.value()
+            current["translate_hotkey"] = self.translate_hotkey_edit.text().strip()
+            current["quick_translate_hotkey"] = self.quick_translate_hotkey_edit.text().strip()
+            current["activation_hotkey"] = self.activation_hotkey_edit.text().strip()
+            selected_theme = self.theme_combo.currentText()
+            current["theme"] = selected_theme
+            current["show_notifications"] = self.show_notifications_check.isChecked()
+
+            logger.debug(f"Saving theme: '{selected_theme}'")
+            logger.debug(f"Current settings before update: theme='{current.get('theme', 'NOT_FOUND')}'")
+            logger.debug(f"Current dict keys: {list(current.keys())}")
+
+            # Create new settings object for validation
+            new_settings = Settings(**current)
+
+            # Save via ConfigService
+            if config_service.save_settings(new_settings):
+                self.current_settings = new_settings
+                self.accept()  # Close dialog
+            else:
+                QMessageBox.warning(
+                    self,
+                    "Save Failed",
+                    "Failed to save settings. Please check your configuration and try again."
+                )
+
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Save Error",
+                f"An error occurred while saving settings:\n\n{str(e)}"
+            )
+
+    def _on_test_api(self):
+        """Handle test API button click."""
+        # Get values from UI
+        provider = self.api_provider_combo.currentText().strip()
+        api_key = self.api_key_edit.text().strip()
+        model = self.model_combo.currentText().strip()
+
+        # Validate input
+        if not api_key:
+            QMessageBox.warning(self, "Validation Error", "Please enter an API key.")
+            return
+
+        # Provider-specific validation
+        if provider == "openai" and not api_key.startswith("sk-"):
+            QMessageBox.warning(self, "Validation Error", "OpenAI API key should start with 'sk-'.")
+            return
+
+        if not model:
+            QMessageBox.warning(self, "Validation Error", "Please select a model.")
+            return
+
+        # Disable button and show testing state
+        self.test_api_button.setEnabled(False)
+        self.test_api_button.setText("Testing...")
+
+        # Create and start worker thread
+        self.test_worker = ApiTestWorker(provider, api_key, model)
+        self.test_thread = QThread()
+
+        self.test_worker.moveToThread(self.test_thread)
+        self.test_worker.finished.connect(self._on_test_finished)
+        self.test_thread.started.connect(self.test_worker.run)
+
+        # Clean up thread when done
+        self.test_worker.finished.connect(self.test_thread.quit)
+        self.test_worker.finished.connect(self.test_worker.deleteLater)
+        self.test_thread.finished.connect(self.test_thread.deleteLater)
+
+        self.test_thread.start()
+
+    def _on_test_finished(self, success: bool, error_msg: str):
+        """Handle API test completion."""
+        # Re-enable button
+        self.test_api_button.setEnabled(True)
+        self.test_api_button.setText("Test API")
+
+        # Show result
+        if success:
+            QMessageBox.information(
+                self,
+                "Test Successful",
+                "API key is working correctly!"
+            )
+        else:
+            QMessageBox.warning(
+                self,
+                "Test Failed",
+                f"API test failed: {error_msg}"
+            )
+
+    # SettingsObserver methods
+    def on_settings_changed(self, key: str, old_value, new_value):
+        """Called when a setting value changes."""
+        if key == "theme":
+            logger.debug(f"Theme setting changed from {old_value} to {new_value}")
+            # Update current settings and reapply colors
+            self.current_settings = config_service.get_settings()
+            self._apply_proper_colors()
+            # Update the theme combo box to reflect the change
+            self.theme_combo.setCurrentText(new_value)
+
+    def on_settings_loaded(self, settings):
+        """Called when settings are loaded."""
+        logger.debug("Settings loaded")
+        self.current_settings = settings
+        self._load_settings()
+        self._apply_proper_colors()
+
+    def on_settings_saved(self, settings):
+        """Called when settings are saved."""
+        logger.debug("Settings saved")
+        self.current_settings = settings
+        # Reapply colors in case theme changed
+        self._apply_proper_colors()

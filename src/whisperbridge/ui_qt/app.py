@@ -14,7 +14,7 @@ from .main_window import MainWindow
 from .overlay_window import OverlayWindow
 from .tray import TrayManager
 from .selection_overlay import SelectionOverlayQt
-from ..core.config import settings
+from .settings_dialog import SettingsDialog
 from ..services.hotkey_service import HotkeyService
 from ..services.overlay_service import init_overlay_service, get_overlay_service
 from ..core.keyboard_manager import KeyboardManager
@@ -23,6 +23,7 @@ from ..services.translation_service import get_translation_service
 from ..core.api_manager import init_api_manager
 from ..utils.screen_utils import Rectangle
 from ..services.screen_capture_service import get_capture_service
+from ..services.config_service import config_service, SettingsObserver
 from loguru import logger
 
 
@@ -81,9 +82,11 @@ class CaptureOcrTranslateWorker(QObject):
                 return
 
             logger.debug("Starting OCR")
+            # Get OCR languages from config service to ensure we have the latest saved values
+            ocr_languages = config_service.get_setting("ocr_languages", use_cache=False)
             ocr_request = OCRRequest(
                 image=image_to_process,
-                languages=settings.ocr_languages,
+                languages=ocr_languages,
                 preprocess=True,
                 use_cache=True
             )
@@ -99,7 +102,8 @@ class CaptureOcrTranslateWorker(QObject):
             # Translation
             translated_text = ""
             try:
-                if settings.openai_api_key:
+                api_key = config_service.get_setting("openai_api_key", use_cache=False)
+                if api_key:
                     translation_service = get_translation_service()
                     translated_text = translation_service.translate(original_text)
                     logger.debug("Translation completed")
@@ -128,7 +132,7 @@ class CaptureOcrTranslateWorker(QObject):
         self.ocr_finished.emit(text)
         self.finished.emit(text, "", "")
 
-class QtApp(QObject):
+class QtApp(QObject, SettingsObserver):
     """Qt-based application class with compatible interface."""
 
     def __init__(self):
@@ -147,6 +151,7 @@ class QtApp(QObject):
         self.main_window: Optional[MainWindow] = None
         self.overlay_windows: Dict[str, OverlayWindow] = {}
         self.selection_overlay: Optional[SelectionOverlayQt] = None
+        self.settings_dialog: Optional[SettingsDialog] = None
         self._worker_threads: list = []  # Holds (thread, worker) pairs to prevent garbage collection
 
         # Services
@@ -160,6 +165,12 @@ class QtApp(QObject):
         self.minimize_to_tray = True
         self.shutdown_requested = False
 
+        # Register as config service observer first
+        config_service.add_observer(self)
+
+        # Ensure settings are loaded before getting theme
+        _ = config_service.get_settings()
+
         # Theme settings
         self._current_theme = self._get_theme_from_settings()
 
@@ -168,12 +179,19 @@ class QtApp(QObject):
 
     def _get_theme_from_settings(self) -> str:
         """Get theme from settings."""
+        # Get theme from config service to ensure we have the latest saved value
+        current_theme = config_service.get_setting("theme", use_cache=False)
+        logger.debug(f"Retrieved theme from config service: '{current_theme}' (type: {type(current_theme)})")
+
         theme_map = {
             "dark": "dark",
             "light": "light",
             "auto": "system"
         }
-        return theme_map.get(settings.theme.lower(), "dark")
+
+        mapped_theme = theme_map.get(current_theme.lower() if current_theme else None, "light")
+        logger.debug(f"Mapped theme: '{mapped_theme}'")
+        return mapped_theme
 
     def _apply_theme(self):
         """Apply the current theme to the application."""
@@ -211,7 +229,7 @@ class QtApp(QObject):
     def initialize(self):
         """Initialize application components."""
         try:
-            print("Initializing Qt-based WhisperBridge application...")
+            logger.info("Initializing Qt-based WhisperBridge application...")
 
             # Create main window
             self._create_main_window()
@@ -241,10 +259,10 @@ class QtApp(QObject):
             self._initialize_translation_service()
 
             self.is_running = True
-            print("Qt-based WhisperBridge application initialized successfully")
+            logger.info("Qt-based WhisperBridge application initialized successfully")
 
         except Exception as e:
-            print(f"Failed to initialize Qt application: {e}")
+            logger.error(f"Failed to initialize Qt application: {e}")
             raise
 
     def _create_main_window(self):
@@ -255,9 +273,9 @@ class QtApp(QObject):
         """Initialize the overlay service."""
         try:
             # For Qt, we'll use our own overlay windows
-            print("Qt overlay service initialized (using Qt windows)")
+            logger.info("Qt overlay service initialized (using Qt windows)")
         except Exception as e:
-            print(f"Failed to initialize Qt overlay service: {e}")
+            logger.error(f"Failed to initialize Qt overlay service: {e}")
 
     def _create_keyboard_services(self):
         """Create and initialize keyboard services."""
@@ -273,13 +291,13 @@ class QtApp(QObject):
 
             # Start hotkey service
             if not self.hotkey_service.start():
-                print("Warning: Failed to start hotkey service")
+                logger.warning("Failed to start hotkey service")
                 self.hotkey_service = None
             else:
-                print("Hotkey service started successfully")
+                logger.info("Hotkey service started successfully")
 
         except Exception as e:
-            print(f"Failed to create keyboard services: {e}")
+            logger.error(f"Failed to create keyboard services: {e}")
             self.keyboard_manager = None
             self.hotkey_service = None
 
@@ -305,34 +323,37 @@ class QtApp(QObject):
             return
 
         try:
+            # Get current settings for hotkeys
+            current_settings = config_service.get_settings()
+
             # Register main translation hotkey
             self.keyboard_manager.register_hotkey(
-                settings.translate_hotkey,
+                current_settings.translate_hotkey,
                 self._on_translate_hotkey,
                 "Main translation hotkey"
             )
 
             # Register quick translate hotkey if different
-            if settings.quick_translate_hotkey != settings.translate_hotkey:
+            if current_settings.quick_translate_hotkey != current_settings.translate_hotkey:
                 self.keyboard_manager.register_hotkey(
-                    settings.quick_translate_hotkey,
+                    current_settings.quick_translate_hotkey,
                     self._on_quick_translate_hotkey,
                     "Quick translation hotkey"
                 )
 
             # Register activation hotkey if different
-            if (settings.activation_hotkey != settings.translate_hotkey and
-                settings.activation_hotkey != settings.quick_translate_hotkey):
+            if (current_settings.activation_hotkey != current_settings.translate_hotkey and
+                current_settings.activation_hotkey != current_settings.quick_translate_hotkey):
                 self.keyboard_manager.register_hotkey(
-                    settings.activation_hotkey,
+                    current_settings.activation_hotkey,
                     self._on_activation_hotkey,
                     "Application activation hotkey"
                 )
 
-            print(f"Registered hotkeys: {settings.translate_hotkey}, {settings.quick_translate_hotkey}, {settings.activation_hotkey}")
+            logger.info(f"Registered hotkeys: {current_settings.translate_hotkey}, {current_settings.quick_translate_hotkey}, {current_settings.activation_hotkey}")
 
         except Exception as e:
-            print(f"Failed to register default hotkeys: {e}")
+            logger.error(f"Failed to register default hotkeys: {e}")
 
     def _initialize_ocr_service(self):
         """Initialize OCR service in the background."""
@@ -373,33 +394,72 @@ class QtApp(QObject):
         try:
             # Initialize API manager
             api_manager = init_api_manager()
-            print("API manager initialized successfully")
+            logger.info("API manager initialized successfully")
 
             # Initialize translation service
             translation_service = get_translation_service()
             if not translation_service.initialize():
-                print("Warning: Failed to initialize translation service")
+                logger.warning("Failed to initialize translation service")
             else:
-                print("Translation service initialized successfully")
+                logger.info("Translation service initialized successfully")
 
         except Exception as e:
-            print(f"Warning: Failed to initialize translation service: {e}")
+            logger.warning(f"Failed to initialize translation service: {e}")
 
     def _on_settings_saved(self):
         """Handle settings saved event."""
-        print("Settings saved, updating Qt application...")
+        logger.info("Settings saved, updating Qt application...")
 
         # Update theme if changed
         new_theme = self._get_theme_from_settings()
         if new_theme != self._current_theme:
             self._current_theme = new_theme
             self._apply_theme()
-            print(f"Theme changed to: {new_theme}")
+            logger.debug(f"Theme changed to: {new_theme}")
+
+    def _on_config_settings_saved(self, saved_settings):
+        """Handle settings saved through config service (e.g., from settings dialog)."""
+        logger.info("Config settings saved, checking for theme changes...")
+
+        # Update theme if changed - use the passed settings object for immediate update
+        if saved_settings and hasattr(saved_settings, 'theme'):
+            new_theme = self._get_theme_from_settings()
+            if new_theme != self._current_theme:
+                self._current_theme = new_theme
+                self._apply_theme()
+                logger.debug(f"Theme changed to: {new_theme}")
+
+    # SettingsObserver methods
+    def on_settings_changed(self, key: str, old_value, new_value):
+        """Called when a setting value changes."""
+        if key == "theme":
+            logger.debug(f"Theme setting changed from {old_value} to {new_value}")
+            new_theme = self._get_theme_from_settings()
+            if new_theme != self._current_theme:
+                self._current_theme = new_theme
+                self._apply_theme()
+        elif key in ["translate_hotkey", "quick_translate_hotkey", "activation_hotkey"]:
+            logger.debug(f"Hotkey setting '{key}' changed from '{old_value}' to '{new_value}'")
+            # Reload hotkeys if service is running
+            if self.hotkey_service and self.hotkey_service.is_running():
+                if self.hotkey_service.reload_hotkeys():
+                    logger.info("Hotkeys reloaded successfully after settings change")
+                else:
+                    logger.error("Failed to reload hotkeys after settings change")
+
+    def on_settings_loaded(self, settings):
+        """Called when settings are loaded."""
+        pass
+
+    def on_settings_saved(self, settings):
+        """Called when settings are saved."""
+        self._on_config_settings_saved(settings)
 
     def _on_translate_hotkey(self):
         """Handle main translation hotkey press."""
         logger.info("Main translation hotkey pressed")
-        logger.debug(f"Hotkey: {settings.translate_hotkey}")
+        translate_hotkey = config_service.get_setting("translate_hotkey", use_cache=False)
+        logger.debug(f"Hotkey: {translate_hotkey}")
 
         # Check OCR service readiness
         ocr_service = get_ocr_service()
@@ -499,7 +559,8 @@ class QtApp(QObject):
     def _on_quick_translate_hotkey(self):
         """Handle quick translation hotkey press."""
         logger.info("Quick translation hotkey pressed")
-        logger.debug(f"Hotkey: {settings.quick_translate_hotkey}")
+        quick_translate_hotkey = config_service.get_setting("quick_translate_hotkey", use_cache=False)
+        logger.debug(f"Hotkey: {quick_translate_hotkey}")
         # TODO: Implement quick translation (maybe from clipboard)
         if self.tray_manager:
             self.tray_manager.show_notification(
@@ -511,7 +572,8 @@ class QtApp(QObject):
     def _on_activation_hotkey(self):
         """Handle application activation hotkey press."""
         logger.info("Application activation hotkey pressed")
-        logger.debug(f"Hotkey: {settings.activation_hotkey}")
+        activation_hotkey = config_service.get_setting("activation_hotkey", use_cache=False)
+        logger.debug(f"Hotkey: {activation_hotkey}")
         self.show_main_window()
         if self.tray_manager:
             self.tray_manager.show_notification(
@@ -688,14 +750,20 @@ class QtApp(QObject):
         self.qt_app.quit()
 
     def open_settings(self):
-        """Open settings window (placeholder for future implementation)."""
+        """Open settings dialog window."""
         logger.info("Open settings requested from tray")
-        # TODO: Implement settings window
-        if self.tray_manager:
-            self.tray_manager.show_notification(
-                "WhisperBridge",
-                "Settings window not yet implemented"
-            )
+
+        # Create dialog if it doesn't exist or was closed
+        if self.settings_dialog is None or not self.settings_dialog.isVisible():
+            self.settings_dialog = SettingsDialog(parent=self.main_window if self.main_window else None)
+
+            # Connect finished signal to reset dialog reference
+            self.settings_dialog.finished.connect(lambda: setattr(self, 'settings_dialog', None))
+
+        # Show and activate the dialog
+        self.settings_dialog.show()
+        self.settings_dialog.raise_()
+        self.settings_dialog.activateWindow()
 
     def show_overlay_window(self, original_text: str, translated_text: str,
                            position: Optional[tuple] = None, overlay_id: str = "main"):
@@ -738,8 +806,8 @@ class QtApp(QObject):
         """
         self._current_theme = theme.lower()
         self._apply_theme()
-        settings.theme = theme
-        print(f"Qt application theme updated to: {theme}")
+        config_service.set_setting("theme", theme)
+        logger.debug(f"Qt application theme updated to: {theme}")
 
     def update_window_opacity(self, opacity: float):
         """Update window opacity for all windows.
@@ -757,7 +825,7 @@ class QtApp(QObject):
         for overlay in self.overlay_windows.values():
             overlay.setWindowOpacity(opacity)
 
-        print(f"Window opacity updated to: {opacity}")
+        logger.debug(f"Window opacity updated to: {opacity}")
 
     def run(self):
         """Run the application main loop."""
@@ -768,10 +836,10 @@ class QtApp(QObject):
         self.show_main_window()
 
         try:
-            print("Starting Qt-based WhisperBridge main loop...")
+            logger.info("Starting Qt-based WhisperBridge main loop...")
             return self.qt_app.exec()
         except Exception as e:
-            print(f"Qt application error: {e}")
+            logger.error(f"Qt application error: {e}")
         finally:
             self.shutdown()
 
@@ -781,7 +849,7 @@ class QtApp(QObject):
             return
         self.shutdown_requested = True
 
-        print("Shutting down Qt-based WhisperBridge...")
+        logger.info("Shutting down Qt-based WhisperBridge...")
 
         self.is_running = False
 
@@ -801,7 +869,7 @@ class QtApp(QObject):
             ocr_service = get_ocr_service()
             ocr_service.shutdown()
         except Exception as e:
-            print(f"Warning: Error shutting down OCR service: {e}")
+            logger.warning(f"Error shutting down OCR service: {e}")
 
         # Shutdown translation service
         try:
@@ -809,7 +877,7 @@ class QtApp(QObject):
             translation_service = get_translation_service()
             translation_service.shutdown()
         except Exception as e:
-            print(f"Warning: Error shutting down translation service: {e}")
+            logger.warning(f"Error shutting down translation service: {e}")
 
         # Shutdown API manager
         try:
@@ -817,7 +885,7 @@ class QtApp(QObject):
             api_manager = get_api_manager()
             api_manager.shutdown()
         except Exception as e:
-            print(f"Warning: Error shutting down API manager: {e}")
+            logger.warning(f"Error shutting down API manager: {e}")
 
         # Close overlay windows
         for overlay in self.overlay_windows.values():
@@ -828,7 +896,7 @@ class QtApp(QObject):
         if self.main_window:
             self.main_window.close()
 
-        print("Qt-based WhisperBridge shutdown complete")
+        logger.info("Qt-based WhisperBridge shutdown complete")
 
     def is_app_running(self) -> bool:
         """Check if the application is running.
@@ -863,7 +931,7 @@ class QtApp(QObject):
         """Hide the main window (minimize to tray)."""
         if self.main_window:
             self.main_window.hide()
-            print("Main window hidden (minimized to tray)")
+            logger.debug("Main window hidden (minimized to tray)")
 
     def toggle_minimize_to_tray(self, enabled: bool):
         """Toggle minimize to tray behavior.

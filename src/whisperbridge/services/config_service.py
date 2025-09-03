@@ -13,7 +13,7 @@ from weakref import WeakSet
 from loguru import logger
 
 from ..core.config import Settings
-from ..core.settings_manager import SettingsManager
+from ..core.settings_manager import settings_manager
 
 
 class SettingsObserver:
@@ -36,7 +36,9 @@ class ConfigService:
     """Centralized configuration service with observer pattern and caching."""
 
     def __init__(self):
-        self._settings_manager = SettingsManager()
+        # Use the shared singleton settings_manager to avoid multiple independent managers
+        # which can cause conflicting reads/writes on startup.
+        self._settings_manager = settings_manager
         self._settings: Optional[Settings] = None
         self._cache: Dict[str, Any] = {}
         self._cache_timestamps: Dict[str, float] = {}
@@ -120,10 +122,14 @@ class ConfigService:
                         logger.warning("No settings to save")
                         return False
 
+                print(f"DEBUG: ConfigService.save_settings called with theme='{settings.theme}'")
+
                 # Track changes for notifications
                 old_settings = self._settings.model_copy() if self._settings else None
 
                 success = self._settings_manager.save_settings(settings)
+                print(f"DEBUG: SettingsManager.save_settings returned: {success}")
+
                 if success:
                     self._settings = settings
                     self._invalidate_cache()  # Clear cache on save

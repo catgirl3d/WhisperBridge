@@ -88,12 +88,20 @@ class MainWindow(QMainWindow):
         try:
             geometry = self.geometry()
             geometry_data = [geometry.x(), geometry.y(), geometry.width(), geometry.height()]
-
-            # Update settings
-            settings = settings_manager.get_settings()
-            settings.window_geometry = geometry_data
-            settings_manager.save_settings(settings)
-            logger.debug(f"Window geometry captured and saved: {geometry_data}")
+    
+            # Update settings only if geometry changed to avoid unnecessary full writes
+            try:
+                current = settings_manager.get_settings()
+                current_geometry = getattr(current, "window_geometry", None)
+            except Exception:
+                current_geometry = None
+    
+            if current_geometry != geometry_data:
+                # Use update_settings to change a single field (validates and saves safely)
+                settings_manager.update_settings({"window_geometry": geometry_data})
+                logger.debug(f"Window geometry captured and saved: {geometry_data}")
+            else:
+                logger.debug("Window geometry unchanged; skipping save.")
         except Exception as e:
             logger.error(f"Failed to capture window geometry: {e}")
 

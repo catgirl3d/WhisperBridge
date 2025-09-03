@@ -20,6 +20,7 @@ from loguru import logger
 from ..core.ocr_manager import get_ocr_manager, OCREngine, OCRResult
 from ..utils.image_utils import get_image_processor, preprocess_for_ocr
 from ..core.config import settings
+from ..services.config_service import config_service
 
 
 @dataclass
@@ -142,11 +143,17 @@ class OCRService:
         """Initialize OCR service."""
         self.manager = get_ocr_manager()
         self.image_processor = get_image_processor()
+        # Get cache settings from config service
+        cache_enabled = config_service.get_setting("cache_enabled", use_cache=False)
+        max_cache_size = config_service.get_setting("max_cache_size", use_cache=False)
+        cache_ttl = config_service.get_setting("cache_ttl", use_cache=False)
+        thread_pool_size = config_service.get_setting("thread_pool_size", use_cache=False)
+
         self.cache = OCRCache(
-            max_size=settings.cache_enabled and settings.max_cache_size or 0,
-            ttl=settings.cache_ttl
+            max_size=cache_enabled and max_cache_size or 0,
+            ttl=cache_ttl
         )
-        self.executor = ThreadPoolExecutor(max_workers=settings.thread_pool_size)
+        self.executor = ThreadPoolExecutor(max_workers=thread_pool_size)
         self.is_initializing = False
         self.is_initialized = False
         self._initialization_lock = threading.Lock()
@@ -155,10 +162,12 @@ class OCRService:
         """Initialize EasyOCR engine."""
         start_time = time.time()
         logger.info("Starting OCR service engine initialization")
-        logger.debug(f"OCR languages from settings: {settings.ocr_languages}")
+        # Get OCR languages from config service to ensure we have the latest saved values
+        ocr_languages = config_service.get_setting("ocr_languages", use_cache=False)
+        logger.debug(f"OCR languages from settings: {ocr_languages}")
 
         try:
-            languages = settings.ocr_languages
+            languages = ocr_languages
 
             # Initialize EasyOCR engine
             success = self.manager.initialize_engines(languages)
@@ -225,7 +234,9 @@ class OCRService:
 
         # Log image details
         logger.debug(f"Input image size: {request.image.size}, mode: {request.image.mode}")
-        logger.debug(f"OCR languages: {request.languages or settings.ocr_languages}")
+        # Get OCR languages from config service for logging
+        ocr_languages = config_service.get_setting("ocr_languages", use_cache=False)
+        logger.debug(f"OCR languages: {request.languages or ocr_languages}")
 
         if not self.is_initialized:
             error_msg = "OCR service is still initializing." if self.is_initializing else "OCR service is not initialized."
@@ -240,8 +251,11 @@ class OCRService:
             )
 
         try:
+            # Get cache settings from config service
+            cache_enabled = config_service.get_setting("cache_enabled", use_cache=False)
+
             # Check cache first
-            if request.use_cache and settings.cache_enabled:
+            if request.use_cache and cache_enabled:
                 cached_result = self.cache.get(request.image, request.languages or [])
                 if cached_result:
                     logger.info("OCR result retrieved from cache")
@@ -265,16 +279,21 @@ class OCRService:
             image_array = np.array(processed_image)
             logger.debug(f"Converted to numpy array: shape={image_array.shape}, dtype={image_array.dtype}")
 
+            # Get OCR settings from config service
+            ocr_languages = config_service.get_setting("ocr_languages", use_cache=False)
+            ocr_confidence_threshold = config_service.get_setting("ocr_confidence_threshold", use_cache=False)
+            ocr_timeout = config_service.get_setting("ocr_timeout", use_cache=False)
+
             # Process with EasyOCR engine
             result = self._process_with_numpy_array(
                 image_array,
-                request.languages or settings.ocr_languages,
-                request.timeout or settings.ocr_timeout
+                request.languages or ocr_languages,
+                request.timeout or ocr_timeout
             )
 
             # Determine if result is actually successful
             has_valid_text = bool(result.text.strip())
-            meets_confidence = result.confidence >= settings.ocr_confidence_threshold
+            meets_confidence = result.confidence >= ocr_confidence_threshold
             final_success = result.success and has_valid_text and meets_confidence
 
             processing_time = time.time() - start_time
@@ -292,7 +311,7 @@ class OCRService:
             )
 
             # Cache successful results with valid text
-            if response.success and response.text.strip() and request.use_cache and settings.cache_enabled:
+            if response.success and response.text.strip() and request.use_cache and cache_enabled:
                 self.cache.put(request.image, request.languages or [], response)
                 logger.debug("OCR result cached")
 
@@ -413,10 +432,12 @@ class OCRService:
         Returns:
             Dictionary with cache statistics
         """
+        # Get cache enabled status from config service
+        cache_enabled = config_service.get_setting("cache_enabled", use_cache=False)
         return {
             "size": self.cache.size(),
             "max_size": self.cache.max_size,
-            "enabled": settings.cache_enabled
+            "enabled": cache_enabled
         }
 
     def get_engine_stats(self) -> Dict[str, Any]:
