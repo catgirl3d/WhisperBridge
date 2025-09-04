@@ -7,13 +7,14 @@ Provides a comprehensive settings interface with tabs for different configuratio
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QTabWidget, QWidget, QLabel,
     QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox, QCheckBox, QPushButton,
-    QFormLayout, QGroupBox, QMessageBox
+    QFormLayout, QGroupBox, QMessageBox, QTextEdit
 )
 from PySide6.QtCore import Qt, QThread, Signal, QObject
 
 from ..core.settings_manager import settings_manager
 from ..services.config_service import config_service, SettingsObserver
 from ..core.config import Settings
+from ..core.api_manager import get_api_manager, APIProvider
 from loguru import logger
 
 
@@ -216,6 +217,7 @@ class SettingsDialog(QDialog, SettingsObserver):
 
         self.api_provider_combo = QComboBox()
         self.api_provider_combo.addItems(["openai", "anthropic", "google"])
+        self.api_provider_combo.currentTextChanged.connect(self._on_provider_changed)
         provider_layout.addRow("Provider:", self.api_provider_combo)
 
         # API Key
@@ -230,19 +232,14 @@ class SettingsDialog(QDialog, SettingsObserver):
         model_layout = QFormLayout(model_group)
 
         self.model_combo = QComboBox()
-        # Common ChatGPT/OpenAI models
-        model_list = [
-            "gpt-4o",
-            "gpt-4o-mini",
-            "gpt-4-turbo",
-            "gpt-4",
-            "gpt-3.5-turbo",
-            "gpt-3.5-turbo-16k"
-        ]
-        self.model_combo.addItems(model_list)
         # Allow custom model input
         self.model_combo.setEditable(True)
+        # Add placeholder text while loading
+        self.model_combo.addItem("Loading models...")
         model_layout.addRow("Model:", self.model_combo)
+
+        # Don't load models here - they will be loaded in _load_settings
+        logger.debug("Skipping model loading in _create_api_tab - will load in _load_settings")
 
         self.api_timeout_spin = QSpinBox()
         self.api_timeout_spin.setRange(1, 300)
@@ -285,6 +282,15 @@ class SettingsDialog(QDialog, SettingsObserver):
         lang_layout.addRow("Target Language:", self.target_lang_combo)
 
         layout.addWidget(lang_group)
+
+        # System Prompt
+        prompt_group = QGroupBox("System Prompt")
+        prompt_layout = QVBoxLayout(prompt_group)
+        self.system_prompt_edit = QTextEdit()
+        self.system_prompt_edit.setAcceptRichText(False)
+        self.system_prompt_edit.setPlaceholderText("Enter the system prompt for the translation model.")
+        prompt_layout.addWidget(self.system_prompt_edit)
+        layout.addWidget(prompt_group)
         layout.addStretch()
 
         self.tab_widget.addTab(tab, "Translation")
@@ -390,12 +396,13 @@ class SettingsDialog(QDialog, SettingsObserver):
         self.api_provider_combo.setCurrentText(settings.api_provider)
         if settings.openai_api_key:
             self.api_key_edit.setText(settings.openai_api_key)
-        self.model_combo.setCurrentText(settings.model)
+        # Don't set model here - it will be set after loading models
         self.api_timeout_spin.setValue(settings.api_timeout)
 
         # Translation tab
         self.source_lang_combo.setCurrentText(settings.source_language)
         self.target_lang_combo.setCurrentText(settings.target_language)
+        self.system_prompt_edit.setPlainText(settings.system_prompt)
 
         # OCR tab
         self.ocr_languages_edit.setText(",".join(settings.ocr_languages))
@@ -409,6 +416,10 @@ class SettingsDialog(QDialog, SettingsObserver):
         # General tab
         self.theme_combo.setCurrentText(settings.theme)
         self.show_notifications_check.setChecked(settings.show_notifications)
+
+        # Reload models after loading settings to ensure dynamic loading
+        logger.debug("About to call _load_models_synchronously from _load_settings")
+        self._load_models_synchronously()
 
     def _on_save(self):
         """Handle save button click."""
@@ -424,6 +435,7 @@ class SettingsDialog(QDialog, SettingsObserver):
             current["api_timeout"] = self.api_timeout_spin.value()
             current["source_language"] = self.source_lang_combo.currentText()
             current["target_language"] = self.target_lang_combo.currentText()
+            current["system_prompt"] = self.system_prompt_edit.toPlainText().strip()
             current["ocr_languages"] = [lang.strip() for lang in self.ocr_languages_edit.text().split(",") if lang.strip()]
             current["ocr_confidence_threshold"] = self.ocr_confidence_spin.value()
             current["translate_hotkey"] = self.translate_hotkey_edit.text().strip()
@@ -518,6 +530,187 @@ class SettingsDialog(QDialog, SettingsObserver):
                 f"API test failed: {error_msg}"
             )
 
+    def _load_models_synchronously(self):
+        """Load available models synchronously for immediate display."""
+        provider_name = self.api_provider_combo.currentText()
+        # Get the model from settings, not from current combo box (which might be empty)
+        settings = config_service.get_settings()
+        current_model = settings.model
+
+        logger.debug(f"=== _load_models_synchronously called ===")
+        logger.debug(f"Loading models for provider: {provider_name}")
+        logger.debug(f"Current model from settings: '{current_model}'")
+
+        # Clear current models
+        self.model_combo.clear()
+
+        try:
+            api_manager = get_api_manager()
+            logger.debug(f"API manager initialized: {api_manager.is_initialized()}")
+
+            if provider_name == "openai":
+                # Load models from API synchronously
+                logger.debug("Fetching models from OpenAI API synchronously")
+                models = api_manager.get_available_models_sync(APIProvider.OPENAI)
+                logger.debug(f"Loaded {len(models)} models from API: {models[:5]}...")  # Log first 5 models
+            else:
+                # For other providers, use fallback list
+                logger.debug("Using fallback models for non-OpenAI provider")
+                models = [
+                    "gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-4", "gpt-3.5-turbo"
+                ]
+
+            self._apply_models_to_ui(models, current_model)
+
+        except Exception as e:
+            logger.error(f"Failed to load models synchronously: {e}")
+            # Fallback to basic list
+            fallback_models = ["gpt-4o", "gpt-4o-mini", "gpt-3.5-turbo"]
+            self._apply_models_to_ui(fallback_models, current_model)
+
+    def _load_models_for_provider(self):
+        """Load available models for the current provider asynchronously."""
+        provider_name = self.api_provider_combo.currentText()
+        current_model = self.model_combo.currentText()
+
+        logger.debug(f"=== _load_models_for_provider called (async) ===")
+        logger.debug(f"Loading models for provider: {provider_name}")
+        logger.debug(f"Current model in combo: '{current_model}'")
+        logger.debug(f"Combo box is visible: {self.model_combo.isVisible()}")
+        logger.debug(f"Dialog is visible: {self.isVisible()}")
+
+        # Clear current models
+        self.model_combo.clear()
+
+        try:
+            api_manager = get_api_manager()
+            logger.debug(f"API manager initialized: {api_manager.is_initialized()}")
+
+            if provider_name == "openai":
+                # Load models asynchronously using QThread
+                logger.debug("Starting async model fetch from OpenAI API")
+                self._start_model_fetch_thread(APIProvider.OPENAI, current_model)
+                return  # Exit early, models will be loaded in thread
+            else:
+                # For other providers, use fallback list
+                logger.debug("Using fallback models for non-OpenAI provider")
+                models = [
+                    "gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-4", "gpt-3.5-turbo"
+                ]
+                self._apply_models_to_ui(models, current_model)
+
+        except Exception as e:
+            logger.error(f"Failed to load models: {e}")
+            # Fallback to basic GPT list
+            fallback_models = ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-4", "gpt-3.5-turbo"]
+            self._apply_models_to_ui(fallback_models, current_model)
+
+    def _start_model_fetch_thread(self, provider: APIProvider, current_model: str):
+        """Start a thread to fetch models asynchronously."""
+        from PySide6.QtCore import QThread, Signal, QObject
+
+        # Don't start thread if dialog is being closed
+        if not self.isVisible():
+            logger.debug("Dialog is not visible, skipping model fetch thread")
+            return
+
+        class ModelFetchWorker(QObject):
+            finished = Signal(list, str)  # models, current_model
+
+            def __init__(self, provider, current_model):
+                super().__init__()
+                self.provider = provider
+                self.current_model = current_model
+
+            def run(self):
+                try:
+                    from ..core.api_manager import get_api_manager
+                    api_manager = get_api_manager()
+                    models = api_manager.get_available_models_sync(self.provider)
+                    self.finished.emit(models, self.current_model)
+                except Exception as e:
+                    logger.error(f"Model fetch thread failed: {e}")
+                    # Emit fallback models (GPT models only)
+                    fallback_models = ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-4", "gpt-3.5-turbo"]
+                    self.finished.emit(fallback_models, self.current_model)
+
+        # Clean up any existing thread first
+        if hasattr(self, 'model_thread') and self.model_thread.isRunning():
+            logger.debug("Waiting for existing model fetch thread to finish...")
+            self.model_thread.quit()
+            if not self.model_thread.wait(2000):  # Wait up to 2 seconds
+                logger.warning("Existing thread did not finish gracefully")
+
+        # Create and start worker thread
+        self.model_worker = ModelFetchWorker(provider, current_model)
+        self.model_thread = QThread()
+
+        self.model_worker.moveToThread(self.model_thread)
+        self.model_worker.finished.connect(self._on_models_fetched)
+        self.model_thread.started.connect(self.model_worker.run)
+
+        # Clean up thread when done
+        self.model_worker.finished.connect(self.model_thread.quit)
+        self.model_worker.finished.connect(self.model_worker.deleteLater)
+        self.model_thread.finished.connect(self.model_thread.deleteLater)
+
+        self.model_thread.start()
+
+    def _on_models_fetched(self, models: list, current_model: str):
+        """Handle fetched models from thread."""
+        logger.debug(f"Received {len(models)} models from thread: {models}")
+        logger.debug(f"Current model before applying: '{current_model}'")
+
+        # Ensure UI update happens on main thread
+        from PySide6.QtCore import QTimer
+        QTimer.singleShot(0, lambda: self._apply_models_to_ui(models, current_model))
+
+    def _apply_models_to_ui(self, models: list, current_model: str):
+        """Apply models to the UI combo box."""
+        logger.debug(f"Applying {len(models)} models to UI: {models}")
+        logger.debug(f"Combo box current count before clear: {self.model_combo.count()}")
+
+        # Clear existing items
+        self.model_combo.clear()
+
+        # Add new models
+        self.model_combo.addItems(models)
+        logger.debug(f"Added {len(models)} models to combo box, new count: {self.model_combo.count()}")
+
+        # Force UI update
+        self.model_combo.update()
+        self.model_combo.repaint()
+
+        # Restore previously selected model if it exists in the new list
+        if current_model and current_model in models:
+            self.model_combo.setCurrentText(current_model)
+            logger.debug(f"Restored current model: {current_model}")
+        elif models:
+            # Select first model as default
+            self.model_combo.setCurrentText(models[0])
+            logger.debug(f"Selected default model: {models[0]}")
+            # Also update the settings to reflect the new default
+            try:
+                current_settings = config_service.get_settings()
+                current_settings.model = models[0]
+                config_service.save_settings(current_settings)
+                logger.debug(f"Updated settings with default model: {models[0]}")
+            except Exception as e:
+                logger.error(f"Failed to update settings with default model: {e}")
+
+        logger.debug(f"Final combo box current text: '{self.model_combo.currentText()}'")
+
+        # Additional UI refresh
+        self.update()
+        self.repaint()
+
+    def _on_provider_changed(self):
+        """Handle provider change - reload models."""
+        # Only reload if dialog is still open
+        if not self.isVisible():
+            return
+        self._load_models_for_provider()
+
     # SettingsObserver methods
     def on_settings_changed(self, key: str, old_value, new_value):
         """Called when a setting value changes."""
@@ -542,3 +735,15 @@ class SettingsDialog(QDialog, SettingsObserver):
         self.current_settings = settings
         # Reapply colors in case theme changed
         self._apply_proper_colors()
+
+    def closeEvent(self, event):
+        """Handle dialog close event - clean up threads."""
+        # Clean up model fetch thread if it's running
+        if hasattr(self, 'model_thread') and self.model_thread.isRunning():
+            logger.debug("Cleaning up model fetch thread on dialog close...")
+            self.model_thread.quit()
+            if not self.model_thread.wait(2000):  # Wait up to 2 seconds
+                logger.warning("Model fetch thread did not finish gracefully")
+                self.model_thread.terminate()
+
+        super().closeEvent(event)

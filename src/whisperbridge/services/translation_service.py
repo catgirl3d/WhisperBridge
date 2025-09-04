@@ -25,6 +25,7 @@ from ..utils.api_utils import (
     TranslationRequest,
     TranslationResponse
 )
+from ..services.config_service import config_service
 
 
 @dataclass
@@ -179,10 +180,15 @@ class TranslationService:
         use_cache: bool = True
     ) -> TranslationResponse:
         """Translate text asynchronously using GPT API."""
+        logger.info(f"Starting translation for text: '{text[:30]}...'")
+        logger.debug(f"Initial translate_text_async args: text='{text}', source_lang='{source_lang}', target_lang='{target_lang}', use_cache='{use_cache}'")
         try:
             # Use settings defaults if not specified
-            source_lang = source_lang or settings.source_language
-            target_lang = target_lang or settings.target_language
+            current_settings = config_service.get_settings()
+            logger.debug(f"Loaded settings in translate_text_async. System prompt: '{current_settings.system_prompt}'")
+            source_lang = source_lang or current_settings.source_language
+            target_lang = target_lang or current_settings.target_language
+            logger.debug(f"Resolved languages: source='{source_lang}', target='{target_lang}'")
 
             # Auto-detect source language if needed
             if source_lang == "auto":
@@ -194,6 +200,7 @@ class TranslationService:
             if use_cache and settings.cache_enabled:
                 cached_result = self._cache.get(text, source_lang, target_lang, settings.model)
                 if cached_result:
+                    logger.info("Translation found in cache.")
                     return TranslationResponse(
                         success=True,
                         translated_text=cached_result,
@@ -202,21 +209,26 @@ class TranslationService:
                         model=settings.model,
                         cached=True
                     )
+                else:
+                    logger.info("Translation not found in cache.")
 
             # Prepare translation request
             request = TranslationRequest(
                 text=text,
                 source_lang=source_lang,
                 target_lang=target_lang,
-                system_prompt=settings.system_prompt,
-                model=settings.model
+                system_prompt=current_settings.system_prompt,
+                model=current_settings.model
             )
 
             # Make API call
+            logger.debug(f"Preparing to call GPT API with request: {request}")
             response = await self._call_gpt_api_async(request)
+            logger.debug(f"Received response from API call: {response}")
 
             # Validate response
             if not validate_translation_response(response):
+                logger.error(f"Invalid translation response format: {response}")
                 raise ValueError("Invalid translation response format")
 
             # Cache result
@@ -265,13 +277,49 @@ class TranslationService:
                 {"role": "user", "content": format_translation_prompt(request)}
             ]
 
+            # Prepare API call parameters with provider-specific optimizations
+            api_params = {
+                "model": request.model,
+                "messages": messages,
+                "temperature": 1,  
+                "max_completion_tokens": 2048,
+            }
+            
+            # Apply OpenAI-specific optimizations only for OpenAI provider
+            if settings.api_provider == "openai":
+                # Add GPT-5 specific optimizations if using GPT-5 model
+                if request.model.startswith(("gpt-5", "chatgpt")):
+                    api_params["extra_body"] = {
+                        "reasoning_effort": "minimal",  # Minimize latency for translation tasks
+                        "verbosity": "low"  # Concise output for translation
+                    }
+                    logger.debug(f"Using OpenAI GPT-5 optimizations: reasoning_effort=minimal, verbosity=low")
+                elif request.model.startswith("gpt-"):
+                    # For older GPT models, just use reasoning_effort if supported
+                    api_params["extra_body"] = {"reasoning_effort": "minimal"}
+                    logger.debug(f"Using OpenAI GPT optimizations: reasoning_effort=minimal")
+                else:
+                    logger.debug(f"Using OpenAI without special optimizations")
+            else:
+                # For other providers (Google, etc.), don't add OpenAI-specific parameters
+                logger.debug(f"Using provider {settings.api_provider} without OpenAI-specific optimizations")
+
+            logger.debug(f"Final API parameters for {settings.api_provider}: {api_params}")
+
+            # Determine the API provider to use
+            if settings.api_provider == "openai":
+                api_provider = APIProvider.OPENAI
+            elif settings.api_provider == "azure_openai":
+                api_provider = APIProvider.AZURE_OPENAI
+            else:
+                # Default to OpenAI if provider not recognized
+                api_provider = APIProvider.OPENAI
+                logger.warning(f"Unknown API provider: {settings.api_provider}, defaulting to OpenAI")
+
             # Make API call through manager (includes retry logic)
             response = await self._api_manager.make_request_async(
-                APIProvider.OPENAI,
-                model=request.model,
-                messages=messages,
-                temperature=0.1,  # Low temperature for consistent translations
-                max_tokens=1000
+                api_provider,
+                **api_params
             )
 
             # Extract translation from response

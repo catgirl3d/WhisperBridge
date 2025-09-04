@@ -105,8 +105,18 @@ class CaptureOcrTranslateWorker(QObject):
                 api_key = config_service.get_setting("openai_api_key", use_cache=False)
                 if api_key:
                     translation_service = get_translation_service()
-                    translated_text = translation_service.translate(original_text)
-                    logger.debug("Translation completed")
+                    # Guard against uninitialized translation service to reduce exceptions
+                    if hasattr(translation_service, "is_initialized") and not translation_service.is_initialized():
+                        logger.warning("Translation service not initialized, skipping translation")
+                    else:
+                        # Use the synchronous translation API which returns a TranslationResponse
+                        response = translation_service.translate_text_sync(original_text)
+                        if response and getattr(response, "success", False):
+                            translated_text = getattr(response, "translated_text", "") or ""
+                            logger.debug("Translation completed successfully")
+                        else:
+                            error_msg = getattr(response, "error_message", "") if response else "Unknown error"
+                            logger.warning(f"Translation failed or returned empty result: {error_msg}")
                 else:
                     logger.debug("No API key, skipping translation")
             except Exception as e:

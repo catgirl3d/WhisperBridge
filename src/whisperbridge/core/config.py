@@ -40,7 +40,7 @@ class Settings(BaseSettings):
 
     # System Prompt
     system_prompt: str = Field(
-        default="You are a professional translator. Translate the following text accurately and naturally. Maintain the original meaning and tone.",
+        default="You are a translation engine. Do not reason. Do not explain. Do not add any extra text. Only return the translated text.",
         description="System prompt for GPT translation"
     )
 

@@ -78,10 +78,14 @@ def detect_language(text: str) -> Optional[str]:
     if not text or not text.strip():
         return None
 
-    text = text.strip()
+    text = text.strip().lower()
+
+    # More specific English patterns
+    if re.search(r'\b(the|a|an|is|are|was|were|in|on|at|and|or|but)\b', text):
+        return "en"
 
     # Cyrillic characters (Russian, Ukrainian, etc.)
-    if re.search(r'[а-яё]', text.lower()):
+    if re.search(r'[а-яё]', text):
         return "ru"
 
     # Chinese characters
@@ -101,26 +105,26 @@ def detect_language(text: str) -> Optional[str]:
         return "ar"
 
     # Spanish common patterns
-    if re.search(r'\b(el|la|los|las|es|son|está|están)\b', text.lower()):
+    if re.search(r'\b(el|la|los|las|es|son|está|están)\b', text):
         return "es"
 
     # French common patterns
-    if re.search(r'\b(le|la|les|et|est|sont|dans|pour)\b', text.lower()):
+    if re.search(r'\b(le|la|les|et|est|sont|dans|pour)\b', text):
         return "fr"
 
     # German common patterns
-    if re.search(r'\b(der|die|das|und|ist|sind|in|für)\b', text.lower()):
+    if re.search(r'\b(der|die|das|und|ist|sind|in|für)\b', text):
         return "de"
 
     # Italian common patterns
-    if re.search(r'\b(il|la|i|gli|le|e|è|sono|in|per)\b', text.lower()):
+    if re.search(r'\b(il|la|i|gli|le|e|è|sono|in|per)\b', text):
         return "it"
 
     # Portuguese common patterns
-    if re.search(r'\b(o|a|os|as|e|é|são|em|para)\b', text.lower()):
+    if re.search(r'\b(o|a|os|as|e|é|são|em|para)\b', text):
         return "pt"
 
-    # Default to English
+    # Default to English if no other language is detected
     return "en"
 
 

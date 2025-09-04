@@ -73,6 +73,8 @@ class APIManager:
         self._lock = threading.RLock()
         self._error_handlers: List[Callable[[APIError], None]] = []
         self._is_initialized = False
+        self._model_cache: Dict[APIProvider, tuple] = {}  # (models_list, timestamp)
+        self._model_cache_ttl = 3600  # 1 hour cache
 
     def initialize(self) -> bool:
         """Initialize API manager with configured providers."""
@@ -198,9 +200,11 @@ class APIManager:
 
         try:
             # Make the request
+            logger.debug(f"Making API request to provider '{provider.value}' with args: {kwargs}")
             start_time = time.time()
             response = await client.chat.completions.create(**kwargs)
             request_time = time.time() - start_time
+            logger.debug(f"Raw API response: {response}")
 
             # Update usage statistics
             with self._lock:
@@ -311,14 +315,132 @@ class APIManager:
             "success_rate": (usage.successful_requests / usage.requests_count * 100) if usage.requests_count > 0 else 100.0
         }
 
+    async def get_available_models_async(self, provider: APIProvider) -> List[str]:
+        """Get list of available models from API provider."""
+        if not self.is_initialized():
+            raise RuntimeError("API manager not initialized")
+
+        # Check cache first
+        with self._lock:
+            if provider in self._model_cache:
+                models, timestamp = self._model_cache[provider]
+                if time.time() - timestamp < self._model_cache_ttl:
+                    logger.debug(f"Using cached models for {provider.value}")
+                    return models
+
+        client = self._clients.get(provider)
+        if not client:
+            raise ValueError(f"Provider {provider.value} not configured")
+
+        try:
+            if provider == APIProvider.OPENAI:
+                # Get models from OpenAI API
+                models_response = await client.models.list()
+
+                # Debug: log all available models
+                all_models = [model.id for model in models_response.data]
+                logger.debug(f"All available models from API: {all_models}")
+
+                # Filter for chat completion models only
+                chat_models = []
+                for model in models_response.data:
+                    model_id = model.id.lower()
+                    # Include only models that start with gpt and are known to support chat
+                    if (model_id.startswith("gpt-") or model_id.startswith("chatgpt-")) and not any(exclude in model_id for exclude in [
+                        "audio", "realtime", "image", "dall-e", "tts", "whisper", "embedding", "moderation", "codex"
+                    ]):
+                        chat_models.append(model.id)
+
+                # Sort models by name for consistent ordering (GPT-4/GPT-5 first, then GPT-3.5)
+                chat_models.sort(key=lambda x: (
+                    0 if x.lower().startswith(("gpt-4", "gpt-5", "chatgpt")) else
+                    1 if x.lower().startswith("gpt-3") else 2,
+                    x
+                ), reverse=False)
+
+                logger.debug(f"Filtered chat completion models: {chat_models}")
+                models = chat_models
+
+            else:
+                # For other providers, return default list
+                logger.warning(f"Model listing not implemented for {provider.value}")
+                models = [
+                    "gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-4", "gpt-3.5-turbo"
+                ]
+
+            # Cache the result
+            with self._lock:
+                self._model_cache[provider] = (models, time.time())
+
+            return models
+
+        except Exception as e:
+            logger.error(f"Failed to fetch models from {provider.value}: {e}")
+            # Return fallback list on error
+            fallback_models = [
+                "gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-4", "gpt-3.5-turbo"
+            ]
+
+            # Cache fallback as well to avoid repeated API calls on error
+            with self._lock:
+                self._model_cache[provider] = (fallback_models, time.time())
+
+            return fallback_models
+
+    def get_available_models_sync(self, provider: APIProvider) -> List[str]:
+        """Synchronous wrapper for get_available_models_async."""
+        try:
+            # For Qt applications, we need to handle the running event loop carefully
+            try:
+                loop = asyncio.get_running_loop()
+                # If we have a running loop, we need to use a different approach
+                # Create a new thread to run the async function
+                import concurrent.futures
+                import threading
+
+                def run_async():
+                    new_loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(new_loop)
+                    try:
+                        return new_loop.run_until_complete(self.get_available_models_async(provider))
+                    finally:
+                        new_loop.close()
+
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                    future = executor.submit(run_async)
+                    return future.result(timeout=30)  # 30 second timeout
+
+            except RuntimeError:
+                # No running loop, we can use asyncio.run
+                return asyncio.run(self.get_available_models_async(provider))
+
+        except Exception as e:
+            logger.error(f"Synchronous model fetch failed: {e}")
+            # Return fallback list with GPT models only
+            return [
+                "gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-4", "gpt-3.5-turbo", "gpt-3.5-turbo-16k"
+            ]
+
     def shutdown(self):
         """Shutdown API manager and cleanup resources."""
         with self._lock:
             self._clients.clear()
             self._usage.clear()
             self._error_handlers.clear()
+            self._model_cache.clear()
             self._is_initialized = False
             logger.info("API manager shutdown")
+
+    def clear_model_cache(self, provider: Optional[APIProvider] = None):
+        """Clear model cache for specific provider or all providers."""
+        with self._lock:
+            if provider:
+                if provider in self._model_cache:
+                    del self._model_cache[provider]
+                    logger.info(f"Cleared model cache for {provider.value}")
+            else:
+                self._model_cache.clear()
+                logger.info("Cleared model cache for all providers")
 
 
 # Global API manager instance
