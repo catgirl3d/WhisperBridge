@@ -283,6 +283,13 @@ class SettingsDialog(QDialog, SettingsObserver):
 
         layout.addWidget(lang_group)
 
+        # Translation options: OCR auto-swap and System Prompt
+        # OCR auto-swap checkbox (EN <-> RU)
+        from PySide6.QtWidgets import QCheckBox
+        self.ocr_auto_swap_checkbox = QCheckBox("OCR Auto-swap EN ↔ RU")
+        self.ocr_auto_swap_checkbox.setToolTip("If enabled, OCR translations will auto-swap: English→Russian, Russian→English")
+        layout.addWidget(self.ocr_auto_swap_checkbox)
+
         # System Prompt
         prompt_group = QGroupBox("System Prompt")
         prompt_layout = QVBoxLayout(prompt_group)
@@ -402,6 +409,11 @@ class SettingsDialog(QDialog, SettingsObserver):
         # Translation tab
         self.source_lang_combo.setCurrentText(settings.source_language)
         self.target_lang_combo.setCurrentText(settings.target_language)
+        # OCR auto-swap checkbox (EN <-> RU)
+        try:
+            self.ocr_auto_swap_checkbox.setChecked(bool(getattr(settings, "ocr_auto_swap_en_ru", False)))
+        except Exception:
+            logger.debug("Failed to set ocr_auto_swap_checkbox state from settings")
         self.system_prompt_edit.setPlainText(settings.system_prompt)
 
         # OCR tab
@@ -436,6 +448,8 @@ class SettingsDialog(QDialog, SettingsObserver):
             current["source_language"] = self.source_lang_combo.currentText()
             current["target_language"] = self.target_lang_combo.currentText()
             current["system_prompt"] = self.system_prompt_edit.toPlainText().strip()
+            # OCR auto-swap flag
+            current["ocr_auto_swap_en_ru"] = bool(self.ocr_auto_swap_checkbox.isChecked())
             current["ocr_languages"] = [lang.strip() for lang in self.ocr_languages_edit.text().split(",") if lang.strip()]
             current["ocr_confidence_threshold"] = self.ocr_confidence_spin.value()
             current["translate_hotkey"] = self.translate_hotkey_edit.text().strip()

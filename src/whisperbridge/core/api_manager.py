@@ -8,6 +8,8 @@ error handling, retry logic, and usage monitoring.
 import asyncio
 import time
 import threading
+import json
+from pathlib import Path
 from typing import Dict, Any, Optional, Callable, List
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -17,7 +19,7 @@ import openai
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 from loguru import logger
 
-from .config import settings
+from .config import settings, ensure_config_dir, get_config_path
 from ..utils.api_utils import validate_api_key_format, format_error_message
 
 
@@ -76,6 +78,47 @@ class APIManager:
         self._model_cache: Dict[APIProvider, tuple] = {}  # (models_list, timestamp)
         self._model_cache_ttl = 3600  # 1 hour cache
 
+    def _get_model_cache_path(self) -> Path:
+        """Return path to persistent model cache file."""
+        config_dir = ensure_config_dir()
+        return config_dir / "models_cache.json"
+
+    def _load_model_cache_from_disk(self):
+        """Load persistent model cache into memory if present."""
+        try:
+            path = self._get_model_cache_path()
+            if not path.exists():
+                return
+            with path.open('r', encoding='utf-8') as f:
+                raw = json.load(f)
+            with self._lock:
+                # raw expected as {provider_value: {"models": [...], "timestamp": ts}}
+                for prov_str, entry in raw.items():
+                    try:
+                        prov = APIProvider(prov_str)
+                    except Exception:
+                        continue
+                    models = entry.get("models", [])
+                    ts = entry.get("timestamp", 0)
+                    self._model_cache[prov] = (models, ts)
+                logger.info("Loaded model cache from disk")
+        except Exception as e:
+            logger.warning(f"Failed to load model cache from disk: {e}")
+
+    def _save_model_cache_to_disk(self):
+        """Persist in-memory model cache to disk."""
+        try:
+            path = self._get_model_cache_path()
+            data = {}
+            with self._lock:
+                for prov, (models, ts) in self._model_cache.items():
+                    data[prov.value] = {"models": models, "timestamp": ts}
+            with path.open('w', encoding='utf-8') as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+            logger.debug("Saved model cache to disk")
+        except Exception as e:
+            logger.warning(f"Failed to save model cache to disk: {e}")
+
     def initialize(self) -> bool:
         """Initialize API manager with configured providers."""
         with self._lock:
@@ -108,6 +151,12 @@ class APIManager:
                 # The app can still run OCR and other features
                 self._is_initialized = True
 
+                # Load any persistent model cache from disk so first-run UI can use it
+                try:
+                    self._load_model_cache_from_disk()
+                except Exception as e:
+                    logger.debug(f"Model cache load skipped/failed during initialize: {e}")
+
                 if self._clients:
                     logger.info("API manager initialized successfully with clients")
                 else:
@@ -120,6 +169,11 @@ class APIManager:
                 # Still allow initialization even if there are errors
                 self._is_initialized = True
                 logger.info("API manager initialized with errors (limited functionality)")
+                # Try loading cache even on errors to provide offline model list
+                try:
+                    self._load_model_cache_from_disk()
+                except Exception as _:
+                    pass
                 return True
 
     def is_initialized(self) -> bool:
@@ -371,6 +425,11 @@ class APIManager:
             # Cache the result
             with self._lock:
                 self._model_cache[provider] = (models, time.time())
+            # Persist model cache to disk so next app start can use it
+            try:
+                self._save_model_cache_to_disk()
+            except Exception as e:
+                logger.debug(f"Failed to persist model cache: {e}")
 
             return models
 
@@ -384,6 +443,10 @@ class APIManager:
             # Cache fallback as well to avoid repeated API calls on error
             with self._lock:
                 self._model_cache[provider] = (fallback_models, time.time())
+            try:
+                self._save_model_cache_to_disk()
+            except Exception as e:
+                logger.debug(f"Failed to persist fallback model cache: {e}")
 
             return fallback_models
 

@@ -109,8 +109,34 @@ class CaptureOcrTranslateWorker(QObject):
                     if hasattr(translation_service, "is_initialized") and not translation_service.is_initialized():
                         logger.warning("Translation service not initialized, skipping translation")
                     else:
-                        # Use the synchronous translation API which returns a TranslationResponse
-                        response = translation_service.translate_text_sync(original_text)
+                        # Determine whether OCR auto-swap is enabled in settings
+                        settings = config_service.get_settings()
+                        ocr_auto_swap = getattr(settings, "ocr_auto_swap_en_ru", False)
+
+                        # If auto-swap enabled, detect language and swap en<->ru
+                        if ocr_auto_swap:
+                            try:
+                                from ..utils.api_utils import detect_language
+                                detected = detect_language(original_text) or "auto"
+                                if detected == "en":
+                                    target = "ru"
+                                elif detected == "ru":
+                                    target = "en"
+                                else:
+                                    target = getattr(settings, "target_language", "en")
+
+                                logger.debug(f"OCR auto-swap enabled: detected='{detected}', target='{target}'")
+                                response = translation_service.translate_text_sync(
+                                    original_text, source_lang=detected, target_lang=target
+                                )
+                            except Exception as e:
+                                logger.warning(f"OCR auto-swap detection/translation failed: {e}")
+                                # Fallback to default translation call
+                                response = translation_service.translate_text_sync(original_text)
+                        else:
+                            # Use the synchronous translation API which returns a TranslationResponse
+                            response = translation_service.translate_text_sync(original_text)
+
                         if response and getattr(response, "success", False):
                             translated_text = getattr(response, "translated_text", "") or ""
                             logger.debug("Translation completed successfully")
@@ -842,8 +868,8 @@ class QtApp(QObject, SettingsObserver):
         if not self.is_running:
             self.initialize()
 
-        # Show main window before starting event loop
-        self.show_main_window()
+        # Main window is created but starts hidden to tray
+        # Only accessible through tray menu or hotkeys
 
         try:
             logger.info("Starting Qt-based WhisperBridge main loop...")

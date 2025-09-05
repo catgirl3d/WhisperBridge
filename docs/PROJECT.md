@@ -1,7 +1,3 @@
-# CLAUDE.md
-
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
-
 ## Project Overview
 
 WhisperBridge is a desktop application for quick text translation using OCR (Optical Character Recognition) and GPT API. It allows users to capture screen regions, extract text, and get instant translations via overlay interface, activated by global hotkeys.
@@ -17,31 +13,6 @@ python scripts/run_qt_app.py
 
 *(Legacy CustomTkinter UI has been removed — use the Qt launcher above.)*
 
-### Testing
-
-**Run all tests:**
-```bash
-python temp/tests/test_suite.py
-```
-
-**Run specific test modules:**
-```bash
-python -m pytest temp/tests/test_ocr_integration.py
-python -m pytest temp/tests/test_services/
-```
-
-### Development Setup
-
-**Install dependencies:**
-```bash
-pip install -r requirements.txt
-
-# For Qt UI support:
-pip install PySide6>=6.5.0
-
-# For development tools:
-pip install -e .[dev]
-```
 
 **Code quality tools (from pyproject.toml):**
 ```bash
@@ -149,3 +120,9 @@ Centralized configuration using Pydantic Settings with environment variable supp
 
 ### Error Handling
 Comprehensive error handling with retry mechanisms for API calls, fallback strategies for OCR, and user-friendly error reporting.
+
+
+src/whisperbridge/ui_qt/app.py (OCR translation handling)
+src/whisperbridge/ui_qt/settings_dialog.py (UI controls)
+src/whisperbridge/ui_qt/overlay_window.py (checkbox persistence)
+src/whisperbridge/services/translation_service.py (translation logic)

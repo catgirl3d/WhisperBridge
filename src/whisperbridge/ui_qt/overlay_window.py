@@ -3,10 +3,13 @@ Overlay window implementation for Qt-based UI.
 """
 
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QLabel, QTextEdit, QApplication
-from PySide6.QtCore import Qt, QPoint, QRect, QTimer
+from PySide6.QtCore import Qt, QPoint, QRect, QTimer, QThread, Signal, QObject, QSize
 from PySide6.QtGui import QFont, QKeyEvent
 
+import qtawesome as qta
+
 from loguru import logger
+from ..services.config_service import config_service
 
 
 class OverlayWindow(QWidget):
@@ -43,8 +46,38 @@ class OverlayWindow(QWidget):
         # Original text label and widget
         self.original_label = QLabel("Оригинал:")
         self.original_label.setFont(QFont("Arial", 10, QFont.Bold))
-        layout.addWidget(self.original_label)
-
+ 
+        # Row: Original label + detected language + auto-swap checkbox
+        from PySide6.QtWidgets import QHBoxLayout, QSpacerItem, QSizePolicy, QCheckBox
+        orig_row = QHBoxLayout()
+        orig_row.addWidget(self.original_label)
+        orig_row.addItem(QSpacerItem(10, 10, QSizePolicy.Expanding, QSizePolicy.Minimum))
+ 
+        # Detected language label (short)
+        self.detected_lang_label = QLabel("Язык: —")
+        self.detected_lang_label.setFixedWidth(120)
+        orig_row.addWidget(self.detected_lang_label)
+ 
+        # Auto-swap checkbox for EN <-> RU behavior
+        self.auto_swap_checkbox = QCheckBox("Авто-перевод EN ↔ RU")
+        self.auto_swap_checkbox.setToolTip("Если включено, английский будет переводиться на русский, а русский — на английский")
+        # Initialize state from settings (fallback True)
+        try:
+            cfg = config_service.get_settings()
+            init_state = bool(getattr(cfg, "ocr_auto_swap_en_ru", True))
+            self.auto_swap_checkbox.setChecked(init_state)
+        except Exception:
+            logger.debug("Failed to load ocr_auto_swap_en_ru from config; defaulting to True")
+            self.auto_swap_checkbox.setChecked(True)
+        # Persist changes when user toggles the checkbox
+        try:
+            self.auto_swap_checkbox.stateChanged.connect(self._on_auto_swap_changed)
+        except Exception:
+            logger.debug("Failed to connect auto_swap_checkbox.stateChanged")
+        orig_row.addWidget(self.auto_swap_checkbox)
+ 
+        layout.addLayout(orig_row)
+ 
         self.original_text = QTextEdit()
         # Make the field interactive (editable) so user can select/modify text
         self.original_text.setReadOnly(False)
@@ -71,13 +104,33 @@ class OverlayWindow(QWidget):
         from PySide6.QtWidgets import QHBoxLayout, QPushButton, QSpacerItem, QSizePolicy
         btn_row_orig = QHBoxLayout()
         btn_row_orig.addItem(QSpacerItem(10, 10, QSizePolicy.Expanding, QSizePolicy.Minimum))
+ 
+        # Translate button under the original field
+        self.translate_btn = QPushButton("Перевести")
+        self.translate_btn.setFixedHeight(28)
+        self.translate_btn.setFixedWidth(120)
+        self.translate_btn.setIcon(qta.icon('fa5s.language', color='black'))
+        self.translate_btn.setIconSize(QSize(16, 16))
+        self.translate_btn.clicked.connect(self._on_translate_clicked)
+        btn_row_orig.addWidget(self.translate_btn)
+ 
+        # Copy original button (kept for parity with existing UI)
         self.copy_original_btn = QPushButton("Копировать оригинал")
         # Ensure button size
         self.copy_original_btn.setFixedHeight(28)
         self.copy_original_btn.setFixedWidth(160)
+        self.copy_original_btn.setIcon(qta.icon('fa5s.copy', color='black'))
+        self.copy_original_btn.setIconSize(QSize(16, 16))
         self.copy_original_btn.clicked.connect(self._copy_original_to_clipboard)
         btn_row_orig.addWidget(self.copy_original_btn)
+ 
         layout.addLayout(btn_row_orig)
+ 
+        # Update detected language when original text changes
+        try:
+            self.original_text.textChanged.connect(self._on_original_text_changed)
+        except Exception:
+            logger.debug("Failed to connect original_text.textChanged signal")
 
         # Translated text label and widget
         self.translated_label = QLabel("Перевод:")
@@ -107,7 +160,7 @@ class OverlayWindow(QWidget):
         # Buttons row for translated text (positioned under the field)
         btn_row_tr = QHBoxLayout()
         btn_row_tr.addItem(QSpacerItem(10, 10, QSizePolicy.Expanding, QSizePolicy.Minimum))
-        self.copy_translated_btn = QPushButton("Копировать перевод")
+        self.copy_translated_btn = QPushButton("Копировать")
         self.copy_translated_btn.setFixedHeight(28)
         self.copy_translated_btn.setFixedWidth(160)
         self.copy_translated_btn.clicked.connect(self._copy_translated_to_clipboard)
@@ -234,6 +287,158 @@ class OverlayWindow(QWidget):
             QTimer.singleShot(1200, lambda: self.copy_original_btn.setText("Копировать оригинал"))
         except Exception as e:
             logger.error(f"Failed to copy original text: {e}")
+
+    def _on_original_text_changed(self):
+        """Update detected language label when original text changes."""
+        try:
+            from ..utils.api_utils import detect_language, get_language_name
+            text = self.original_text.toPlainText().strip()
+            if not text:
+                self.detected_lang_label.setText("Язык: —")
+                return
+
+            # Detect language (may return codes like 'en', 'ru', etc.)
+            lang_code = detect_language(text)
+            if lang_code:
+                lang_name = get_language_name(lang_code)
+                # Show short name in Russian UI, e.g., "Язык: English"
+                self.detected_lang_label.setText(f"Язык: {lang_name}")
+            else:
+                self.detected_lang_label.setText("Язык: —")
+        except Exception as e:
+            logger.debug(f"Failed to update detected language label: {e}")
+
+    def _on_auto_swap_changed(self, state):
+        """Persist OCR auto-swap checkbox state to settings when changed."""
+        try:
+            enabled = bool(state)
+            try:
+                # Use config_service to get and save settings
+                current = config_service.get_settings()
+                current.ocr_auto_swap_en_ru = enabled
+                # Save via config_service so observers are notified
+                config_service.save_settings(current)
+                logger.info(f"OCR auto-swap setting updated: {enabled}")
+            except Exception as e:
+                logger.error(f"Failed to save OCR auto-swap setting: {e}")
+        except Exception as e:
+            logger.debug(f"Error in _on_auto_swap_changed: {e}")
+
+    def _on_translate_clicked(self):
+        """Translate the text from the original_text field and put result into translated_text using a background thread."""
+        try:
+            text = self.original_text.toPlainText().strip()
+            if not text:
+                logger.info("Translate button clicked with empty original_text")
+                return
+
+            # Disable button and provide feedback
+            self.translate_btn.setEnabled(False)
+            prev_text = self.translate_btn.text()
+            self.translate_btn.setText("Перевод...")
+            QApplication.processEvents()
+
+            # Worker that runs translation in a separate thread and its own event loop
+            class TranslationWorker(QObject):
+                finished = Signal(bool, str)  # success, result_or_error
+
+                def __init__(self, text_to_translate: str):
+                    super().__init__()
+                    self.text = text_to_translate
+
+                def run(self):
+                    try:
+                        from ..services.translation_service import get_translation_service
+                        from ..utils.api_utils import detect_language
+                        from ..core.config import settings as core_settings
+                        service = get_translation_service()
+
+                        # Detect source language from text
+                        detected = detect_language(self.text) or "auto"
+
+                        # Choose target language: en <-> ru swap; fallback to configured target
+                        if detected == "en":
+                            target = "ru"
+                        elif detected == "ru":
+                            target = "en"
+                        else:
+                            target = getattr(core_settings, "target_language", "en")
+
+                        logger.debug(f"Detected language '{detected}' for translation request; using target '{target}'")
+
+                        import asyncio
+                        # Create and use a new event loop in this thread to avoid conflicting with Qt's loop
+                        loop = asyncio.new_event_loop()
+                        try:
+                            asyncio.set_event_loop(loop)
+                            resp = loop.run_until_complete(
+                                service.translate_text_async(self.text, source_lang=detected, target_lang=target)
+                            )
+                        finally:
+                            try:
+                                loop.close()
+                            except Exception:
+                                pass
+
+                        if resp and getattr(resp, "success", False):
+                            self.finished.emit(True, resp.translated_text or "")
+                        else:
+                            self.finished.emit(False, getattr(resp, "error_message", "Translation failed"))
+                    except Exception as e:
+                        self.finished.emit(False, str(e))
+
+            # Create worker and thread
+            self._translation_worker = TranslationWorker(text)
+            self._translation_thread = QThread()
+            self._translation_worker.moveToThread(self._translation_thread)
+
+            # Connect signals
+            # Store prev_text on the instance so the slot runs in the main thread and can access it safely
+            self._translation_prev_text = prev_text
+            self._translation_worker.finished.connect(self._on_translation_finished)
+            self._translation_thread.started.connect(self._translation_worker.run)
+
+            # Cleanup
+            self._translation_worker.finished.connect(self._translation_thread.quit)
+            self._translation_worker.finished.connect(self._translation_worker.deleteLater)
+            self._translation_thread.finished.connect(self._translation_thread.deleteLater)
+
+            # Start background translation
+            self._translation_thread.start()
+
+        except Exception as e:
+            logger.error(f"Error starting translation worker: {e}")
+            from PySide6.QtWidgets import QMessageBox
+            QMessageBox.critical(self, "Ошибка", f"Ошибка при запуске перевода: {e}")
+            # Ensure button re-enabled
+            try:
+                self.translate_btn.setEnabled(True)
+                self.translate_btn.setText("Перевести")
+            except Exception:
+                pass
+
+    def _on_translation_finished(self, success: bool, result: str):
+        """Handle completion of background translation."""
+        try:
+            if success:
+                # This slot runs in the main (GUI) thread — safe to update widgets
+                self.translated_text.setPlainText(result)
+                logger.info("Translation completed and inserted into translated_text")
+            else:
+                from PySide6.QtWidgets import QMessageBox
+                QMessageBox.warning(self, "Перевод не удался", f"Ошибка перевода: {result}")
+                logger.error(f"Translation failed: {result}")
+        finally:
+            try:
+                # Use stored prev_text (set when translation started)
+                prev_text = getattr(self, "_translation_prev_text", "Перевести")
+                self.translate_btn.setEnabled(True)
+                self.translate_btn.setText(prev_text)
+                # Clean up stored value
+                if hasattr(self, "_translation_prev_text"):
+                    delattr(self, "_translation_prev_text")
+            except Exception:
+                pass
 
     def _copy_translated_to_clipboard(self):
         """Copy translated text to clipboard."""

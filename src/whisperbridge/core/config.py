@@ -29,8 +29,17 @@ class Settings(BaseSettings):
     source_language: str = Field(default="auto", description="Source language (auto for detection)")
     target_language: str = Field(default="ru", description="Target language")
     supported_languages: List[str] = Field(
-        default=["en", "ru", "es", "fr", "de", "it", "pt", "ja", "ko", "zh"],
+        default=["en", "ru", "de", "ua"],
         description="List of supported languages"
+    )
+
+    # Translation behavior flags
+    # When True, OCR translation will auto-swap between English and Russian:
+    # - If OCR detects English, translate to Russian
+    # - If OCR detects Russian, translate to English
+    ocr_auto_swap_en_ru: bool = Field(
+        default=True,
+        description="If enabled, OCR translations will auto-swap EN <-> RU based on detected language"
     )
 
     # Hotkeys
