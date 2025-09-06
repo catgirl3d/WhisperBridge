@@ -57,7 +57,8 @@ class ClipboardService:
 
             try:
                 # Initialize clipboard content
-                self._last_clipboard_content = self._get_clipboard_content_safe()
+                with self._lock:
+                    self._last_clipboard_content = self._get_clipboard_content_safe()
 
                 # Start monitoring thread
                 self._monitor_thread = threading.Thread(
@@ -173,11 +174,12 @@ class ClipboardService:
 
         while not self._shutdown_event.is_set():
             try:
-                current_content = self._get_clipboard_content_safe()
+                with self._lock:
+                    current_content = self._get_clipboard_content_safe()
 
-                if current_content != self._last_clipboard_content:
-                    self._last_clipboard_content = current_content
-                    self._notify_change_callbacks(current_content)
+                    if current_content != self._last_clipboard_content:
+                        self._last_clipboard_content = current_content
+                        self._notify_change_callbacks(current_content)
 
                 # Wait before next check
                 self._shutdown_event.wait(self._monitor_interval)
@@ -235,7 +237,36 @@ class ClipboardService:
                 self._monitor_thread.join(timeout=1.0)
         except Exception as e:
             logger.error(f"Error during cleanup: {e}")
-
+ 
     def __del__(self):
         """Destructor to ensure cleanup."""
         self.stop()
+ 
+# Singleton accessor for ClipboardService
+# Provides a single started instance that can be reused across the application.
+_clipboard_service_instance: Optional[ClipboardService] = None
+ 
+def get_clipboard_service() -> Optional[ClipboardService]:
+    """
+    Return a singleton ClipboardService instance. If pyperclip is not available
+    or initialization fails, returns None.
+    """
+    global _clipboard_service_instance
+    if _clipboard_service_instance is not None:
+        return _clipboard_service_instance
+    try:
+        svc = ClipboardService()
+        try:
+            started = svc.start()
+        except Exception as e_start:
+            logger.error(f"ClipboardService.start() raised an exception: {e_start}")
+            started = False
+        if not started:
+            logger.warning("ClipboardService failed to start; clipboard functionality may be limited")
+            return None
+        _clipboard_service_instance = svc
+        logger.info("ClipboardService singleton created and started")
+        return _clipboard_service_instance
+    except Exception as e:
+        logger.error(f"Failed to create ClipboardService singleton: {e}")
+        return None

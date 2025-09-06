@@ -332,32 +332,45 @@ class SettingsDialog(QDialog, SettingsObserver):
         """Create hotkeys settings tab."""
         tab = QWidget()
         layout = QVBoxLayout(tab)
-
+    
         # Hotkey settings
         hotkey_group = QGroupBox("Hotkey Configuration")
         hotkey_layout = QFormLayout(hotkey_group)
-
+    
         self.translate_hotkey_edit = QLineEdit()
         hotkey_layout.addRow("Translate Hotkey:", self.translate_hotkey_edit)
-
+    
         self.quick_translate_hotkey_edit = QLineEdit()
         hotkey_layout.addRow("Quick Translate Hotkey:", self.quick_translate_hotkey_edit)
-
+    
         self.activation_hotkey_edit = QLineEdit()
         hotkey_layout.addRow("Activation Hotkey:", self.activation_hotkey_edit)
-
+    
         self.copy_translate_hotkey_edit = QLineEdit()
         hotkey_layout.addRow("Copy→Translate Hotkey:", self.copy_translate_hotkey_edit)
-
+    
+        # Copy-translate enhancements
+        # Automatically copy translated text to clipboard
+        self.auto_copy_translated_check = QCheckBox("Automatically copy translated text to clipboard")
+        self.auto_copy_translated_check.setToolTip("If enabled, translated text will be copied to the clipboard automatically after translation.")
+        hotkey_layout.addRow(self.auto_copy_translated_check)
+    
+        # Clipboard polling timeout (ms)
+        self.clipboard_poll_timeout_spin = QSpinBox()
+        self.clipboard_poll_timeout_spin.setRange(500, 10000)
+        self.clipboard_poll_timeout_spin.setSingleStep(100)
+        self.clipboard_poll_timeout_spin.setSuffix(" ms")
+        hotkey_layout.addRow("Clipboard polling timeout (ms):", self.clipboard_poll_timeout_spin)
+    
         layout.addWidget(hotkey_group)
-
+    
         # Help text
         help_label = QLabel("Use format like 'ctrl+shift+t' or 'alt+f1'")
         help_label.setStyleSheet("color: gray; font-style: italic;")
         layout.addWidget(help_label)
-
+    
         layout.addStretch()
-
+    
         self.tab_widget.addTab(tab, "Hotkeys")
 
     def _create_general_tab(self):
@@ -428,7 +441,18 @@ class SettingsDialog(QDialog, SettingsObserver):
         self.quick_translate_hotkey_edit.setText(settings.quick_translate_hotkey)
         self.activation_hotkey_edit.setText(settings.activation_hotkey)
         self.copy_translate_hotkey_edit.setText(settings.copy_translate_hotkey)
-
+    
+        # Copy-translate enhancements - load safely with defaults
+        try:
+            self.auto_copy_translated_check.setChecked(bool(getattr(settings, "auto_copy_translated", False)))
+        except Exception:
+            logger.debug("Failed to set auto_copy_translated state from settings")
+        try:
+            self.clipboard_poll_timeout_spin.setValue(int(getattr(settings, "clipboard_poll_timeout_ms", 2000)))
+        except Exception:
+            logger.debug("Failed to set clipboard_poll_timeout_ms from settings; defaulting to 2000")
+            self.clipboard_poll_timeout_spin.setValue(2000)
+    
         # General tab
         self.theme_combo.setCurrentText(settings.theme)
         self.show_notifications_check.setChecked(settings.show_notifications)
@@ -460,6 +484,11 @@ class SettingsDialog(QDialog, SettingsObserver):
             current["quick_translate_hotkey"] = self.quick_translate_hotkey_edit.text().strip()
             current["activation_hotkey"] = self.activation_hotkey_edit.text().strip()
             current["copy_translate_hotkey"] = self.copy_translate_hotkey_edit.text().strip()
+    
+            # Copy-translate enhancements - persist UI values
+            current["auto_copy_translated"] = bool(self.auto_copy_translated_check.isChecked())
+            current["clipboard_poll_timeout_ms"] = int(self.clipboard_poll_timeout_spin.value())
+    
             selected_theme = self.theme_combo.currentText()
             current["theme"] = selected_theme
             current["show_notifications"] = self.show_notifications_check.isChecked()

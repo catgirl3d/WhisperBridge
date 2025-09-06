@@ -48,6 +48,16 @@ class Settings(BaseSettings):
     activation_hotkey: str = Field(default="ctrl+shift+a", description="Activation hotkey")
     copy_translate_hotkey: str = Field(default="ctrl+shift+j", description="Hotkey that copies selected text and translates it")
 
+    # Copy-Translate enhancements
+    auto_copy_translated: bool = Field(
+        default=False,
+        description="Automatically copy translated text to clipboard"
+    )
+    clipboard_poll_timeout_ms: int = Field(
+        default=2000,
+        description="Clipboard polling timeout in milliseconds (used by clipboard monitoring)"
+    )
+
     # System Prompt
     system_prompt: str = Field(
         default="You are a translation engine. Do not reason. Do not explain. Do not add any extra text. Only return the translated text.",
@@ -123,6 +133,18 @@ class Settings(BaseSettings):
         if v not in valid_providers:
             raise ValueError(f'Invalid API provider: {v}. Must be one of {valid_providers}')
         return v
+
+    @field_validator('clipboard_poll_timeout_ms')
+    @classmethod
+    def validate_clipboard_timeout(cls, v: int) -> int:
+        """Validate clipboard polling timeout (ms). Must be between 500 and 10000."""
+        try:
+            iv = int(v)
+        except Exception:
+            raise ValueError("clipboard_poll_timeout_ms must be an integer")
+        if iv < 500 or iv > 10000:
+            raise ValueError("clipboard_poll_timeout_ms must be between 500 and 10000")
+        return iv
 
     @field_validator('ui_backend', mode='before')
     @classmethod

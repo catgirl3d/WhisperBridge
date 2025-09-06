@@ -8,14 +8,6 @@ from typing import Optional, Dict, Any
 import time
 from PySide6.QtWidgets import QApplication
 
-try:
-    from pynput.keyboard import Controller, Key
-    PYNPUT_AVAILABLE = True
-except ImportError:
-    logger.warning("pynput not available. Copy-translate hotkey will not function.")
-    PYNPUT_AVAILABLE = False
-    Controller = None
-    Key = None
 from PySide6.QtCore import Qt, QObject, Signal, Slot, QThread
 from PySide6.QtGui import QPalette, QColor
 
@@ -33,7 +25,18 @@ from ..core.api_manager import init_api_manager
 from ..utils.screen_utils import Rectangle
 from ..services.screen_capture_service import get_capture_service
 from ..services.config_service import config_service, SettingsObserver
+# Clipboard singleton accessor (used to obtain a shared ClipboardService)
+from ..services.clipboard_service import get_clipboard_service
 from loguru import logger
+
+try:
+    from pynput.keyboard import Controller, Key
+    PYNPUT_AVAILABLE = True
+except ImportError:
+    logger.warning("pynput not available. Copy-translate hotkey will not function.")
+    PYNPUT_AVAILABLE = False
+    Controller = None
+    Key = None
 
 
 class CaptureOcrTranslateWorker(QObject):
@@ -213,15 +216,29 @@ class QtApp(QObject, SettingsObserver):
         self.minimize_to_tray = True
         self.shutdown_requested = False
 
+        # Pending actions (set by hotkey handler and consumed in main thread)
+        self._pending_auto_copy_translated = False
+ 
         # Register as config service observer first
         config_service.add_observer(self)
-
+ 
         # Connect copy-translate signal to slot
         self.copy_translate_signal.connect(self._handle_copy_translate)
-
+ 
+        # Initialize clipboard service singleton (if available)
+        try:
+            self.clipboard_service = get_clipboard_service()
+            if self.clipboard_service:
+                logger.info("ClipboardService initialized and started in QtApp")
+            else:
+                logger.warning("ClipboardService not available; clipboard-backed features may be limited")
+        except Exception as e:
+            self.clipboard_service = None
+            logger.warning(f"Failed to initialize ClipboardService in QtApp: {e}")
+ 
         # Ensure settings are loaded before getting theme
         _ = config_service.get_settings()
-
+ 
         # Theme settings
         self._current_theme = self._get_theme_from_settings()
 
@@ -641,153 +658,225 @@ class QtApp(QObject, SettingsObserver):
             logger.debug("Tray notification shown for application activation")
 
     def _on_copy_translate_hotkey(self):
-        """Handle copy-translate hotkey press using UI Automation first, fallback to simulated Ctrl+C."""
-        logger.info("Copy-translate hotkey pressed (UIA-first handler)")
+        """Handle copy-translate hotkey press — fallback-only simulated Ctrl+C copy.
+        
+        Added: API key presence check and structured performance logging.
+        """
+        logger.info("Copy-translate hotkey pressed (fallback-only handler)")
+        # Performance timing points (perf_counter for high-resolution timing)
+        t_start = time.perf_counter()
+        t_after_sim = None
+        t_after_poll_success = None
+        t_after_translation = None
+
         try:
             import platform
             # Determine platform once for use in fallback logic
             system = platform.system().lower()
-    
-            # Try direct UI Automation (UIA) via comtypes to read selected text from focused control.
-            # This avoids using the clipboard when possible.
-            selected_text = ""
-            try:
-                # Local import to avoid adding a hard dependency unless this path is executed
-                import comtypes.client as cc
-    
-                uia = cc.CreateObject("UIAutomationClient.CUIAutomation")
-                focused = uia.GetFocusedElement()
-                if focused:
-                    # UIA TextPattern Id is 10014 (UIA_TextPatternId)
-                    UIA_TextPatternId = 10014
-                    try:
-                        text_pattern = focused.GetCurrentPattern(UIA_TextPatternId)
-                        # GetSelection returns an array of text ranges
-                        ranges = text_pattern.GetSelection()
-                        # Some implementations return None or empty array if no selection
-                        if ranges and len(ranges) > 0:
-                            # GetText(-1) returns the whole selection
-                            try:
-                                selected_text = ranges[0].GetText(-1) or ""
-                            except Exception:
-                                # Some COM objects may expose GetText as method differently
-                                # fallback to empty selection
-                                selected_text = ""
-                    except Exception:
-                        # Focused element may not support TextPattern
-                        selected_text = ""
-            except Exception as e_uia:
-                logger.debug(f"UIA selection read failed or comtypes not available: {e_uia}")
-    
-            # If UIA delivered text, proceed; otherwise fallback to key simulation + clipboard read
-            if selected_text:
-                logger.debug("Selected text obtained via UIA (no clipboard used)")
-                new_clip = selected_text
-            else:
-                # Fallback: use simplified, more reliable Ctrl+C simulation (always press Ctrl down -> C -> Ctrl up)
-                if not PYNPUT_AVAILABLE:
-                    logger.error("pynput not available for copy-translate fallback")
-                    return
-    
-                from pynput.keyboard import Controller, Key
-                controller = Controller()
-    
-                # Prepare clipboard service and read previous content BEFORE simulating copy
-                from ..services.clipboard_service import ClipboardService
-                clipboard_service = ClipboardService()
-                prev_clip = clipboard_service.get_clipboard_text() or ""
-    
-                # Increased pre-delay to allow user to release modifiers (prevent accidental physical modifiers)
-                pre_delay = 0.4  # seconds
-                time.sleep(pre_delay)
-    
-                # On Windows, wait for physical Ctrl to be released before proceeding
-                if system == 'windows':
-                    try:
-                        import ctypes
-                        VK_CONTROL = 0x11
-                        release_timeout = 1.5
-                        release_interval = 0.05
-                        release_elapsed = 0.0
-                        try:
-                            ctrl_down = bool(ctypes.windll.user32.GetAsyncKeyState(VK_CONTROL) & 0x8000)
-                        except Exception:
-                            ctrl_down = False
-                        if ctrl_down:
-                            logger.debug("Physical Ctrl detected down; waiting for release before simulating copy")
-                            while release_elapsed < release_timeout:
-                                try:
-                                    if not (ctypes.windll.user32.GetAsyncKeyState(VK_CONTROL) & 0x8000):
-                                        break
-                                except Exception:
-                                    # If we can't query state, stop waiting and proceed
-                                    break
-                                time.sleep(release_interval)
-                                release_elapsed += release_interval
-                            # Re-check
-                            try:
-                                still_down = bool(ctypes.windll.user32.GetAsyncKeyState(VK_CONTROL) & 0x8000)
-                            except Exception:
-                                still_down = False
-                            if still_down:
-                                logger.info("Physical Ctrl key still down after waiting; aborting copy-translate to avoid accidental trigger")
-                                return
-                    except Exception as e_ctrl_wait:
-                        logger.debug(f"Failed to detect/wait for Ctrl key state: {e_ctrl_wait}")
-    
+
+            # Fallback-only approach: simulate Ctrl+C and read clipboard
+            if not PYNPUT_AVAILABLE:
+                logger.error("pynput not available for copy-translate fallback")
+                if self.tray_manager:
+                    self.tray_manager.show_notification(
+                        "WhisperBridge",
+                        "Copy-translate failed: pynput not installed"
+                    )
+                # Log final summary with zeros since we didn't proceed
+                t_end = time.perf_counter()
+                logger.info(f"Copy-translate performance: clipboard=0ms, translation=0ms, total={(t_end - t_start) * 1000:.0f}ms")
+                return
+
+            from pynput.keyboard import Controller, Key
+            controller = Controller()
+
+            # Prepare clipboard service and read previous content BEFORE simulating copy
+            clipboard_service = getattr(self, "clipboard_service", None)
+            if clipboard_service is None:
+                clipboard_service = get_clipboard_service()
+            if clipboard_service is None:
+                logger.error("Clipboard service not available; aborting copy-translate")
+                if self.tray_manager:
+                    self.tray_manager.show_notification(
+                        "WhisperBridge",
+                        "Copy-translate failed: clipboard service unavailable"
+                    )
+                t_end = time.perf_counter()
+                logger.info(f"Copy-translate performance: clipboard=0ms, translation=0ms, total={(t_end - t_start) * 1000:.0f}ms")
+                return
+            prev_clip = clipboard_service.get_clipboard_text() or ""
+
+            # Increased pre-delay to allow user to release modifiers (prevent accidental physical modifiers)
+            pre_delay = 0.4  # seconds
+            time.sleep(pre_delay)
+
+            # On Windows, wait for physical Ctrl to be released before proceeding
+            if system == 'windows':
                 try:
-                    # Always send Ctrl down, send 'c', then Ctrl up.
-                    controller.press(Key.ctrl)
-                    controller.press('c')
-                    controller.release('c')
-                    controller.release(Key.ctrl)
-                except Exception as e:
-                    logger.error(f"Fallback copy simulation failed: {e}")
-                    return
-    
-                # Short pause to allow OS to update clipboard
-                time.sleep(0.08)
-    
-                # Poll clipboard for changed content
-                timeout = 2.0  # increased timeout for reliability
-                interval = 0.05
-                elapsed = 0.0
-                new_clip = prev_clip
-                while elapsed < timeout:
-                    new_clip = clipboard_service.get_clipboard_text() or ""
-                    if new_clip and new_clip != prev_clip:
-                        break
-                    time.sleep(interval)
-                    elapsed += interval
-    
-                # If simulation did not change clipboard, abort — only translate when clipboard changed.
-                if not new_clip or new_clip == prev_clip:
-                    logger.info("No new clipboard text detected after fallback simulated copy; aborting copy-translate")
-                    return
-    
-            # At this point new_clip contains the text to translate (either from UIA or clipboard fallback)
+                    import ctypes
+                    VK_CONTROL = 0x11
+                    release_timeout = 1.5
+                    release_interval = 0.05
+                    release_elapsed = 0.0
+                    try:
+                        ctrl_down = bool(ctypes.windll.user32.GetAsyncKeyState(VK_CONTROL) & 0x8000)
+                    except Exception:
+                        ctrl_down = False
+                    if ctrl_down:
+                        logger.debug("Physical Ctrl detected down; waiting for release before simulating copy")
+                        while release_elapsed < release_timeout:
+                            try:
+                                if not (ctypes.windll.user32.GetAsyncKeyState(VK_CONTROL) & 0x8000):
+                                    break
+                            except Exception:
+                                # If we can't query state, stop waiting and proceed
+                                break
+                            time.sleep(release_interval)
+                            release_elapsed += release_interval
+                        # Re-check
+                        try:
+                            still_down = bool(ctypes.windll.user32.GetAsyncKeyState(VK_CONTROL) & 0x8000)
+                        except Exception:
+                            still_down = False
+                        if still_down:
+                            logger.info("Physical Ctrl key still down after waiting; aborting copy-translate to avoid accidental trigger")
+                            if self.tray_manager:
+                                self.tray_manager.show_notification(
+                                    "WhisperBridge",
+                                    "Copy-translate aborted: physical Ctrl key held down"
+                                )
+                            t_end = time.perf_counter()
+                            logger.info(f"Copy-translate performance: clipboard=0ms, translation=0ms, total={(t_end - t_start) * 1000:.0f}ms")
+                            return
+                except Exception as e_ctrl_wait:
+                    logger.debug(f"Failed to detect/wait for Ctrl key state: {e_ctrl_wait}")
+
+            try:
+                logger.debug("Starting fallback simulated Ctrl+C copy")
+                # Always send Ctrl down, send 'c', then Ctrl up.
+                controller.press(Key.ctrl)
+                controller.press('c')
+                controller.release('c')
+                controller.release(Key.ctrl)
+                # Mark after-simulation timepoint
+                t_after_sim = time.perf_counter()
+            except Exception as e:
+                logger.error(f"Fallback copy simulation failed: {e}")
+                if self.tray_manager:
+                    self.tray_manager.show_notification(
+                        "WhisperBridge",
+                        f"Copy-translate fallback failed: {e}"
+                    )
+                t_end = time.perf_counter()
+                logger.info(f"Copy-translate performance: clipboard=0ms, translation=0ms, total={(t_end - t_start) * 1000:.0f}ms")
+                return
+
+            # Short pause to allow OS to update clipboard
+            time.sleep(0.08)
+
+            # Poll clipboard for changed content using exponential backoff and configurable timeout.
+            # Read timeout from config (milliseconds) and convert to seconds.
+            try:
+                timeout_ms = config_service.get_setting("clipboard_poll_timeout_ms", use_cache=False)
+                timeout_ms = int(timeout_ms) if timeout_ms is not None else 2000
+            except Exception as e:
+                logger.debug(f"Failed to read clipboard_poll_timeout_ms from config; using default 2000ms: {e}")
+                timeout_ms = 2000
+            timeout = float(timeout_ms) / 1000.0
+
+            # Exponential backoff parameters
+            start_delay = 0.05
+            max_delay = 0.2
+            backoff_factor = 2.0
+
+            logger.debug(f"Starting clipboard polling with timeout={timeout:.3f}s (configured {timeout_ms}ms), start_delay={start_delay}s, max_delay={max_delay}s")
+
+            poll_start = time.perf_counter()
+            attempts = 0
+            delay = start_delay
+            new_clip = prev_clip
+            # Poll until timeout using exponential backoff
+            while True:
+                attempts += 1
+                elapsed = time.perf_counter() - poll_start
+                logger.debug(f"Clipboard poll attempt #{attempts}: elapsed={elapsed:.3f}s, delay={delay:.3f}s")
+
+                new_clip = clipboard_service.get_clipboard_text() or ""
+                if new_clip and new_clip != prev_clip:
+                    t_after_poll_success = time.perf_counter()
+                    duration = t_after_poll_success - poll_start
+                    logger.info(f"Fallback simulated copy succeeded after {attempts} attempts in {duration:.3f}s")
+                    break
+
+                # Check if we would exceed timeout with the next sleep
+                if (time.perf_counter() - poll_start + delay) >= timeout:
+                    logger.debug(f"Would exceed timeout with next delay ({delay:.3f}s), stopping polling")
+                    break
+
+                # Sleep using the current backoff delay
+                time.sleep(delay)
+                # Increase delay for next attempt
+                delay = min(delay * backoff_factor, max_delay)
+
+            # If simulation did not change clipboard, abort — only translate when clipboard changed.
+            if not new_clip or new_clip == prev_clip:
+                t_after_poll_success = time.perf_counter()
+                total_elapsed = t_after_poll_success - t_start
+                logger.info(f"No new clipboard text detected after polling; timeout reached (elapsed={total_elapsed:.3f}s, attempts={attempts})")
+                if self.tray_manager:
+                    self.tray_manager.show_notification(
+                        "WhisperBridge",
+                        "Copy-translate failed: no clipboard text detected"
+                    )
+                # Performance summary: clipboard time measured from simulation to poll end, translation 0
+                clipboard_ms = ((t_after_poll_success - (t_after_sim or t_start)) * 1000) if t_after_sim else 0
+                t_end = time.perf_counter()
+                total_ms = (t_end - t_start) * 1000
+                logger.info(f"Copy-translate performance: clipboard={clipboard_ms:.0f}ms, translation=0ms, total={total_ms:.0f}ms")
+                return
+
+            # At this point new_clip contains the text to translate (from clipboard)
             text_to_translate = new_clip
             if not text_to_translate:
                 logger.info("No text to translate (empty selection)")
+                if self.tray_manager:
+                    self.tray_manager.show_notification(
+                        "WhisperBridge",
+                        "Copy-translate: no text selected to translate"
+                    )
+                t_end = time.perf_counter()
+                logger.info(f"Copy-translate performance: clipboard=0ms, translation=0ms, total={(t_end - t_start) * 1000:.0f}ms")
                 return
-    
+
+            # Check for API key presence before attempting translation
+            api_key = config_service.get_setting("openai_api_key", use_cache=False)
+            if not api_key:
+                logger.info("No API key configured, showing original text only")
+                # Emit overlay with original text only (no translation attempt)
+                # Performance summary: compute clipboard time, translation=0
+                clipboard_ms = ((t_after_poll_success - (t_after_sim or t_start)) * 1000) if t_after_poll_success and t_after_sim else 0
+                t_end = time.perf_counter()
+                total_ms = (t_end - t_start) * 1000
+                logger.info(f"Copy-translate performance: clipboard={clipboard_ms:.0f}ms, translation=0ms, total={total_ms:.0f}ms")
+                self.copy_translate_signal.emit(text_to_translate, "")
+                logger.info("Copy-translate overlay shown (original text only) due to missing API key")
+                return
+
             # Translate text synchronously (respect ocr_auto_swap_en_ru setting) — with debug logs and live config check
-            from ..services.translation_service import get_translation_service
             translation_service = get_translation_service()
             try:
                 # Try to detect language and apply EN<->RU auto-swap if enabled in settings
                 from ..utils.api_utils import detect_language
-                from ..services.config_service import config_service
-    
+
                 logger.debug(f"Copy-translate: text length={len(text_to_translate)}")
                 detected = detect_language(text_to_translate) or "auto"
                 logger.debug(f"Copy-translate: detected language='{detected}'")
-    
+
                 # Read current settings live from config_service to respect UI changes
                 swap_enabled = bool(config_service.get_setting("ocr_auto_swap_en_ru", use_cache=False))
                 target_cfg = config_service.get_setting("target_language", use_cache=False) or "en"
                 logger.debug(f"Copy-translate: ocr_auto_swap_en_ru={swap_enabled}, configured target='{target_cfg}'")
-    
+
                 if swap_enabled:
                     if detected == "en":
                         target = "ru"
@@ -796,23 +885,61 @@ class QtApp(QObject, SettingsObserver):
                     else:
                         target = target_cfg
                     logger.debug(f"Copy-translate: auto-swap active — translating from '{detected}' to '{target}'")
+                    # Show a brief translating notification
+                    try:
+                        if self.tray_manager:
+                            self.tray_manager.show_notification("WhisperBridge", "Translating...")
+                    except Exception:
+                        pass
                     response = translation_service.translate_text_sync(
                         text_to_translate, source_lang=detected, target_lang=target
                     )
                 else:
                     logger.debug(f"Copy-translate: auto-swap disabled — using configured target '{target_cfg}'")
+                    # Show a brief translating notification
+                    try:
+                        if self.tray_manager:
+                            self.tray_manager.show_notification("WhisperBridge", "Translating...")
+                    except Exception:
+                        pass
                     response = translation_service.translate_text_sync(
                         text_to_translate, source_lang=detected if detected != "auto" else None, target_lang=target_cfg
                     )
             except Exception as exc:
                 logger.error(f"Copy-translate: error during language detection/auto-swap: {exc}", exc_info=True)
                 # Fallback to default translation call on any failure
+                try:
+                    if self.tray_manager:
+                        self.tray_manager.show_notification("WhisperBridge", "Translating...")
+                except Exception:
+                    pass
                 response = translation_service.translate_text_sync(text_to_translate)
+
+            # Mark translation completion time
+            t_after_translation = time.perf_counter()
+
             translated_text = getattr(response, "translated_text", None) or str(response)
-    
+
+            # Read auto_copy_translated setting live and set pending flag so main thread can copy AFTER overlay is shown
+            try:
+                auto_copy = bool(config_service.get_setting("auto_copy_translated", use_cache=False))
+            except Exception as e:
+                logger.debug(f"Failed to read auto_copy_translated setting: {e}")
+                auto_copy = False
+
+            self._pending_auto_copy_translated = auto_copy
+            logger.debug(f"auto_copy_translated={auto_copy}; pending flag set={self._pending_auto_copy_translated}")
+
+            # Performance summary: compute clipboard and translation durations and log once
+            clipboard_ms = ((t_after_poll_success - (t_after_sim or t_start)) * 1000) if (t_after_poll_success and t_after_sim) else 0
+            translation_ms = ((t_after_translation - t_after_poll_success) * 1000) if (t_after_translation and t_after_poll_success) else 0
+            t_end = time.perf_counter()
+            total_ms = (t_end - t_start) * 1000
+            logger.info(f"Copy-translate performance: clipboard={clipboard_ms:.0f}ms, translation={translation_ms:.0f}ms, total={total_ms:.0f}ms")
+
             # Emit signal to show overlay from main thread
             self.copy_translate_signal.emit(text_to_translate, translated_text)
-            logger.info("Copy-translate hotkey processed successfully (UIA path)")
+            logger.info("Copy-translate hotkey processed successfully (fallback simulated copy path)")
         except Exception as e:
             logger.error(f"Error in copy-translate hotkey handler: {e}", exc_info=True)
             if self.tray_manager:
@@ -820,6 +947,16 @@ class QtApp(QObject, SettingsObserver):
                     "WhisperBridge",
                     f"Copy-translate error: {str(e)}"
                 )
+            # Ensure we still log performance summary on unexpected errors
+            try:
+                t_end = time.perf_counter()
+                total_ms = (t_end - t_start) * 1000
+                # If we had poll or sim times, include them; else set to 0
+                clipboard_ms = ((t_after_poll_success - (t_after_sim or t_start)) * 1000) if (t_after_poll_success and t_after_sim) else 0
+                translation_ms = ((t_after_translation - t_after_poll_success) * 1000) if (t_after_translation and t_after_poll_success) else 0
+                logger.info(f"Copy-translate performance: clipboard={clipboard_ms:.0f}ms, translation={translation_ms:.0f}ms, total={total_ms:.0f}ms")
+            except Exception:
+                pass
 
     @Slot(str, str)
     def _handle_copy_translate(self, clipboard_text: str, translated_text: str):
@@ -831,6 +968,26 @@ class QtApp(QObject, SettingsObserver):
         """
         try:
             self.show_overlay_window(clipboard_text, translated_text, overlay_id="copy_translate")
+
+            # If auto-copy was requested, copy translated_text to clipboard AFTER overlay is shown
+            try:
+                if getattr(self, "_pending_auto_copy_translated", False):
+                    clipboard_service = getattr(self, "clipboard_service", None)
+                    if clipboard_service is None:
+                        clipboard_service = get_clipboard_service()
+                    try:
+                        if clipboard_service and clipboard_service.copy_text(translated_text):
+                            logger.info("Translated text copied to clipboard (auto_copy_translated enabled)")
+                        else:
+                            logger.warning("Failed to copy translated text to clipboard (ClipboardService.copy_text returned False or service unavailable)")
+                    except Exception as e:
+                        logger.error(f"Auto-copy failed: {e}", exc_info=True)
+                    finally:
+                        # Clear the pending flag regardless of result to avoid repeated copies
+                        self._pending_auto_copy_translated = False
+            except Exception as e:
+                logger.error(f"Error during auto-copy handling: {e}", exc_info=True)
+
             logger.info("Copy-translate overlay shown successfully")
         except Exception as e:
             logger.error(f"Error showing copy-translate overlay: {e}")
@@ -1131,7 +1288,6 @@ class QtApp(QObject, SettingsObserver):
 
         # Shutdown translation service
         try:
-            from ..services.translation_service import get_translation_service
             translation_service = get_translation_service()
             translation_service.shutdown()
         except Exception as e:
