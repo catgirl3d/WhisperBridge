@@ -7,6 +7,15 @@ import sys
 from typing import Optional, Dict, Any
 import time
 from PySide6.QtWidgets import QApplication
+
+try:
+    from pynput.keyboard import Controller, Key
+    PYNPUT_AVAILABLE = True
+except ImportError:
+    logger.warning("pynput not available. Copy-translate hotkey will not function.")
+    PYNPUT_AVAILABLE = False
+    Controller = None
+    Key = None
 from PySide6.QtCore import Qt, QObject, Signal, Slot, QThread
 from PySide6.QtGui import QPalette, QColor
 
@@ -171,6 +180,9 @@ class CaptureOcrTranslateWorker(QObject):
 class QtApp(QObject, SettingsObserver):
     """Qt-based application class with compatible interface."""
 
+    # Signal for copy-translate hotkey to ensure UI operations happen in main thread
+    copy_translate_signal = Signal(str, str)
+
     def __init__(self):
         """Initialize the Qt application."""
         super().__init__()
@@ -203,6 +215,9 @@ class QtApp(QObject, SettingsObserver):
 
         # Register as config service observer first
         config_service.add_observer(self)
+
+        # Connect copy-translate signal to slot
+        self.copy_translate_signal.connect(self._handle_copy_translate)
 
         # Ensure settings are loaded before getting theme
         _ = config_service.get_settings()
@@ -288,9 +303,9 @@ class QtApp(QObject, SettingsObserver):
             # Initialize keyboard services
             self._create_keyboard_services()
 
-            # Initialize OCR service
-            self._initialize_ocr_service()
-            
+            # Initialize OCR service (Temporarily disabled)
+            # self._initialize_ocr_service()
+
             # Initialize translation service
             self._initialize_translation_service()
 
@@ -386,7 +401,14 @@ class QtApp(QObject, SettingsObserver):
                     "Application activation hotkey"
                 )
 
-            logger.info(f"Registered hotkeys: {current_settings.translate_hotkey}, {current_settings.quick_translate_hotkey}, {current_settings.activation_hotkey}")
+            # Register copy-translate hotkey
+            self.keyboard_manager.register_hotkey(
+                current_settings.copy_translate_hotkey,
+                self._on_copy_translate_hotkey,
+                "Copy->Translate hotkey"
+            )
+
+            logger.info(f"Registered hotkeys: {current_settings.translate_hotkey}, {current_settings.quick_translate_hotkey}, {current_settings.activation_hotkey}, {current_settings.copy_translate_hotkey}")
 
         except Exception as e:
             logger.error(f"Failed to register default hotkeys: {e}")
@@ -474,7 +496,7 @@ class QtApp(QObject, SettingsObserver):
             if new_theme != self._current_theme:
                 self._current_theme = new_theme
                 self._apply_theme()
-        elif key in ["translate_hotkey", "quick_translate_hotkey", "activation_hotkey"]:
+        elif key in ["translate_hotkey", "quick_translate_hotkey", "activation_hotkey", "copy_translate_hotkey"]:
             logger.debug(f"Hotkey setting '{key}' changed from '{old_value}' to '{new_value}'")
             # Reload hotkeys if service is running
             if self.hotkey_service and self.hotkey_service.is_running():
@@ -617,6 +639,206 @@ class QtApp(QObject, SettingsObserver):
                 "Application activated"
             )
             logger.debug("Tray notification shown for application activation")
+
+    def _on_copy_translate_hotkey(self):
+        """Handle copy-translate hotkey press using UI Automation first, fallback to simulated Ctrl+C."""
+        logger.info("Copy-translate hotkey pressed (UIA-first handler)")
+        try:
+            import platform
+            # Determine platform once for use in fallback logic
+            system = platform.system().lower()
+    
+            # Try direct UI Automation (UIA) via comtypes to read selected text from focused control.
+            # This avoids using the clipboard when possible.
+            selected_text = ""
+            try:
+                # Local import to avoid adding a hard dependency unless this path is executed
+                import comtypes.client as cc
+    
+                uia = cc.CreateObject("UIAutomationClient.CUIAutomation")
+                focused = uia.GetFocusedElement()
+                if focused:
+                    # UIA TextPattern Id is 10014 (UIA_TextPatternId)
+                    UIA_TextPatternId = 10014
+                    try:
+                        text_pattern = focused.GetCurrentPattern(UIA_TextPatternId)
+                        # GetSelection returns an array of text ranges
+                        ranges = text_pattern.GetSelection()
+                        # Some implementations return None or empty array if no selection
+                        if ranges and len(ranges) > 0:
+                            # GetText(-1) returns the whole selection
+                            try:
+                                selected_text = ranges[0].GetText(-1) or ""
+                            except Exception:
+                                # Some COM objects may expose GetText as method differently
+                                # fallback to empty selection
+                                selected_text = ""
+                    except Exception:
+                        # Focused element may not support TextPattern
+                        selected_text = ""
+            except Exception as e_uia:
+                logger.debug(f"UIA selection read failed or comtypes not available: {e_uia}")
+    
+            # If UIA delivered text, proceed; otherwise fallback to key simulation + clipboard read
+            if selected_text:
+                logger.debug("Selected text obtained via UIA (no clipboard used)")
+                new_clip = selected_text
+            else:
+                # Fallback: use simplified, more reliable Ctrl+C simulation (always press Ctrl down -> C -> Ctrl up)
+                if not PYNPUT_AVAILABLE:
+                    logger.error("pynput not available for copy-translate fallback")
+                    return
+    
+                from pynput.keyboard import Controller, Key
+                controller = Controller()
+    
+                # Prepare clipboard service and read previous content BEFORE simulating copy
+                from ..services.clipboard_service import ClipboardService
+                clipboard_service = ClipboardService()
+                prev_clip = clipboard_service.get_clipboard_text() or ""
+    
+                # Increased pre-delay to allow user to release modifiers (prevent accidental physical modifiers)
+                pre_delay = 0.4  # seconds
+                time.sleep(pre_delay)
+    
+                # On Windows, wait for physical Ctrl to be released before proceeding
+                if system == 'windows':
+                    try:
+                        import ctypes
+                        VK_CONTROL = 0x11
+                        release_timeout = 1.5
+                        release_interval = 0.05
+                        release_elapsed = 0.0
+                        try:
+                            ctrl_down = bool(ctypes.windll.user32.GetAsyncKeyState(VK_CONTROL) & 0x8000)
+                        except Exception:
+                            ctrl_down = False
+                        if ctrl_down:
+                            logger.debug("Physical Ctrl detected down; waiting for release before simulating copy")
+                            while release_elapsed < release_timeout:
+                                try:
+                                    if not (ctypes.windll.user32.GetAsyncKeyState(VK_CONTROL) & 0x8000):
+                                        break
+                                except Exception:
+                                    # If we can't query state, stop waiting and proceed
+                                    break
+                                time.sleep(release_interval)
+                                release_elapsed += release_interval
+                            # Re-check
+                            try:
+                                still_down = bool(ctypes.windll.user32.GetAsyncKeyState(VK_CONTROL) & 0x8000)
+                            except Exception:
+                                still_down = False
+                            if still_down:
+                                logger.info("Physical Ctrl key still down after waiting; aborting copy-translate to avoid accidental trigger")
+                                return
+                    except Exception as e_ctrl_wait:
+                        logger.debug(f"Failed to detect/wait for Ctrl key state: {e_ctrl_wait}")
+    
+                try:
+                    # Always send Ctrl down, send 'c', then Ctrl up.
+                    controller.press(Key.ctrl)
+                    controller.press('c')
+                    controller.release('c')
+                    controller.release(Key.ctrl)
+                except Exception as e:
+                    logger.error(f"Fallback copy simulation failed: {e}")
+                    return
+    
+                # Short pause to allow OS to update clipboard
+                time.sleep(0.08)
+    
+                # Poll clipboard for changed content
+                timeout = 2.0  # increased timeout for reliability
+                interval = 0.05
+                elapsed = 0.0
+                new_clip = prev_clip
+                while elapsed < timeout:
+                    new_clip = clipboard_service.get_clipboard_text() or ""
+                    if new_clip and new_clip != prev_clip:
+                        break
+                    time.sleep(interval)
+                    elapsed += interval
+    
+                # If simulation did not change clipboard, abort — only translate when clipboard changed.
+                if not new_clip or new_clip == prev_clip:
+                    logger.info("No new clipboard text detected after fallback simulated copy; aborting copy-translate")
+                    return
+    
+            # At this point new_clip contains the text to translate (either from UIA or clipboard fallback)
+            text_to_translate = new_clip
+            if not text_to_translate:
+                logger.info("No text to translate (empty selection)")
+                return
+    
+            # Translate text synchronously (respect ocr_auto_swap_en_ru setting) — with debug logs and live config check
+            from ..services.translation_service import get_translation_service
+            translation_service = get_translation_service()
+            try:
+                # Try to detect language and apply EN<->RU auto-swap if enabled in settings
+                from ..utils.api_utils import detect_language
+                from ..services.config_service import config_service
+    
+                logger.debug(f"Copy-translate: text length={len(text_to_translate)}")
+                detected = detect_language(text_to_translate) or "auto"
+                logger.debug(f"Copy-translate: detected language='{detected}'")
+    
+                # Read current settings live from config_service to respect UI changes
+                swap_enabled = bool(config_service.get_setting("ocr_auto_swap_en_ru", use_cache=False))
+                target_cfg = config_service.get_setting("target_language", use_cache=False) or "en"
+                logger.debug(f"Copy-translate: ocr_auto_swap_en_ru={swap_enabled}, configured target='{target_cfg}'")
+    
+                if swap_enabled:
+                    if detected == "en":
+                        target = "ru"
+                    elif detected == "ru":
+                        target = "en"
+                    else:
+                        target = target_cfg
+                    logger.debug(f"Copy-translate: auto-swap active — translating from '{detected}' to '{target}'")
+                    response = translation_service.translate_text_sync(
+                        text_to_translate, source_lang=detected, target_lang=target
+                    )
+                else:
+                    logger.debug(f"Copy-translate: auto-swap disabled — using configured target '{target_cfg}'")
+                    response = translation_service.translate_text_sync(
+                        text_to_translate, source_lang=detected if detected != "auto" else None, target_lang=target_cfg
+                    )
+            except Exception as exc:
+                logger.error(f"Copy-translate: error during language detection/auto-swap: {exc}", exc_info=True)
+                # Fallback to default translation call on any failure
+                response = translation_service.translate_text_sync(text_to_translate)
+            translated_text = getattr(response, "translated_text", None) or str(response)
+    
+            # Emit signal to show overlay from main thread
+            self.copy_translate_signal.emit(text_to_translate, translated_text)
+            logger.info("Copy-translate hotkey processed successfully (UIA path)")
+        except Exception as e:
+            logger.error(f"Error in copy-translate hotkey handler: {e}", exc_info=True)
+            if self.tray_manager:
+                self.tray_manager.show_notification(
+                    "WhisperBridge",
+                    f"Copy-translate error: {str(e)}"
+                )
+
+    @Slot(str, str)
+    def _handle_copy_translate(self, clipboard_text: str, translated_text: str):
+        """Slot to handle copy-translate signal in main thread.
+
+        This slot is called from the hotkey handler via Qt signal to ensure
+        that overlay window creation happens in the main Qt thread, avoiding
+        threading issues with Qt widgets.
+        """
+        try:
+            self.show_overlay_window(clipboard_text, translated_text, overlay_id="copy_translate")
+            logger.info("Copy-translate overlay shown successfully")
+        except Exception as e:
+            logger.error(f"Error showing copy-translate overlay: {e}")
+            if self.tray_manager:
+                self.tray_manager.show_notification(
+                    "WhisperBridge",
+                    f"Copy-translate overlay error: {str(e)}"
+                )
 
     def activate_ocr(self):
         """Activate OCR selection overlay."""

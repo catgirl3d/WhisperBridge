@@ -119,7 +119,7 @@ class TrayManager(QObject):
                 logger.debug("Unable to apply tray menu stylesheet on this platform")
 
             # Show Main Window action
-            show_action = QAction("Показать окно", self)
+            show_action = QAction("Окно переводчика", self)
             # Make the main/primary action visually stand out (bold)
             try:
                 bold_font = QFont()
@@ -130,13 +130,8 @@ class TrayManager(QObject):
             except Exception:
                 # Non-fatal if styling not supported on a platform
                 logger.debug("Unable to style tray menu action (font/default) on this platform")
-            show_action.triggered.connect(self._on_show_main_window)
+            show_action.triggered.connect(self._on_toggle_overlay)
             self.tray_menu.addAction(show_action)
-
-            # Toggle Overlay action
-            toggle_action = QAction("Переключить оверлей", self)
-            toggle_action.triggered.connect(self._on_toggle_overlay)
-            self.tray_menu.addAction(toggle_action)
 
             # Settings action
             settings_action = QAction("Настройки", self)
@@ -165,9 +160,10 @@ class TrayManager(QObject):
         try:
             if reason == QSystemTrayIcon.ActivationReason.DoubleClick:
                 logger.info("Tray icon double-clicked")
-                self._on_show_main_window()
+                self._on_toggle_overlay()
             elif reason == QSystemTrayIcon.ActivationReason.Trigger:
                 logger.debug("Tray icon single-clicked")
+                self._on_toggle_overlay()
         except Exception as e:
             logger.error(f"Error handling tray activation: {e}")
 

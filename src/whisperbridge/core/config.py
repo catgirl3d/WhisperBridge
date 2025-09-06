@@ -21,7 +21,7 @@ class Settings(BaseSettings):
     # API Settings
     openai_api_key: Optional[str] = Field(default=None, description="OpenAI API key (stored securely)")
     api_provider: str = Field(default="openai", description="API provider")
-    model: str = Field(default="gpt-3.5-turbo", description="GPT model")
+    model: str = Field(default="gpt-5-nano", description="GPT model")
     api_timeout: int = Field(default=30, description="API request timeout in seconds")
     max_retries: int = Field(default=3, description="Maximum API retry attempts")
 
@@ -46,6 +46,7 @@ class Settings(BaseSettings):
     translate_hotkey: str = Field(default="ctrl+shift+t", description="Translate hotkey")
     quick_translate_hotkey: str = Field(default="ctrl+shift+q", description="Quick translate hotkey")
     activation_hotkey: str = Field(default="ctrl+shift+a", description="Activation hotkey")
+    copy_translate_hotkey: str = Field(default="ctrl+shift+j", description="Hotkey that copies selected text and translates it")
 
     # System Prompt
     system_prompt: str = Field(

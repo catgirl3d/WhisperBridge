@@ -346,6 +346,9 @@ class SettingsDialog(QDialog, SettingsObserver):
         self.activation_hotkey_edit = QLineEdit()
         hotkey_layout.addRow("Activation Hotkey:", self.activation_hotkey_edit)
 
+        self.copy_translate_hotkey_edit = QLineEdit()
+        hotkey_layout.addRow("Copy→Translate Hotkey:", self.copy_translate_hotkey_edit)
+
         layout.addWidget(hotkey_group)
 
         # Help text
@@ -424,6 +427,7 @@ class SettingsDialog(QDialog, SettingsObserver):
         self.translate_hotkey_edit.setText(settings.translate_hotkey)
         self.quick_translate_hotkey_edit.setText(settings.quick_translate_hotkey)
         self.activation_hotkey_edit.setText(settings.activation_hotkey)
+        self.copy_translate_hotkey_edit.setText(settings.copy_translate_hotkey)
 
         # General tab
         self.theme_combo.setCurrentText(settings.theme)
@@ -455,6 +459,7 @@ class SettingsDialog(QDialog, SettingsObserver):
             current["translate_hotkey"] = self.translate_hotkey_edit.text().strip()
             current["quick_translate_hotkey"] = self.quick_translate_hotkey_edit.text().strip()
             current["activation_hotkey"] = self.activation_hotkey_edit.text().strip()
+            current["copy_translate_hotkey"] = self.copy_translate_hotkey_edit.text().strip()
             selected_theme = self.theme_combo.currentText()
             current["theme"] = selected_theme
             current["show_notifications"] = self.show_notifications_check.isChecked()

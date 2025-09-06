@@ -69,6 +69,7 @@ class SettingsManager:
 
         # Add UI backend field
         data.setdefault('ui_backend', 'qt')
+        data.setdefault('copy_translate_hotkey', 'ctrl+shift+j')
 
         return data
 

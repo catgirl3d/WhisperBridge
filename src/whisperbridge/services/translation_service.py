@@ -22,6 +22,7 @@ from ..utils.api_utils import (
     format_translation_prompt,
     validate_translation_response,
     detect_language,
+    parse_gpt_response,
     TranslationRequest,
     TranslationResponse
 )
@@ -322,9 +323,10 @@ class TranslationService:
                 **api_params
             )
 
-            # Extract translation from response
-            translated_text = response.choices[0].message.content.strip()
-
+            # Extract translation from response (clean common GPT prefixes)
+            raw_text = response.choices[0].message.content
+            translated_text = parse_gpt_response(raw_text).strip()
+       
             return TranslationResponse(
                 success=True,
                 translated_text=translated_text,

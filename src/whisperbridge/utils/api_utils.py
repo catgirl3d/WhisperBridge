@@ -37,23 +37,24 @@ class TranslationResponse:
 
 
 def format_translation_prompt(request: TranslationRequest) -> str:
-    """Format translation prompt for GPT API."""
+    """Format translation prompt for GPT API.
+
+    Note: do not include a trailing 'Translation:' label so the model
+    is not prompted to echo that label in its response.
+    """
     if request.source_lang == "auto":
         prompt = f"""Translate the following text to {request.target_lang}.
 If the source language is already {request.target_lang}, return the original text unchanged.
 
 Text to translate:
 {request.text}
-
-Translation:"""
+"""
     else:
         prompt = f"""Translate the following text from {request.source_lang} to {request.target_lang}.
 
 Text to translate:
 {request.text}
-
-Translation:"""
-
+"""
     return prompt
 
 

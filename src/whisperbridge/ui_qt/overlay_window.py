@@ -2,7 +2,7 @@
 Overlay window implementation for Qt-based UI.
 """
 
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QLabel, QTextEdit, QApplication
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QLabel, QTextEdit, QApplication, QPushButton, QFrame
 from PySide6.QtCore import Qt, QPoint, QRect, QTimer, QThread, Signal, QObject, QSize
 from PySide6.QtGui import QFont, QKeyEvent
 
@@ -19,21 +19,28 @@ class OverlayWindow(QWidget):
         """Initialize the overlay window."""
         super().__init__()
 
-        # Configure window properties — ordinary window with title and close button
+        # Configure window properties — frameless window with resize capability
         self.setWindowFlags(
             Qt.WindowType.Window |
-            Qt.WindowType.WindowStaysOnTopHint
+            Qt.WindowType.WindowStaysOnTopHint |
+            Qt.WindowType.FramelessWindowHint
         )
-        self.setWindowTitle("WhisperBridge — Переводчик")
+        # Set object name for CSS styling
+        self.setObjectName("OverlayWindow")
+        # Enable styled background for proper CSS rendering
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        # Enable window resizing
+        self.setWindowFlag(Qt.WindowType.WindowMaximizeButtonHint, True)
+        # No title bar, so no window title needed
         # Default size (width x height). Height set to 430px as requested.
         self.resize(480, 430)
-        self.setMinimumSize(320, 160)
+        self.setMinimumSize(320, 220)  # Increased minimum height to accommodate footer layout with resize grip
 
         logger.debug("Overlay window configured as regular translator window")
 
         # Main vertical layout
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setContentsMargins(16, 8, 16, 2)
         layout.setSpacing(6)
 
         # Header: title and close button
@@ -46,6 +53,8 @@ class OverlayWindow(QWidget):
         # Original text label and widget
         self.original_label = QLabel("Оригинал:")
         self.original_label.setFont(QFont("Arial", 10, QFont.Bold))
+        self.original_label.setStyleSheet("padding-bottom: 6px;")
+        self.original_label.setStyleSheet("padding-bottom: 6px;")
  
         # Row: Original label + detected language + auto-swap checkbox
         from PySide6.QtWidgets import QHBoxLayout, QSpacerItem, QSizePolicy, QCheckBox
@@ -115,11 +124,11 @@ class OverlayWindow(QWidget):
         btn_row_orig.addWidget(self.translate_btn)
  
         # Copy original button (kept for parity with existing UI)
-        self.copy_original_btn = QPushButton("Копировать оригинал")
+        self.copy_original_btn = QPushButton("")
         # Ensure button size
         self.copy_original_btn.setFixedHeight(28)
-        self.copy_original_btn.setFixedWidth(160)
-        self.copy_original_btn.setIcon(qta.icon('fa5s.copy', color='black'))
+        self.copy_original_btn.setFixedWidth(40)
+        self.copy_original_btn.setIcon(qta.icon('fa5.copy', color='black'))
         self.copy_original_btn.setIconSize(QSize(16, 16))
         self.copy_original_btn.clicked.connect(self._copy_original_to_clipboard)
         btn_row_orig.addWidget(self.copy_original_btn)
@@ -135,6 +144,7 @@ class OverlayWindow(QWidget):
         # Translated text label and widget
         self.translated_label = QLabel("Перевод:")
         self.translated_label.setFont(QFont("Arial", 10, QFont.Bold))
+        self.translated_label.setStyleSheet("padding-bottom: 6px;")
         layout.addWidget(self.translated_label)
 
         self.translated_text = QTextEdit()
@@ -160,27 +170,71 @@ class OverlayWindow(QWidget):
         # Buttons row for translated text (positioned under the field)
         btn_row_tr = QHBoxLayout()
         btn_row_tr.addItem(QSpacerItem(10, 10, QSizePolicy.Expanding, QSizePolicy.Minimum))
-        self.copy_translated_btn = QPushButton("Копировать")
+        self.copy_translated_btn = QPushButton("")
         self.copy_translated_btn.setFixedHeight(28)
-        self.copy_translated_btn.setFixedWidth(160)
+        self.copy_translated_btn.setFixedWidth(40)
+        self.copy_translated_btn.setIcon(qta.icon('fa5.copy', color='black'))
+        self.copy_translated_btn.setIconSize(QSize(16, 16))
         self.copy_translated_btn.clicked.connect(self._copy_translated_to_clipboard)
         btn_row_tr.addWidget(self.copy_translated_btn)
         layout.addLayout(btn_row_tr)
 
         # Footer row with Close button
         footer_row = QHBoxLayout()
-        footer_row.addItem(QSpacerItem(10, 10, QSizePolicy.Expanding, QSizePolicy.Minimum))
+        footer_row.setContentsMargins(0, 0, 0, 10)  # Left/right margins, bottom margin
+        # Remove the expanding spacer to keep button aligned to the right
         self.close_btn = QPushButton("Закрыть")
+        self.close_btn.setIcon(qta.icon('fa5s.times', color='black'))
+        self.close_btn.setIconSize(QSize(16, 16))
         self.close_btn.clicked.connect(self.hide_overlay)
-        footer_row.addWidget(self.close_btn)
+        footer_row.addWidget(self.close_btn, alignment=Qt.AlignRight)  # Align to right
         layout.addLayout(footer_row)
+
+
+        # Add close button in top-right corner
+        self.close_btn_top = QPushButton(self)
+        self.close_btn_top.setFixedSize(16, 16)
+        self.close_btn_top.setIcon(qta.icon('fa5s.times', color='black'))
+        self.close_btn_top.setIconSize(QSize(10, 10))
+        self.close_btn_top.setStyleSheet("""
+            QPushButton {
+                background-color: #f0f0f0;
+                border: 1px solid #cccccc;
+                border-radius: 2px;
+            }
+            QPushButton:hover {
+                background-color: #ff6b6b;
+                border-color: #cc5555;
+            }
+        """)
+        self.close_btn_top.clicked.connect(self.hide_overlay)
+
+        # Add resize button as separate widget positioned in top-right corner (to the left of close button)
+        self.resize_btn = QPushButton(self)
+        self.resize_btn.setFixedSize(16, 16)
+        self.resize_btn.setIcon(qta.icon('fa5s.expand-arrows-alt', color='black'))
+        self.resize_btn.setIconSize(QSize(10, 10))
+        self.resize_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #f0f0f0;
+                border: 1px solid #cccccc;
+                border-radius: 2px;
+            }
+            QPushButton:hover {
+                background-color: #e8e8e8;
+                border-color: #999999;
+            }
+        """)
+        # Connect resize button to start resize mode
+        self.resize_btn.mousePressEvent = self._start_resize
+        # Position buttons initially
+        self._position_top_buttons()
 
         # Set background and styling — solid card with readable text
         self.setStyleSheet("""
-            QWidget {
+            OverlayWindow {
                 background-color: #ffffff;
-                border: 1px solid rgba(0, 0, 0, 0.08);
-                border-radius: 6px;
+                border: 1px solid #f5f5f5;
             }
             QLabel {
                 color: #111111;
@@ -190,7 +244,8 @@ class OverlayWindow(QWidget):
                 background-color: #ffffff;
                 color: #111111;
                 border: 1px solid rgba(0,0,0,0.08);
-                border-radius: 4px;
+                border-radius: 2px;
+                padding: 4px 4px;
             }
             QPushButton {
                 color: #111111;
@@ -208,6 +263,15 @@ class OverlayWindow(QWidget):
         self.is_destroyed = False
         # Hold pending timers/callbacks so we can cancel them if requested
         self._pending_timers: list[QTimer] = []
+
+        # Dragging support for frameless window
+        self._dragging = False
+        self._drag_start_pos = QPoint()
+
+        # Resizing support
+        self._resizing = False
+        self._resize_start_pos = QPoint()
+        self._resize_start_size = QSize()
 
     def show_loading(self, position: tuple | None = None):
         """Show a minimal loading state at an optional absolute position."""
@@ -275,6 +339,64 @@ class OverlayWindow(QWidget):
             self.hide_overlay()
         else:
             super().keyPressEvent(event)
+
+    def mousePressEvent(self, event):
+        """Handle mouse press for window dragging."""
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._dragging = True
+            self._drag_start_pos = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+            event.accept()
+
+    def mouseMoveEvent(self, event):
+        """Handle mouse move for window dragging and resizing."""
+        if self._dragging and event.buttons() & Qt.MouseButton.LeftButton:
+            self.move(event.globalPosition().toPoint() - self._drag_start_pos)
+            event.accept()
+        elif self._resizing and event.buttons() & Qt.MouseButton.LeftButton:
+            # Calculate new size based on mouse movement
+            delta = event.globalPosition().toPoint() - self._resize_start_pos
+            new_width = max(self.minimumWidth(), self._resize_start_size.width() + delta.x())
+            new_height = max(self.minimumHeight(), self._resize_start_size.height() + delta.y())
+            self.resize(new_width, new_height)
+            event.accept()
+
+    def mouseReleaseEvent(self, event):
+        """Handle mouse release to stop dragging and resizing."""
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._dragging = False
+            self._resizing = False
+            event.accept()
+
+    def _start_resize(self, event):
+        """Start window resizing when resize button is pressed."""
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._resizing = True
+            self._resize_start_pos = event.globalPosition().toPoint()
+            self._resize_start_size = self.size()
+            event.accept()
+
+    def _position_top_buttons(self):
+        """Position the close and resize buttons in the top-right corner."""
+        if hasattr(self, 'close_btn_top') and hasattr(self, 'resize_btn'):
+            close_size = self.close_btn_top.size()
+            resize_size = self.resize_btn.size()
+
+            # Position close button on the rightmost position
+            self.close_btn_top.move(
+                self.width() - close_size.width(),
+                0  # Top of the window
+            )
+
+            # Position resize button to the left of close button
+            self.resize_btn.move(
+                self.width() - close_size.width() - resize_size.width(),
+                0  # Top of the window
+            )
+
+    def resizeEvent(self, event):
+        """Handle window resize to reposition the top buttons."""
+        super().resizeEvent(event)
+        self._position_top_buttons()
 
     def _copy_original_to_clipboard(self):
         """Copy original text to clipboard."""

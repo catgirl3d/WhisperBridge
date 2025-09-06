@@ -45,6 +45,7 @@ dependencies = [
     "appdirs>=1.4.4",
     "loguru>=0.7.2",
     "click>=8.1.7",
+    "comtypes>=1.1.14",
 ]
 
 [project.optional-dependencies]
