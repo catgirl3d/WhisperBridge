@@ -10,6 +10,7 @@ from PySide6.QtGui import QIcon, QAction, QFont
 from PySide6.QtCore import QObject, Signal
 
 from loguru import logger
+from ..services.config_service import config_service
 
 
 class TrayManager(QObject):
@@ -113,6 +114,7 @@ class TrayManager(QObject):
                 self.tray_menu.setStyleSheet(
                     "QMenu { background-color: rgba(255,255,255,240); color: #111111; }"
                     "QMenu::item { color: #111111; }"
+                    "QMenu::item:disabled { color: #cfcfcf; }"
                     "QMenu::separator { height: 1px; background: rgba(0,0,0,0.08); margin: 6px 0; }"
                 )
             except Exception:
@@ -139,9 +141,15 @@ class TrayManager(QObject):
             self.tray_menu.addAction(settings_action)
 
             # Activate OCR action
-            activate_ocr_action = QAction("Активировать OCR", self)
-            activate_ocr_action.triggered.connect(self._on_activate_ocr)
-            self.tray_menu.addAction(activate_ocr_action)
+            self.activate_ocr_action = QAction("Активировать OCR", self)
+            self.activate_ocr_action.triggered.connect(self._on_activate_ocr)
+            # Set enabled state based on settings (default: disabled)
+            try:
+                enabled = bool(config_service.get_setting("initialize_ocr", use_cache=False))
+            except Exception:
+                enabled = False
+            self.activate_ocr_action.setEnabled(enabled)
+            self.tray_menu.addAction(self.activate_ocr_action)
 
             self.tray_menu.addSeparator()
 
@@ -202,6 +210,23 @@ class TrayManager(QObject):
                 self.on_activate_ocr()
         except Exception as e:
             logger.error(f"Error activating OCR from tray: {e}")
+
+    def update_ocr_action_enabled(self, enabled: bool):
+        """Update the enabled state of the OCR activation menu action."""
+        try:
+            if hasattr(self, 'activate_ocr_action'):
+                self.activate_ocr_action.setEnabled(enabled)
+                logger.debug(f"Tray: OCR menu action enabled state updated to: {enabled}")
+        except Exception as e:
+            logger.error(f"Error updating OCR action enabled state: {e}")
+
+    def set_activate_ocr_enabled(self, enabled: bool):
+        """Enable or disable the Activate OCR menu action at runtime."""
+        try:
+            if hasattr(self, "activate_ocr_action") and self.activate_ocr_action:
+                self.activate_ocr_action.setEnabled(bool(enabled))
+        except Exception as e:
+            logger.error(f"Failed to set Activate OCR enabled state: {e}")
 
     def _on_exit_app(self):
         """Handle exit application action."""

@@ -68,6 +68,11 @@ class Settings(BaseSettings):
     ocr_languages: List[str] = Field(default=["en", "ru"], description="OCR languages")
     ocr_confidence_threshold: float = Field(default=0.7, description="OCR confidence threshold")
     ocr_timeout: int = Field(default=10, description="OCR timeout in seconds")
+    # OCR initialization flag (default: disabled)
+    initialize_ocr: bool = Field(
+        default=False,
+        description="Initialize OCR service on startup and enable OCR actions"
+    )
 
     # UI Settings
     ui_backend: Literal['qt'] = Field(

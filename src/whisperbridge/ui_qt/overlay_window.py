@@ -404,9 +404,18 @@ class OverlayWindow(QWidget):
             clipboard = QApplication.clipboard()
             clipboard.setText(self.original_text.toPlainText())
             logger.info("Original text copied to clipboard")
-            # Simple user feedback via title change (transient)
-            self.copy_original_btn.setText("Скопировано")
-            QTimer.singleShot(1200, lambda: self.copy_original_btn.setText("Копировать оригинал"))
+            # Preserve current icon and text so we can restore them after transient feedback.
+            prev_icon = self.copy_original_btn.icon()
+            prev_text = self.copy_original_btn.text()
+            # Show a check/done icon as transient feedback
+            try:
+                self.copy_original_btn.setIcon(qta.icon('fa5s.check', color='green'))
+            except Exception:
+                # Fallback: if qtawesome icon creation fails, keep existing icon
+                pass
+            # Clear text (buttons here are usually icon-only)
+            self.copy_original_btn.setText("")
+            QTimer.singleShot(1200, lambda p_icon=prev_icon, p_text=prev_text: (self.copy_original_btn.setIcon(p_icon), self.copy_original_btn.setText(p_text)))
         except Exception as e:
             logger.error(f"Failed to copy original text: {e}")
 
@@ -568,8 +577,18 @@ class OverlayWindow(QWidget):
             clipboard = QApplication.clipboard()
             clipboard.setText(self.translated_text.toPlainText())
             logger.info("Translated text copied to clipboard")
-            self.copy_translated_btn.setText("Скопировано")
-            QTimer.singleShot(1200, lambda: self.copy_translated_btn.setText("Копировать перевод"))
+            # Preserve current icon and text so we can restore them after transient feedback.
+            prev_icon = self.copy_translated_btn.icon()
+            prev_text = self.copy_translated_btn.text()
+            # Show a check/done icon as transient feedback
+            try:
+                self.copy_translated_btn.setIcon(qta.icon('fa5s.check', color='green'))
+            except Exception:
+                # Fallback: if qtawesome icon creation fails, keep existing icon
+                pass
+            # Clear text (buttons here are usually icon-only)
+            self.copy_translated_btn.setText("")
+            QTimer.singleShot(1200, lambda p_icon=prev_icon, p_text=prev_text: (self.copy_translated_btn.setIcon(p_icon), self.copy_translated_btn.setText(p_text)))
         except Exception as e:
             logger.error(f"Failed to copy translated text: {e}")
 

@@ -157,9 +157,18 @@ class OCRService:
         self.is_initializing = False
         self.is_initialized = False
         self._initialization_lock = threading.Lock()
+        self._engines_initialized = False
 
     def _initialize_engines(self):
         """Initialize EasyOCR engine."""
+        # Check if OCR initialization is enabled
+        initialize_ocr = config_service.get_setting("initialize_ocr", use_cache=False)
+        if not initialize_ocr:
+            logger.info("OCR initialization disabled by setting 'initialize_ocr=False'")
+            self.is_initialized = False
+            self._engines_initialized = False
+            return False
+
         start_time = time.time()
         logger.info("Starting OCR service engine initialization")
         # Get OCR languages from config service to ensure we have the latest saved values
@@ -177,15 +186,21 @@ class OCRService:
             if success:
                 logger.info(f"EasyOCR engine initialized successfully in {initialization_time:.2f}s")
                 self.is_initialized = True
+                self._engines_initialized = True
                 logger.info(f"OCR service marked as initialized: {self.is_initialized}")
                 logger.debug(f"OCR service ready with {len(languages)} languages: {languages}")
+                return True
             else:
                 logger.error(f"Failed to initialize EasyOCR engine after {initialization_time:.2f}s")
+                self._engines_initialized = False
+                return False
 
         except Exception as e:
             initialization_time = time.time() - start_time
             logger.error(f"Error initializing OCR engines after {initialization_time:.2f}s: {e}")
             logger.debug(f"Initialization error details: {type(e).__name__}: {str(e)}", exc_info=True)
+            self._engines_initialized = False
+            return False
 
     def start_background_initialization(self, on_complete=None):
         """Start OCR engine initialization in a background thread."""
@@ -206,13 +221,13 @@ class OCRService:
 
     def _background_init_task(self, on_complete):
         """Task to initialize engines and call a completion callback."""
-        self._initialize_engines()
+        success = self._initialize_engines()
 
         with self._initialization_lock:
             self.is_initializing = False
-            self.is_initialized = True
+            self.is_initialized = success
 
-        logger.info("Background OCR initialization complete.")
+        logger.info(f"Background OCR initialization complete (success={success}).")
         if on_complete:
             try:
                 on_complete()
@@ -238,8 +253,10 @@ class OCRService:
         ocr_languages = config_service.get_setting("ocr_languages", use_cache=False)
         logger.debug(f"OCR languages: {request.languages or ocr_languages}")
 
-        if not self.is_initialized:
-            error_msg = "OCR service is still initializing." if self.is_initializing else "OCR service is not initialized."
+        if not self.is_initialized or not self._engines_initialized:
+            error_msg = "OCR service is not initialized or engines not loaded (check 'initialize_ocr' setting)."
+            if self.is_initializing:
+                error_msg += " (still initializing)"
             logger.warning(f"OCR service not ready: {error_msg}")
             return OCRResponse(
                 text="",
@@ -489,6 +506,8 @@ class OCRService:
         if hasattr(self, 'executor'):
             self.executor.shutdown(wait=True)
 
+        self.is_initialized = False
+        self._engines_initialized = False
         logger.info("OCR service shutdown complete")
 
     def __del__(self):

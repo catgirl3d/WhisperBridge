@@ -78,113 +78,6 @@ class KeyboardManager:
                 logger.error(f"Failed to register hotkey '{combination}': {e}")
                 return False
 
-    def unregister_hotkey(self, combination: str) -> bool:
-        """Unregister a hotkey combination.
-
-        Args:
-            combination: Hotkey combination to unregister
-
-        Returns:
-            bool: True if unregistration successful, False otherwise
-        """
-        with self._lock:
-            try:
-                normalized = KeyboardUtils.normalize_hotkey(combination)
-
-                if normalized not in self._hotkeys:
-                    logger.warning(f"Hotkey '{normalized}' not registered")
-                    return False
-
-                # Remove from active hotkeys if it's there
-                self._active_hotkeys.discard(normalized)
-
-                # Remove from registered hotkeys
-                del self._hotkeys[normalized]
-
-                logger.info(f"Hotkey unregistered: {normalized}")
-                return True
-
-            except Exception as e:
-                logger.error(f"Failed to unregister hotkey '{combination}': {e}")
-                return False
-
-    def enable_hotkey(self, combination: str) -> bool:
-        """Enable a registered hotkey.
-
-        Args:
-            combination: Hotkey combination to enable
-
-        Returns:
-            bool: True if enabled successfully, False otherwise
-        """
-        with self._lock:
-            normalized = KeyboardUtils.normalize_hotkey(combination)
-
-            if normalized not in self._hotkeys:
-                logger.warning(f"Hotkey '{normalized}' not registered")
-                return False
-
-            self._hotkeys[normalized].enabled = True
-            logger.info(f"Hotkey enabled: {normalized}")
-            return True
-
-    def disable_hotkey(self, combination: str) -> bool:
-        """Disable a registered hotkey.
-
-        Args:
-            combination: Hotkey combination to disable
-
-        Returns:
-            bool: True if disabled successfully, False otherwise
-        """
-        with self._lock:
-            normalized = KeyboardUtils.normalize_hotkey(combination)
-
-            if normalized not in self._hotkeys:
-                logger.warning(f"Hotkey '{normalized}' not registered")
-                return False
-
-            self._hotkeys[normalized].enabled = False
-            logger.info(f"Hotkey disabled: {normalized}")
-            return True
-
-    def is_hotkey_registered(self, combination: str) -> bool:
-        """Check if a hotkey is registered.
-
-        Args:
-            combination: Hotkey combination to check
-
-        Returns:
-            bool: True if registered, False otherwise
-        """
-        with self._lock:
-            normalized = KeyboardUtils.normalize_hotkey(combination)
-            return normalized in self._hotkeys
-
-    def is_hotkey_enabled(self, combination: str) -> bool:
-        """Check if a hotkey is enabled.
-
-        Args:
-            combination: Hotkey combination to check
-
-        Returns:
-            bool: True if enabled, False otherwise
-        """
-        with self._lock:
-            normalized = KeyboardUtils.normalize_hotkey(combination)
-            if normalized not in self._hotkeys:
-                return False
-            return self._hotkeys[normalized].enabled
-
-    def get_registered_hotkeys(self) -> List[str]:
-        """Get list of all registered hotkey combinations.
-
-        Returns:
-            List[str]: List of registered hotkey combinations
-        """
-        with self._lock:
-            return list(self._hotkeys.keys())
-
     def get_enabled_hotkeys(self) -> List[str]:
         """Get list of all enabled hotkey combinations.
 
@@ -193,86 +86,6 @@ class KeyboardManager:
         """
         with self._lock:
             return [combo for combo, info in self._hotkeys.items() if info.enabled]
-
-    def get_hotkey_info(self, combination: str) -> Optional[HotkeyInfo]:
-        """Get information about a registered hotkey.
-
-        Args:
-            combination: Hotkey combination
-
-        Returns:
-            Optional[HotkeyInfo]: Hotkey information or None if not found
-        """
-        with self._lock:
-            normalized = KeyboardUtils.normalize_hotkey(combination)
-            return self._hotkeys.get(normalized)
-
-    def validate_hotkey_combination(self, combination: str) -> Tuple[bool, Optional[str]]:
-        """Validate a hotkey combination.
-
-        Args:
-            combination: Hotkey combination to validate
-
-        Returns:
-            Tuple[bool, Optional[str]]: (is_valid, error_message)
-        """
-        return KeyboardUtils.validate_hotkey(combination)
-
-    def normalize_hotkey_combination(self, combination: str) -> str:
-        """Normalize a hotkey combination.
-
-        Args:
-            combination: Hotkey combination to normalize
-
-        Returns:
-            str: Normalized hotkey combination
-        """
-        return KeyboardUtils.normalize_hotkey(combination)
-
-    def format_hotkey_for_display(self, combination: str) -> str:
-        """Format hotkey combination for display.
-
-        Args:
-            combination: Hotkey combination
-
-        Returns:
-            str: Formatted hotkey string
-        """
-        return KeyboardUtils.format_hotkey_for_display(combination)
-
-    def check_system_conflict(self, combination: str) -> Optional[str]:
-        """Check if hotkey conflicts with system shortcuts.
-
-        Args:
-            combination: Hotkey combination to check
-
-        Returns:
-            Optional[str]: Conflicting system hotkey or None
-        """
-        return KeyboardUtils.check_system_conflict(combination)
-
-    def suggest_alternative_hotkey(self, combination: str) -> List[str]:
-        """Suggest alternative hotkeys for a conflicting combination.
-
-        Args:
-            combination: Conflicting hotkey combination
-
-        Returns:
-            List[str]: List of suggested alternatives
-        """
-        return KeyboardUtils.suggest_alternative_hotkey(combination)
-
-    def get_platform_info(self) -> Dict[str, Any]:
-        """Get information about the current platform.
-
-        Returns:
-            Dict[str, Any]: Platform information
-        """
-        return {
-            'platform': self._platform,
-            'available_modifiers': KeyboardUtils.get_available_modifiers(),
-            'system_hotkeys': list(KeyboardUtils.SYSTEM_HOTKEYS.get(self._platform, set()))
-        }
 
     def clear_all_hotkeys(self):
         """Clear all registered hotkeys."""
@@ -283,7 +96,7 @@ class KeyboardManager:
 
     def get_hotkey_statistics(self) -> Dict[str, int]:
         """Get statistics about registered hotkeys.
-
+ 
         Returns:
             Dict[str, int]: Statistics
         """
@@ -291,13 +104,59 @@ class KeyboardManager:
             total = len(self._hotkeys)
             enabled = sum(1 for info in self._hotkeys.values() if info.enabled)
             disabled = total - enabled
-
+ 
             return {
                 'total_registered': total,
                 'enabled': enabled,
                 'disabled': disabled,
                 'active': len(self._active_hotkeys)
             }
+ 
+    def set_hotkey_enabled(self, combination: str, enabled: bool) -> bool:
+        """Enable or disable a registered hotkey.
+ 
+        Args:
+            combination: Hotkey combination string
+            enabled: True to enable, False to disable
+ 
+        Returns:
+            bool: True if hotkey existed and was updated
+        """
+        with self._lock:
+            try:
+                normalized = KeyboardUtils.normalize_hotkey(combination)
+                info = self._hotkeys.get(normalized)
+                if not info:
+                    logger.debug(f"set_hotkey_enabled: hotkey not found: {normalized}")
+                    return False
+                info.enabled = bool(enabled)
+                logger.info(f"Hotkey '{normalized}' enabled state set to: {enabled}")
+                return True
+            except Exception as e:
+                logger.error(f"Failed to set enabled state for hotkey '{combination}': {e}")
+                return False
+ 
+    def unregister_hotkey(self, combination: str) -> bool:
+        """Unregister/remove a previously registered hotkey.
+ 
+        Args:
+            combination: Hotkey combination string
+ 
+        Returns:
+            bool: True if removed, False if not found
+        """
+        with self._lock:
+            try:
+                normalized = KeyboardUtils.normalize_hotkey(combination)
+                if normalized in self._hotkeys:
+                    del self._hotkeys[normalized]
+                    logger.info(f"Unregistered hotkey: {normalized}")
+                    return True
+                logger.debug(f"unregister_hotkey: hotkey not found: {normalized}")
+                return False
+            except Exception as e:
+                logger.error(f"Failed to unregister hotkey '{combination}': {e}")
+                return False
 
     def _on_hotkey_pressed_internal(self, combination: str):
         """Internal handler for hotkey press events.
@@ -305,6 +164,7 @@ class KeyboardManager:
         Args:
             combination: The hotkey combination that was pressed
         """
+        logger.info(f"Hotkey '{combination}' pressed in thread: {threading.current_thread().name}")
         with self._lock:
             normalized = KeyboardUtils.normalize_hotkey(combination)
 
@@ -336,8 +196,8 @@ class KeyboardManager:
     def _on_hotkey_released_internal(self, combination: str):
         """Internal handler for hotkey release events.
 
-        Args:
-            combination: The hotkey combination that was released
+        Kept as a no-op hook for future use.
         """
-        # This can be used for more complex hotkey handling if needed
-        pass
+        # Intentionally left as a no-op
+        logger.debug(f"KeyboardManager._on_hotkey_released_internal called for: {combination}")
+        return

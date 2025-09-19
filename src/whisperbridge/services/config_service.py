@@ -149,11 +149,21 @@ class ConfigService:
         """Notify observers about individual setting changes."""
         old_dict = old_settings.model_dump()
         new_dict = new_settings.model_dump()
-
+    
         for key, new_value in new_dict.items():
             old_value = old_dict.get(key)
             if old_value != new_value:
                 self._notify_observers('changed', key, old_value, new_value)
+    
+                # If log level changed, reconfigure logging immediately so new level takes effect.
+                if key == "log_level":
+                    try:
+                        # Import here to avoid circular import at module import time
+                        from ..core.logger import setup_logging
+                        setup_logging()
+                        logger.info(f"Applied new log level: {new_value}")
+                    except Exception as e:
+                        logger.error(f"Failed to apply new log level '{new_value}': {e}")
 
     def get_settings(self) -> Settings:
         """Get current settings, loading if necessary."""

@@ -306,26 +306,31 @@ class SettingsDialog(QDialog, SettingsObserver):
         """Create OCR settings tab."""
         tab = QWidget()
         layout = QVBoxLayout(tab)
-
+ 
         # OCR settings
         ocr_group = QGroupBox("OCR Configuration")
         ocr_layout = QFormLayout(ocr_group)
-
+ 
+        # Initialize OCR on startup (enable/disable OCR features)
+        self.initialize_ocr_check = QCheckBox("Initialize OCR service on startup")
+        self.initialize_ocr_check.setToolTip("If enabled, the OCR service will be initialized and OCR actions (menu/hotkeys) will be available.")
+        ocr_layout.addRow(self.initialize_ocr_check)
+ 
         # OCR Languages
         self.ocr_languages_edit = QLineEdit()
         self.ocr_languages_edit.setPlaceholderText("e.g., en,ru,es")
         ocr_layout.addRow("OCR Languages:", self.ocr_languages_edit)
-
+ 
         # Confidence threshold
         self.ocr_confidence_spin = QDoubleSpinBox()
         self.ocr_confidence_spin.setRange(0.0, 1.0)
         self.ocr_confidence_spin.setSingleStep(0.05)
         self.ocr_confidence_spin.setValue(0.7)
         ocr_layout.addRow("Confidence Threshold:", self.ocr_confidence_spin)
-
+ 
         layout.addWidget(ocr_group)
         layout.addStretch()
-
+ 
         self.tab_widget.addTab(tab, "OCR")
 
     def _create_hotkeys_tab(self):
@@ -333,7 +338,7 @@ class SettingsDialog(QDialog, SettingsObserver):
         tab = QWidget()
         layout = QVBoxLayout(tab)
     
-        # Hotkey settings
+        # Hotkey settings group
         hotkey_group = QGroupBox("Hotkey Configuration")
         hotkey_layout = QFormLayout(hotkey_group)
     
@@ -349,25 +354,31 @@ class SettingsDialog(QDialog, SettingsObserver):
         self.copy_translate_hotkey_edit = QLineEdit()
         hotkey_layout.addRow("Copy→Translate Hotkey:", self.copy_translate_hotkey_edit)
     
-        # Copy-translate enhancements
+        layout.addWidget(hotkey_group)
+
+        # Help text
+        help_label = QLabel("Use format like 'ctrl+shift+t' or 'alt+f1'")
+        help_label.setStyleSheet("color: gray; font-style: italic;")
+        layout.addWidget(help_label)
+    
+        # Copy-translate options in a separate group box
+        copy_group = QGroupBox("Copy-Translate Options")
+        copy_layout = QFormLayout(copy_group)
+    
         # Automatically copy translated text to clipboard
         self.auto_copy_translated_check = QCheckBox("Automatically copy translated text to clipboard")
         self.auto_copy_translated_check.setToolTip("If enabled, translated text will be copied to the clipboard automatically after translation.")
-        hotkey_layout.addRow(self.auto_copy_translated_check)
+        copy_layout.addRow(self.auto_copy_translated_check)
     
         # Clipboard polling timeout (ms)
         self.clipboard_poll_timeout_spin = QSpinBox()
         self.clipboard_poll_timeout_spin.setRange(500, 10000)
         self.clipboard_poll_timeout_spin.setSingleStep(100)
         self.clipboard_poll_timeout_spin.setSuffix(" ms")
-        hotkey_layout.addRow("Clipboard polling timeout (ms):", self.clipboard_poll_timeout_spin)
+        copy_layout.addRow("Clipboard polling timeout (ms):", self.clipboard_poll_timeout_spin)
     
-        layout.addWidget(hotkey_group)
-    
-        # Help text
-        help_label = QLabel("Use format like 'ctrl+shift+t' or 'alt+f1'")
-        help_label.setStyleSheet("color: gray; font-style: italic;")
-        layout.addWidget(help_label)
+        layout.addWidget(copy_group)
+
     
         layout.addStretch()
     
@@ -382,9 +393,15 @@ class SettingsDialog(QDialog, SettingsObserver):
         ui_group = QGroupBox("User Interface")
         ui_layout = QFormLayout(ui_group)
 
+        # Theme selection (support system option as well)
         self.theme_combo = QComboBox()
-        self.theme_combo.addItems(["dark", "light"])
+        self.theme_combo.addItems(["dark", "light", "system"])
         ui_layout.addRow("Theme:", self.theme_combo)
+
+        # Log level selection (exposed to users so they can change verbosity)
+        self.log_level_combo = QComboBox()
+        self.log_level_combo.addItems(["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"])
+        ui_layout.addRow("Log level:", self.log_level_combo)
 
         self.show_notifications_check = QCheckBox("Show notifications")
         ui_layout.addRow(self.show_notifications_check)
@@ -435,6 +452,12 @@ class SettingsDialog(QDialog, SettingsObserver):
         # OCR tab
         self.ocr_languages_edit.setText(",".join(settings.ocr_languages))
         self.ocr_confidence_spin.setValue(settings.ocr_confidence_threshold)
+        # initialize_ocr checkbox (default False if missing)
+        try:
+            self.initialize_ocr_check.setChecked(bool(getattr(settings, "initialize_ocr", False)))
+        except Exception:
+            logger.debug("Failed to set initialize_ocr checkbox from settings; defaulting to False")
+            self.initialize_ocr_check.setChecked(False)
 
         # Hotkeys tab
         self.translate_hotkey_edit.setText(settings.translate_hotkey)
@@ -455,6 +478,11 @@ class SettingsDialog(QDialog, SettingsObserver):
     
         # General tab
         self.theme_combo.setCurrentText(settings.theme)
+        # Load and set log level into UI safely
+        try:
+            self.log_level_combo.setCurrentText(getattr(settings, "log_level", "INFO"))
+        except Exception:
+            logger.debug("Failed to set log_level in UI; defaulting to INFO")
         self.show_notifications_check.setChecked(settings.show_notifications)
 
         # Reload models after loading settings to ensure dynamic loading
@@ -480,17 +508,27 @@ class SettingsDialog(QDialog, SettingsObserver):
             current["ocr_auto_swap_en_ru"] = bool(self.ocr_auto_swap_checkbox.isChecked())
             current["ocr_languages"] = [lang.strip() for lang in self.ocr_languages_edit.text().split(",") if lang.strip()]
             current["ocr_confidence_threshold"] = self.ocr_confidence_spin.value()
+            # Persist initialize_ocr flag
+            try:
+                current["initialize_ocr"] = bool(self.initialize_ocr_check.isChecked())
+            except Exception:
+                current["initialize_ocr"] = False
             current["translate_hotkey"] = self.translate_hotkey_edit.text().strip()
             current["quick_translate_hotkey"] = self.quick_translate_hotkey_edit.text().strip()
             current["activation_hotkey"] = self.activation_hotkey_edit.text().strip()
             current["copy_translate_hotkey"] = self.copy_translate_hotkey_edit.text().strip()
-    
+
             # Copy-translate enhancements - persist UI values
             current["auto_copy_translated"] = bool(self.auto_copy_translated_check.isChecked())
             current["clipboard_poll_timeout_ms"] = int(self.clipboard_poll_timeout_spin.value())
     
             selected_theme = self.theme_combo.currentText()
             current["theme"] = selected_theme
+            # Persist selected log level
+            try:
+                current["log_level"] = self.log_level_combo.currentText().strip()
+            except Exception:
+                current["log_level"] = "INFO"
             current["show_notifications"] = self.show_notifications_check.isChecked()
 
             logger.debug(f"Saving theme: '{selected_theme}'")
