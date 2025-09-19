@@ -141,29 +141,49 @@ class CaptureOcrTranslateWorker(QObject):
                         settings = config_service.get_settings()
                         ocr_auto_swap = getattr(settings, "ocr_auto_swap_en_ru", False)
 
-                        # If auto-swap enabled, detect language and swap en<->ru
-                        if ocr_auto_swap:
-                            try:
-                                from ..utils.api_utils import detect_language
-                                detected = detect_language(original_text) or "auto"
-                                if detected == "en":
-                                    target = "ru"
-                                elif detected == "ru":
-                                    target = "en"
-                                else:
-                                    target = getattr(settings, "target_language", "en")
+                        # Honor explicit target unless Target='auto' (then apply EN↔RU auto-swap)
+                        try:
+                            target_pref = (getattr(settings, "target_language", "en") or "en").lower()
+                        except Exception:
+                            target_pref = "en"
 
-                                logger.debug(f"OCR auto-swap enabled: detected='{detected}', target='{target}'")
-                                response = translation_service.translate_text_sync(
-                                    original_text, source_lang=detected, target_lang=target
-                                )
-                            except Exception as e:
-                                logger.warning(f"OCR auto-swap detection/translation failed: {e}")
-                                # Fallback to default translation call
-                                response = translation_service.translate_text_sync(original_text)
+                        try:
+                            from ..utils.api_utils import detect_language
+                            detected = detect_language(original_text) or "auto"
+                        except Exception:
+                            detected = "auto"
+
+                        if target_pref == "auto" and ocr_auto_swap:
+                            # Auto mode with EN↔RU swap; otherwise fall back to first favorite or 'en'
+                            try:
+                                favorites = config_service.get_setting("favorite_languages", use_cache=False) or ["en", "ru", "uk"]
+                                favorites = [str(x).lower() for x in favorites if isinstance(x, str)]
+                            except Exception:
+                                favorites = ["en", "ru", "uk"]
+                            fallback = next((c for c in favorites if c != "auto"), "en")
+
+                            if detected == "en":
+                                target = "ru"
+                            elif detected == "ru":
+                                target = "en"
+                            else:
+                                target = fallback
+
+                            logger.debug(f"OCR auto mode with swap: detected='{detected}', target='{target}', fallback='{fallback}'")
+                            response = translation_service.translate_text_sync(
+                                original_text,
+                                source_lang=detected if detected != "auto" else None,
+                                target_lang=target
+                            )
                         else:
-                            # Use the synchronous translation API which returns a TranslationResponse
-                            response = translation_service.translate_text_sync(original_text)
+                            # Explicit target mode (no swap)
+                            target = target_pref
+                            logger.debug(f"OCR explicit target mode: detected='{detected}', target='{target}', swap_enabled={ocr_auto_swap}")
+                            response = translation_service.translate_text_sync(
+                                original_text,
+                                source_lang=detected if detected != "auto" else None,
+                                target_lang=target
+                            )
 
                         if response and getattr(response, "success", False):
                             translated_text = getattr(response, "translated_text", "") or ""

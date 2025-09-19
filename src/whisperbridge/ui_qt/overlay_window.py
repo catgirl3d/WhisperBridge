@@ -2,8 +2,8 @@
 Overlay window implementation for Qt-based UI.
 """
 
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QLabel, QTextEdit, QApplication, QPushButton, QFrame
-from PySide6.QtCore import Qt, QPoint, QRect, QTimer, QThread, Signal, QObject, QSize
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QLabel, QTextEdit, QApplication, QPushButton, QFrame, QMenu
+from PySide6.QtCore import Qt, QPoint, QRect, QTimer, QThread, Signal, QObject, QSize, QEvent
 from PySide6.QtGui import QFont, QKeyEvent
 
 import qtawesome as qta
@@ -67,6 +67,32 @@ class OverlayWindow(QWidget):
         self.detected_lang_label = QLabel("Язык: —")
         self.detected_lang_label.setFixedWidth(120)
         orig_row.addWidget(self.detected_lang_label)
+
+        # Target language quick selector label
+        self.target_lang_label = QLabel("")
+        self.target_lang_label.setCursor(Qt.PointingHandCursor)
+        self.target_lang_label.setToolTip("Left-click: cycle favorites. Right-click: choose any target language.")
+        orig_row.addWidget(self.target_lang_label)
+
+        # Initialize favorites/supported and current target from settings
+        try:
+            self._favorite_languages = config_service.get_setting("favorite_languages", use_cache=False) or ["en", "ru", "uk"]
+            self._supported_languages = config_service.get_setting("supported_languages", use_cache=False) or ["en", "ru", "uk", "de", "es", "fr", "it", "pt", "ja", "ko", "zh", "ar"]
+            self._current_target = (config_service.get_setting("target_language", use_cache=False) or "en").lower()
+        except Exception:
+            self._favorite_languages = ["en", "ru", "uk"]
+            self._supported_languages = ["en", "ru", "uk"]
+            self._current_target = "en"
+        # Normalize and guard
+        self._favorite_languages = [str(x).lower() for x in (self._favorite_languages or [])]
+        self._supported_languages = [str(x).lower() for x in (self._supported_languages or [])]
+        # Install event filter for click handling
+        try:
+            self.target_lang_label.installEventFilter(self)
+        except Exception:
+            logger.debug("Failed to install event filter for target_lang_label")
+        # Initial render
+        self._update_target_label()
  
         # Auto-swap checkbox for EN <-> RU behavior
         self.auto_swap_checkbox = QCheckBox("Авто-перевод EN ↔ RU")
@@ -513,6 +539,107 @@ class OverlayWindow(QWidget):
         except Exception as e:
             logger.debug(f"Failed to update detected language label: {e}")
 
+    def eventFilter(self, obj, event):
+        """Handle clicks on the target language label."""
+        try:
+            if obj is getattr(self, "target_lang_label", None) and event.type() == QEvent.Type.MouseButtonPress:
+                if event.button() == Qt.MouseButton.LeftButton:
+                    self._cycle_favorite_target()
+                    return True
+                elif event.button() == Qt.MouseButton.RightButton:
+                    self._show_target_menu()
+                    return True
+        except Exception as e:
+            logger.debug(f"eventFilter error: {e}")
+        return super().eventFilter(obj, event)
+
+    def _update_target_label(self):
+        """Render the target selector label text, and toggle auto-swap checkbox availability."""
+        try:
+            code = (getattr(self, "_current_target", None) or "en").lower()
+            if code == "auto":
+                text = "Target: Auto"
+            else:
+                text = f"Target: {code.upper()}"
+            self.target_lang_label.setText(text)
+            # Enable auto-swap checkbox only when Target=Auto
+            try:
+                if hasattr(self, "auto_swap_checkbox"):
+                    is_auto = (code == "auto")
+                    self.auto_swap_checkbox.setEnabled(is_auto)
+                    if not is_auto:
+                        self.auto_swap_checkbox.setToolTip("Auto EN ↔ RU is active only when Target is set to Auto")
+                    else:
+                        self.auto_swap_checkbox.setToolTip("If enabled and Target=Auto, English will be translated to Russian and Russian to English")
+            except Exception:
+                pass
+        except Exception as e:
+            logger.debug(f"Failed to update target label: {e}")
+
+    def _persist_target_language(self, code: str):
+        """Persist chosen target language to settings via config_service."""
+        try:
+            code = (code or "en").lower()
+            if config_service.set_setting("target_language", code):
+                self._current_target = code
+                self._update_target_label()
+                logger.info(f"Target language set to '{code}'")
+            else:
+                logger.warning("Failed to persist target_language via config_service")
+        except Exception as e:
+            logger.error(f"Error persisting target_language: {e}")
+
+    def _cycle_favorite_target(self):
+        """Cycle through favorite languages on left-click."""
+        try:
+            favs = getattr(self, "_favorite_languages", None) or ["en", "ru", "uk"]
+            favs = [str(x).lower() for x in favs if isinstance(x, str)]
+            if not favs:
+                favs = ["en", "ru", "uk"]
+            cur = (getattr(self, "_current_target", None) or "en").lower()
+            # If current is not in favorites or is 'auto', start from first
+            if cur not in favs or cur == "auto":
+                next_code = favs[0]
+            else:
+                idx = favs.index(cur)
+                next_code = favs[(idx + 1) % len(favs)]
+            self._persist_target_language(next_code)
+        except Exception as e:
+            logger.debug(f"Failed to cycle favorite language: {e}")
+
+    def _show_target_menu(self):
+        """Show full language picker on right-click."""
+        try:
+            menu = QMenu(self)
+            # Auto option
+            auto_action = menu.addAction("Auto (EN ↔ RU)")
+            auto_action.setData("auto")
+            menu.addSeparator()
+            # Build full list from supported languages
+            langs = list(dict.fromkeys((getattr(self, "_supported_languages", None) or [])))
+            if "en" not in langs:
+                langs.insert(0, "en")
+            from ..utils.api_utils import get_language_name
+            for code in langs:
+                try:
+                    label = f"{code.upper()} — {get_language_name(code)}"
+                except Exception:
+                    label = code.upper()
+                act = menu.addAction(label)
+                act.setData(code)
+            # Bold current
+            for act in menu.actions():
+                if act.data() and str(act.data()).lower() == (getattr(self, "_current_target", "en") or "en"):
+                    f = act.font()
+                    f.setBold(True)
+                    act.setFont(f)
+            pos = self.target_lang_label.mapToGlobal(self.target_lang_label.rect().bottomLeft())
+            chosen = menu.exec(pos)
+            if chosen and chosen.data():
+                self._persist_target_language(str(chosen.data()))
+        except Exception as e:
+            logger.debug(f"Failed to show target language menu: {e}")
+
     def _on_auto_swap_changed(self, state):
         """Persist OCR auto-swap checkbox state to settings when changed."""
         try:
@@ -555,21 +682,39 @@ class OverlayWindow(QWidget):
                     try:
                         from ..services.translation_service import get_translation_service
                         from ..utils.api_utils import detect_language
-                        from ..core.config import settings as core_settings
+                        from ..services.config_service import config_service as _cfg
                         service = get_translation_service()
 
                         # Detect source language from text
                         detected = detect_language(self.text) or "auto"
 
-                        # Choose target language: en <-> ru swap; fallback to configured target
-                        if detected == "en":
-                            target = "ru"
-                        elif detected == "ru":
-                            target = "en"
-                        else:
-                            target = getattr(core_settings, "target_language", "en")
+                        # Determine target language based on explicit selection vs Auto EN↔RU
+                        try:
+                            swap_enabled = bool(_cfg.get_setting("ocr_auto_swap_en_ru", use_cache=False))
+                        except Exception:
+                            swap_enabled = True
+                        try:
+                            target_pref = (_cfg.get_setting("target_language", use_cache=False) or "en").lower()
+                        except Exception:
+                            target_pref = "en"
+                        try:
+                            favorites = _cfg.get_setting("favorite_languages", use_cache=False) or ["en", "ru", "uk"]
+                        except Exception:
+                            favorites = ["en", "ru", "uk"]
+                        # Fallback target when Auto is selected and text is not EN/RU
+                        fallback = next((c for c in favorites if (isinstance(c, str) and c.lower() != "auto")), "en")
 
-                        logger.debug(f"Detected language '{detected}' for translation request; using target '{target}'")
+                        if target_pref == "auto" and swap_enabled:
+                            if detected == "en":
+                                target = "ru"
+                            elif detected == "ru":
+                                target = "en"
+                            else:
+                                target = fallback
+                        else:
+                            target = target_pref
+
+                        logger.debug(f"Detected language '{detected}' for translation; pref='{target_pref}', swap_enabled={swap_enabled}, using target '{target}'")
 
                         import asyncio
                         # Create and use a new event loop in this thread to avoid conflicting with Qt's loop

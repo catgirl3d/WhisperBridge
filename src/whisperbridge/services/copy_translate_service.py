@@ -239,15 +239,25 @@ class CopyTranslateService(QObject):
                 swap_enabled = bool(self.config_service.get_setting("ocr_auto_swap_en_ru", use_cache=False))
                 target_cfg = self.config_service.get_setting("target_language", use_cache=False) or "en"
                 log.debug(f"Copy-translate: ocr_auto_swap_en_ru={swap_enabled}, configured target='{target_cfg}'")
-
-                if swap_enabled:
+ 
+                # Honor explicit target; only use EN↔RU auto-swap when Target='auto'
+                target_pref = (target_cfg or "en").lower()
+                try:
+                    favorites = self.config_service.get_setting("favorite_languages", use_cache=False) or ["en", "ru", "uk"]
+                    favorites = [str(x).lower() for x in favorites if isinstance(x, str)]
+                except Exception:
+                    favorites = ["en", "ru", "uk"]
+                # Fallback to first favorite non-auto (or 'en')
+                fallback = next((c for c in favorites if c != "auto"), "en")
+ 
+                if target_pref == "auto" and swap_enabled:
                     if detected == "en":
                         target = "ru"
                     elif detected == "ru":
                         target = "en"
                     else:
-                        target = target_cfg
-                    log.debug(f"Copy-translate: auto-swap active — translating from '{detected}' to '{target}'")
+                        target = fallback
+                    log.debug(f"Copy-translate: auto mode with swap — translating from '{detected}' to '{target}' (fallback='{fallback}')")
                     # Show a brief translating notification
                     try:
                         if self.tray_manager:
@@ -255,10 +265,13 @@ class CopyTranslateService(QObject):
                     except Exception:
                         pass
                     response = self.translation_service.translate_text_sync(
-                        text_to_translate, source_lang=detected, target_lang=target
+                        text_to_translate,
+                        source_lang=detected if detected != "auto" else None,
+                        target_lang=target
                     )
                 else:
-                    log.debug(f"Copy-translate: auto-swap disabled — using configured target '{target_cfg}'")
+                    target = target_pref
+                    log.debug(f"Copy-translate: explicit target mode — using target '{target}' (swap_enabled={swap_enabled})")
                     # Show a brief translating notification
                     try:
                         if self.tray_manager:
@@ -266,7 +279,9 @@ class CopyTranslateService(QObject):
                     except Exception:
                         pass
                     response = self.translation_service.translate_text_sync(
-                        text_to_translate, source_lang=detected if detected != "auto" else None, target_lang=target_cfg
+                        text_to_translate,
+                        source_lang=detected if detected != "auto" else None,
+                        target_lang=target
                     )
             except Exception as exc:
                 log.error(f"Copy-translate: error during language detection/auto-swap: {exc}", exc_info=True)

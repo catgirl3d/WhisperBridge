@@ -28,8 +28,12 @@ class Settings(BaseSettings):
     source_language: str = Field(default="auto", description="Source language (auto for detection)")
     target_language: str = Field(default="ru", description="Target language")
     supported_languages: List[str] = Field(
-        default=["en", "ru", "de", "ua"],
+        default=["en", "ru", "uk", "de", "es", "fr", "it", "pt", "ja", "ko", "zh", "ar"],
         description="List of supported languages"
+    )
+    favorite_languages: List[str] = Field(
+        default=["en", "ru", "uk"],
+        description="Favorite target languages for quick selection"
     )
 
     # Translation behavior flags
