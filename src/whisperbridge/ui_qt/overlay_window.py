@@ -34,6 +34,7 @@ class OverlayWindow(QWidget):
         # No title bar, so no window title needed
         # Default size (width x height). Height set to 430px as requested.
         self.resize(480, 430)
+        self.setMouseTracking(True)
         self.setMinimumSize(320, 220)  # Increased minimum height to accommodate footer layout with resize grip
 
         logger.debug("Overlay window configured as regular translator window")
@@ -91,11 +92,10 @@ class OverlayWindow(QWidget):
         # Make the field interactive (editable) so user can select/modify text
         self.original_text.setReadOnly(False)
         self.original_text.setAcceptRichText(False)
-        # Use a fixed comfortable height so buttons appear below
-        self.original_text.setFixedHeight(100)
-        # Make the text area expand horizontally
+        # Allow vertical expansion within layout
+        # Make the text area expand in both directions
         from PySide6.QtWidgets import QSizePolicy
-        self.original_text.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.original_text.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         # Placeholder test text for manual verification and visibility
         self.original_text.setPlainText("Тестовый оригинал: Здесь будет распознанный текст (заглушка).")
         self.original_text.setPlaceholderText("Здесь появится распознанный текст...")
@@ -151,10 +151,9 @@ class OverlayWindow(QWidget):
         # Make the field interactive (editable) so user can copy/modify text before copying out
         self.translated_text.setReadOnly(False)
         self.translated_text.setAcceptRichText(False)
-        # Fixed height to avoid overlap with buttons
-        self.translated_text.setFixedHeight(100)
+        # Allow vertical expansion within layout
         from PySide6.QtWidgets import QSizePolicy
-        self.translated_text.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.translated_text.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         # Placeholder test text for manual verification
         self.translated_text.setPlainText("Тестовый перевод: Здесь будет переведённый текст (заглушка).")
         self.translated_text.setPlaceholderText("Здесь появится перевод...")
@@ -163,6 +162,16 @@ class OverlayWindow(QWidget):
         except Exception:
             logger.debug("Unable to apply style to translated_text")
         layout.addWidget(self.translated_text)
+        # Give text areas stretch to grow with window
+        try:
+            idx_o = layout.indexOf(self.original_text)
+            idx_t = layout.indexOf(self.translated_text)
+            if idx_o != -1:
+                layout.setStretch(idx_o, 1)
+            if idx_t != -1:
+                layout.setStretch(idx_t, 1)
+        except Exception:
+            pass
 
         # Small spacing before buttons
         layout.addSpacing(6)
@@ -209,24 +218,6 @@ class OverlayWindow(QWidget):
         """)
         self.close_btn_top.clicked.connect(self.hide_overlay)
 
-        # Add resize button as separate widget positioned in top-right corner (to the left of close button)
-        self.resize_btn = QPushButton(self)
-        self.resize_btn.setFixedSize(16, 16)
-        self.resize_btn.setIcon(qta.icon('fa5s.expand-arrows-alt', color='black'))
-        self.resize_btn.setIconSize(QSize(10, 10))
-        self.resize_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #f0f0f0;
-                border: 1px solid #cccccc;
-                border-radius: 2px;
-            }
-            QPushButton:hover {
-                background-color: #e8e8e8;
-                border-color: #999999;
-            }
-        """)
-        # Connect resize button to start resize mode
-        self.resize_btn.mousePressEvent = self._start_resize
         # Position buttons initially
         self._position_top_buttons()
 
@@ -271,7 +262,9 @@ class OverlayWindow(QWidget):
         # Resizing support
         self._resizing = False
         self._resize_start_pos = QPoint()
-        self._resize_start_size = QSize()
+        self._resize_start_geometry = QRect()
+        self._resize_margin = 8
+        self._resize_mode = None
 
     def show_loading(self, position: tuple | None = None):
         """Show a minimal loading state at an optional absolute position."""
@@ -341,8 +334,20 @@ class OverlayWindow(QWidget):
             super().keyPressEvent(event)
 
     def mousePressEvent(self, event):
-        """Handle mouse press for window dragging."""
+        """Handle mouse press for window dragging and resizing."""
         if event.button() == Qt.MouseButton.LeftButton:
+            # Determine resize mode on press to support immediate edge press
+            pos = event.position().toPoint()
+            mode = self._hit_test_resize(pos)
+            if mode is not None:
+                self._resize_mode = mode
+                self._resizing = True
+                self._resize_start_pos = event.globalPosition().toPoint()
+                self._resize_start_geometry = self.geometry()
+                self._update_cursor_for_mode(mode)
+                event.accept()
+                return
+            # Otherwise start window drag
             self._dragging = True
             self._drag_start_pos = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
             event.accept()
@@ -352,34 +357,63 @@ class OverlayWindow(QWidget):
         if self._dragging and event.buttons() & Qt.MouseButton.LeftButton:
             self.move(event.globalPosition().toPoint() - self._drag_start_pos)
             event.accept()
-        elif self._resizing and event.buttons() & Qt.MouseButton.LeftButton:
-            # Calculate new size based on mouse movement
+            return
+
+        if self._resizing and event.buttons() & Qt.MouseButton.LeftButton:
+            # Compute new geometry based on original geometry (immutable baseline)
             delta = event.globalPosition().toPoint() - self._resize_start_pos
-            new_width = max(self.minimumWidth(), self._resize_start_size.width() + delta.x())
-            new_height = max(self.minimumHeight(), self._resize_start_size.height() + delta.y())
-            self.resize(new_width, new_height)
+            dx, dy = delta.x(), delta.y()
+
+            s_geo = self._resize_start_geometry
+            s_left, s_top, s_w, s_h = s_geo.left(), s_geo.top(), s_geo.width(), s_geo.height()
+            min_w, min_h = self.minimumWidth(), self.minimumHeight()
+
+            new_left, new_top, new_w, new_h = s_left, s_top, s_w, s_h
+            mode = self._resize_mode or ""
+
+            # Horizontal
+            if "left" in mode:
+                new_w = max(min_w, s_w - dx)
+                new_left = s_left + (s_w - new_w)
+            elif "right" in mode:
+                new_w = max(min_w, s_w + dx)
+
+            # Vertical
+            if "top" in mode:
+                new_h = max(min_h, s_h - dy)
+                new_top = s_top + (s_h - new_h)
+            elif "bottom" in mode:
+                new_h = max(min_h, s_h + dy)
+
+            self.setGeometry(QRect(new_left, new_top, new_w, new_h))
             event.accept()
+            return
+
+        # Update hover cursor/mode when not dragging/resizing
+        pos = event.position().toPoint()
+        mode = self._hit_test_resize(pos)
+        self._resize_mode = mode
+        self._update_cursor_for_mode(mode)
 
     def mouseReleaseEvent(self, event):
         """Handle mouse release to stop dragging and resizing."""
         if event.button() == Qt.MouseButton.LeftButton:
             self._dragging = False
             self._resizing = False
+            self._resize_mode = None
+            # Update cursor according to current hover position
+            try:
+                pos = event.position().toPoint()
+                self._update_cursor_for_mode(self._hit_test_resize(pos))
+            except Exception:
+                self.setCursor(Qt.ArrowCursor)
             event.accept()
 
-    def _start_resize(self, event):
-        """Start window resizing when resize button is pressed."""
-        if event.button() == Qt.MouseButton.LeftButton:
-            self._resizing = True
-            self._resize_start_pos = event.globalPosition().toPoint()
-            self._resize_start_size = self.size()
-            event.accept()
 
     def _position_top_buttons(self):
-        """Position the close and resize buttons in the top-right corner."""
-        if hasattr(self, 'close_btn_top') and hasattr(self, 'resize_btn'):
+        """Position the close button in the top-right corner."""
+        if hasattr(self, 'close_btn_top'):
             close_size = self.close_btn_top.size()
-            resize_size = self.resize_btn.size()
 
             # Position close button on the rightmost position
             self.close_btn_top.move(
@@ -387,11 +421,51 @@ class OverlayWindow(QWidget):
                 0  # Top of the window
             )
 
-            # Position resize button to the left of close button
-            self.resize_btn.move(
-                self.width() - close_size.width() - resize_size.width(),
-                0  # Top of the window
-            )
+    def _hit_test_resize(self, pos: QPoint):
+        """Return resize mode string given a position in widget coords, or None if not on edge."""
+        r = self.rect()
+        margin = getattr(self, "_resize_margin", 8)
+
+        left = pos.x() <= margin
+        right = pos.x() >= r.width() - margin
+        top = pos.y() <= margin
+        bottom = pos.y() >= r.height() - margin
+
+        if left and bottom:
+            return "bottom-left"
+        if right and bottom:
+            return "bottom-right"
+        if left and top:
+            return "top-left"
+        if right and top:
+            return "top-right"
+        if left:
+            return "left"
+        if right:
+            return "right"
+        if top:
+            return "top"
+        if bottom:
+            return "bottom"
+        return None
+
+    def _update_cursor_for_mode(self, mode: str | None):
+        """Set cursor shape for given resize mode."""
+        if mode == "bottom-left":
+            self.setCursor(Qt.SizeBDiagCursor)
+        elif mode == "bottom-right":
+            self.setCursor(Qt.SizeFDiagCursor)
+        elif mode == "top-left":
+            self.setCursor(Qt.SizeFDiagCursor)
+        elif mode == "top-right":
+            self.setCursor(Qt.SizeBDiagCursor)
+        elif mode in ("left", "right"):
+            self.setCursor(Qt.SizeHorCursor)
+        elif mode in ("top", "bottom"):
+            self.setCursor(Qt.SizeVerCursor)
+        else:
+            self.setCursor(Qt.ArrowCursor)
+
 
     def resizeEvent(self, event):
         """Handle window resize to reposition the top buttons."""

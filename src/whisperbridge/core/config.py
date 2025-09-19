@@ -23,7 +23,6 @@ class Settings(BaseSettings):
     api_provider: str = Field(default="openai", description="API provider")
     model: str = Field(default="gpt-5-nano", description="GPT model")
     api_timeout: int = Field(default=30, description="API request timeout in seconds")
-    max_retries: int = Field(default=3, description="Maximum API retry attempts")
 
     # Language Settings
     source_language: str = Field(default="auto", description="Source language (auto for detection)")
@@ -75,24 +74,14 @@ class Settings(BaseSettings):
     )
 
     # UI Settings
-    ui_backend: Literal['qt'] = Field(
-        default='qt',
-        description="Deprecated: UI backend is fixed to Qt ('qt') and will be removed in a future release"
-    )
     theme: str = Field(default="light", description="UI theme")
-    overlay_position: str = Field(default="cursor", description="Overlay position")
-    overlay_timeout: int = Field(default=10, description="Overlay timeout in seconds")
-    window_opacity: float = Field(default=0.95, description="Window opacity")
     font_size: int = Field(default=12, description="Font size")
     window_width: int = Field(default=400, description="Default window width")
     window_height: int = Field(default=300, description="Default window height")
     window_geometry: Optional[List[int]] = Field(default=None, description="Window geometry [x, y, width, height]")
 
     # General Settings
-    language: str = Field(default="ru", description="Application language")
-    startup_with_system: bool = Field(default=True, description="Start with system")
     show_notifications: bool = Field(default=True, description="Show notifications")
-    auto_save_settings: bool = Field(default=True, description="Auto-save settings on change")
 
     # Performance Settings
     cache_enabled: bool = Field(default=True, description="Enable caching")
@@ -151,13 +140,6 @@ class Settings(BaseSettings):
             raise ValueError("clipboard_poll_timeout_ms must be between 500 and 10000")
         return iv
 
-    @field_validator('ui_backend', mode='before')
-    @classmethod
-    def force_qt_backend(cls, v: Any) -> str:
-        """Deprecated: coerce any value to 'qt' to ensure Qt-only UI."""
-        if v != 'qt':
-            logger.warning(f"ui_backend is deprecated and fixed to 'qt'; ignoring value: {v!r}")
-        return 'qt'
 
     @field_validator('log_level')
     @classmethod
