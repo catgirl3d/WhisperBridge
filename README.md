@@ -37,7 +37,7 @@ python scripts/run_qt_app.py
 - Provide your OpenAI API key in the Settings dialog (stored securely via keyring).
 - Themes, hotkeys, and languages are configurable in the Settings window.
 
-*Key files**
+**Key files**
 
 - Launcher (Qt): scripts/run_qt_app.py
 - App entry point: src/main.py

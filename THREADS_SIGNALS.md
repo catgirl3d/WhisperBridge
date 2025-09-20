@@ -12,36 +12,36 @@
   Пример: добавлены сигналы в [`src/whisperbridge/ui_qt/app.py`](src/whisperbridge/ui_qt/app.py:196).
 
 3) Ленивая (отложенная) инициализация UI
-- Создавайте окна и overlay только внутри главного потока, при первом обращении.
+- Создавать окна и overlay только внутри главного потока, при первом обращении.
 - В проекте реализовано в [`src/whisperbridge/services/ui_service.py`](src/whisperbridge/services/ui_service.py:110).
 
 4) Обработка глобальных хоткеев
 - HotkeyService использует фоновый executor (ThreadPoolExecutor). Не вызывать UI из его worker-потоков.
-- При обработке хоткея эмитируйте сигнал, например из [`src/whisperbridge/ui_qt/app.py`](src/whisperbridge/ui_qt/app.py:595), чтобы слот в главном потоке сделал UI-действие.
+- При обработке хоткея эмитировать сигнал, например из [`src/whisperbridge/ui_qt/app.py`](src/whisperbridge/ui_qt/app.py:595), чтобы слот в главном потоке сделал UI-действие.
 - См. логику регистрации в [`src/whisperbridge/services/hotkey_service.py`](src/whisperbridge/services/hotkey_service.py:142).
 
 5) Диагностика и проверки потока
-- Добавляйте логирование текущего потока в обработчики хоткеев и при создании виджетов.
-- Проверяйте поток перед выполнением UI-операций:
+- Добавлять логирование текущего потока в обработчики хоткеев и при создании виджетов.
+- Проверять поток перед выполнением UI-операций:
   QThread.currentThread() == QApplication.instance().thread()
 - В проекте примеры проверок в [`src/whisperbridge/services/ui_service.py`](src/whisperbridge/services/ui_service.py:151).
 
 6) Взаимодействие с QThread и QObject
-- Перемещайте QObject в QThread только если вы точно понимаете ownership и lifecycle.
-- Для worker-объектов (QObject с сигналами) используйте moveToThread и связывайте сигналы со слотами в главном потоке.
+- Перемещать QObject в QThread только если есть точное понимание ownership и lifecycle.
+- Для worker-объектов (QObject с сигналами) использовать moveToThread и связывать сигналы со слотами в главном потоке.
 - Пример безопасной организации worker в [`src/whisperbridge/ui_qt/app.py`](src/whisperbridge/ui_qt/app.py:518).
 
 7) Tray/OS интеграция
-- Действия из системного трея тоже должны попадать в главный поток через сигналы; избегайте вызовов UI из callback OS.
+- Действия из системного трея тоже должны попадать в главный поток через сигналы; избегать вызовов UI из callback OS.
 - Трей-менеджер — [`src/whisperbridge/ui_qt/tray.py`](src/whisperbridge/ui_qt/tray.py:1).
 
 8) Частые ошибки и как их обнаружить
 - "QObject::setParent: Cannot set parent..." — создание/перемещение виджета из фонового потока.
 - "Widgets not responding / freeze" — блокировка главного потока длительной синхронной операцией.
-- Логируйте стек и поток в момент ошибки.
+- Логиррвать стек и поток в момент ошибки.
 
 9) Быстрые рецепты
-- Нужен показать окно из background: emit signal -> слот создает/показывает окно.
+- Нужно показать окно из background: emit signal -> слот создает/показывает окно.
 - Нужна асинхронная работа: выполняйте I/O в asyncio или ThreadPool, возвращайте результат через signal.
 
-Поддерживайте это руководство — добавляйте примеры при новых паттернах.
+Необходимо поддерживать это руководство — добавлять примеры при новых паттернах.
