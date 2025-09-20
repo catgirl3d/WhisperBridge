@@ -75,6 +75,7 @@ class UIService:
         self._clipboard_service = clipboard_service
         # Logger fallback
         self.logger = logger or _default_logger
+        self.app = app
 
         # Lazy initialization: set to None if not provided
         if self.main_window is None:
@@ -203,7 +204,7 @@ class UIService:
                 # Parent to main_window if available
                 parent = self.main_window if self.main_window else None
                 try:
-                    self.settings_dialog = SettingsDialog(parent=parent)
+                    self.settings_dialog = SettingsDialog(app=self.app, parent=parent)
                     # Reset reference when dialog finishes
                     self.settings_dialog.finished.connect(lambda: setattr(self, "settings_dialog", None))
                 except Exception as e:

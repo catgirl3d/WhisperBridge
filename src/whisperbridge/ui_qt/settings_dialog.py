@@ -55,7 +55,7 @@ class ApiTestWorker(QObject):
             response = client.chat.completions.create(
                 model=self.model,
                 messages=[{"role": "user", "content": "Hello"}],
-                max_tokens=5
+                max_completion_tokens=5
             )
 
             # If we get here, the API key is valid
@@ -83,7 +83,7 @@ class ApiTestWorker(QObject):
             # Make a simple test request
             response = client.messages.create(
                 model=self.model,
-                max_tokens=5,
+                max_completion_tokens=5,
                 messages=[{"role": "user", "content": "Hello"}]
             )
 
@@ -127,13 +127,15 @@ class ApiTestWorker(QObject):
 class SettingsDialog(QDialog, SettingsObserver):
     """Settings dialog with tabbed interface for configuration."""
 
-    def __init__(self, parent=None):
+    def __init__(self, app, parent=None):
         """Initialize the settings dialog.
 
         Args:
+            app: The main QtApp instance.
             parent: Parent widget
         """
         super().__init__(parent)
+        self.app = app
         self.setWindowTitle("WhisperBridge Settings")
         self.setModal(False)  # Non-modal dialog
         self.resize(500, 600)
@@ -266,22 +268,7 @@ class SettingsDialog(QDialog, SettingsObserver):
         tab = QWidget()
         layout = QVBoxLayout(tab)
 
-        # Language settings
-        lang_group = QGroupBox("Language Settings")
-        lang_layout = QFormLayout(lang_group)
-
-        # Source language
-        self.source_lang_combo = QComboBox()
-        source_items = ["auto"] + self.current_settings.supported_languages
-        self.source_lang_combo.addItems(source_items)
-        lang_layout.addRow("Source Language:", self.source_lang_combo)
-
-        # Target language
-        self.target_lang_combo = QComboBox()
-        self.target_lang_combo.addItems(self.current_settings.supported_languages)
-        lang_layout.addRow("Target Language:", self.target_lang_combo)
-
-        layout.addWidget(lang_group)
+        # Language settings removed - now handled by overlay window
 
         # Translation options: OCR auto-swap and System Prompt
         # OCR auto-swap checkbox (EN <-> RU)
@@ -439,9 +426,7 @@ class SettingsDialog(QDialog, SettingsObserver):
         # Don't set model here - it will be set after loading models
         self.api_timeout_spin.setValue(settings.api_timeout)
 
-        # Translation tab
-        self.source_lang_combo.setCurrentText(settings.source_language)
-        self.target_lang_combo.setCurrentText(settings.target_language)
+        # Translation tab - language settings removed
         # OCR auto-swap checkbox (EN <-> RU)
         try:
             self.ocr_auto_swap_checkbox.setChecked(bool(getattr(settings, "ocr_auto_swap_en_ru", False)))
@@ -501,8 +486,7 @@ class SettingsDialog(QDialog, SettingsObserver):
             current["openai_api_key"] = self.api_key_edit.text().strip() or None
             current["model"] = self.model_combo.currentText().strip()
             current["api_timeout"] = self.api_timeout_spin.value()
-            current["source_language"] = self.source_lang_combo.currentText()
-            current["target_language"] = self.target_lang_combo.currentText()
+            # Language settings removed - now handled by overlay window
             current["system_prompt"] = self.system_prompt_edit.toPlainText().strip()
             # OCR auto-swap flag
             current["ocr_auto_swap_en_ru"] = bool(self.ocr_auto_swap_checkbox.isChecked())
@@ -535,19 +519,12 @@ class SettingsDialog(QDialog, SettingsObserver):
             logger.debug(f"Current settings before update: theme='{current.get('theme', 'NOT_FOUND')}'")
             logger.debug(f"Current dict keys: {list(current.keys())}")
 
-            # Create new settings object for validation
-            new_settings = Settings(**current)
+            # Save settings asynchronously
+            self.app.save_settings_async(current)
 
-            # Save via ConfigService
-            if config_service.save_settings(new_settings):
-                self.current_settings = new_settings
-                self.accept()  # Close dialog
-            else:
-                QMessageBox.warning(
-                    self,
-                    "Save Failed",
-                    "Failed to save settings. Please check your configuration and try again."
-                )
+            # Assume success and close the dialog immediately
+            # The user will be notified of the result via a tray notification
+            self.accept()
 
         except Exception as e:
             QMessageBox.critical(

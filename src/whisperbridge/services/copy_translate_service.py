@@ -235,54 +235,40 @@ class CopyTranslateService(QObject):
                 detected = detect_language(text_to_translate) or "auto"
                 log.debug(f"Copy-translate: detected language='{detected}'")
 
-                # Read current settings live from config_service to respect UI changes
-                swap_enabled = bool(self.config_service.get_setting("ocr_auto_swap_en_ru", use_cache=False))
-                target_cfg = self.config_service.get_setting("target_language", use_cache=False) or "en"
-                log.debug(f"Copy-translate: ocr_auto_swap_en_ru={swap_enabled}, configured target='{target_cfg}'")
- 
-                # Honor explicit target; only use EN↔RU auto-swap when Target='auto'
-                target_pref = (target_cfg or "en").lower()
-                try:
-                    favorites = self.config_service.get_setting("favorite_languages", use_cache=False) or ["en", "ru", "uk"]
-                    favorites = [str(x).lower() for x in favorites if isinstance(x, str)]
-                except Exception:
-                    favorites = ["en", "ru", "uk"]
-                # Fallback to first favorite non-auto (or 'en')
-                fallback = next((c for c in favorites if c != "auto"), "en")
- 
-                if target_pref == "auto" and swap_enabled:
+                # Read all relevant settings
+                settings = self.config_service.get_settings()
+                swap_enabled = getattr(settings, "ocr_auto_swap_en_ru", False)
+                ui_source_language = getattr(settings, "ui_source_language", "en")
+                ui_target_language = getattr(settings, "ui_target_language", "en")
+
+                # Determine effective source language
+                source_lang = ui_source_language
+
+                # Determine effective target language with checkbox priority
+                if swap_enabled:
                     if detected == "en":
-                        target = "ru"
+                        target_lang = "ru"
                     elif detected == "ru":
-                        target = "en"
+                        target_lang = "en"
                     else:
-                        target = fallback
-                    log.debug(f"Copy-translate: auto mode with swap — translating from '{detected}' to '{target}' (fallback='{fallback}')")
-                    # Show a brief translating notification
-                    try:
-                        if self.tray_manager:
-                            self.tray_manager.show_notification("WhisperBridge", "Translating...")
-                    except Exception:
-                        pass
-                    response = self.translation_service.translate_text_sync(
-                        text_to_translate,
-                        source_lang=detected if detected != "auto" else None,
-                        target_lang=target
-                    )
+                        # If auto-swap is on but language is not en/ru, use the explicit UI target
+                        target_lang = ui_target_language
                 else:
-                    target = target_pref
-                    log.debug(f"Copy-translate: explicit target mode — using target '{target}' (swap_enabled={swap_enabled})")
-                    # Show a brief translating notification
-                    try:
-                        if self.tray_manager:
-                            self.tray_manager.show_notification("WhisperBridge", "Translating...")
-                    except Exception:
-                        pass
-                    response = self.translation_service.translate_text_sync(
-                        text_to_translate,
-                        source_lang=detected if detected != "auto" else None,
-                        target_lang=target
-                    )
+                    # If auto-swap is off, use the explicit UI target
+                    target_lang = ui_target_language
+
+                log.debug(f"Copy-translate: swap_enabled={swap_enabled}. Source='{source_lang}', Target='{target_lang}'")
+
+                # Show a brief translating notification
+                try:
+                    if self.tray_manager:
+                        self.tray_manager.show_notification("WhisperBridge", "Translating...")
+                except Exception:
+                    pass
+                
+                response = self.translation_service.translate_text_sync(
+                    text_to_translate, source_lang=source_lang, target_lang=target_lang
+                )
             except Exception as exc:
                 log.error(f"Copy-translate: error during language detection/auto-swap: {exc}", exc_info=True)
                 # Fallback to default translation call on any failure

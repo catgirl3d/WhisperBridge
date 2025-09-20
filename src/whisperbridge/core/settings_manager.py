@@ -24,7 +24,6 @@ class SettingsManager:
     def __init__(self):
         self._lock = threading.RLock()
         self._settings: Optional[Settings] = None
-        self._backup_count = 5
         self._migration_handlers: Dict[str, Callable] = {}
 
         # Register migration handlers
@@ -76,48 +75,6 @@ class SettingsManager:
     def _get_settings_file(self) -> Path:
         """Get the path to the settings file."""
         return get_config_path() / "settings.json"
-
-    def _get_backup_dir(self) -> Path:
-        """Get the backup directory path."""
-        return get_config_path() / "backups"
-
-    def _create_backup(self, settings_file: Path):
-        """Create a backup of the current settings file."""
-        try:
-            backup_dir = self._get_backup_dir()
-            backup_dir.mkdir(exist_ok=True)
-
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            backup_file = backup_dir / f"settings_backup_{timestamp}.json"
-
-            if settings_file.exists():
-                shutil.copy2(settings_file, backup_file)
-
-            # Clean old backups
-            self._cleanup_old_backups()
-
-            logger.debug(f"Settings backup created: {backup_file}")
-
-        except Exception as e:
-            logger.warning(f"Failed to create settings backup: {e}")
-
-    def _cleanup_old_backups(self):
-        """Remove old backup files keeping only the most recent ones."""
-        try:
-            backup_dir = self._get_backup_dir()
-            if not backup_dir.exists():
-                return
-
-            backups = sorted(backup_dir.glob("settings_backup_*.json"),
-                           key=lambda x: x.stat().st_mtime, reverse=True)
-
-            if len(backups) > self._backup_count:
-                for old_backup in backups[self._backup_count:]:
-                    old_backup.unlink()
-                    logger.debug(f"Removed old backup: {old_backup}")
-
-        except Exception as e:
-            logger.warning(f"Failed to cleanup old backups: {e}")
 
     def _load_api_key(self) -> Optional[str]:
         """Load API key from keyring."""
@@ -219,9 +176,6 @@ class SettingsManager:
 
                 settings_file = self._get_settings_file()
 
-                # Create backup
-                self._create_backup(settings_file)
-
                 # Prepare data for saving
                 data = settings.model_dump()
                 data['version'] = '1.2.1'  # Current version
@@ -248,6 +202,40 @@ class SettingsManager:
 
             except Exception as e:
                 logger.error(f"Failed to save settings: {e}", exc_info=True)
+                return False
+
+    def save_single_setting(self, key: str, value: Any) -> bool:
+        """Save a single setting to the file without overwriting others."""
+        with self._lock:
+            try:
+                settings_file = self._get_settings_file()
+                
+                # Load existing data
+                if settings_file.exists():
+                    with open(settings_file, 'r', encoding='utf-8') as f:
+                        data = json.load(f)
+                else:
+                    data = {}
+
+                # Update the single value
+                data[key] = value
+
+                # Write the updated data back
+                with open(settings_file, 'w', encoding='utf-8') as f:
+                    json.dump(data, f, indent=2, ensure_ascii=False)
+
+                # Update in-memory settings if they exist
+                if self._settings:
+                    # Create a new validated model instance before assigning
+                    new_data = self._settings.model_dump()
+                    new_data[key] = value
+                    self._settings = Settings(**new_data)
+                
+                logger.info(f"Successfully saved single setting: {key}={value}")
+                return True
+
+            except Exception as e:
+                logger.error(f"Failed to save single setting '{key}': {e}", exc_info=True)
                 return False
 
     def get_settings(self) -> Settings:
