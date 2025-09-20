@@ -141,48 +141,33 @@ class CaptureOcrTranslateWorker(QObject):
                         settings = config_service.get_settings()
                         ocr_auto_swap = getattr(settings, "ocr_auto_swap_en_ru", False)
 
-                        # Honor explicit target unless Target='auto' (then apply EN↔RU auto-swap)
-                        try:
-                            target_pref = (getattr(settings, "target_language", "en") or "en").lower()
-                        except Exception:
-                            target_pref = "en"
-
-                        try:
-                            from ..utils.api_utils import detect_language
-                            detected = detect_language(original_text) or "auto"
-                        except Exception:
-                            detected = "auto"
-
-                        if target_pref == "auto" and ocr_auto_swap:
-                            # Auto mode with EN↔RU swap; otherwise fall back to first favorite or 'en'
+                        # If auto-swap enabled, detect language and swap en<->ru
+                        if ocr_auto_swap:
                             try:
-                                favorites = config_service.get_setting("favorite_languages", use_cache=False) or ["en", "ru", "uk"]
-                                favorites = [str(x).lower() for x in favorites if isinstance(x, str)]
-                            except Exception:
-                                favorites = ["en", "ru", "uk"]
-                            fallback = next((c for c in favorites if c != "auto"), "en")
+                                from ..utils.api_utils import detect_language
+                                detected = detect_language(original_text) or "auto"
+                                if detected == "en":
+                                    target = "ru"
+                                elif detected == "ru":
+                                    target = "en"
+                                else:
+                                    target = "en"  # Default fallback
 
-                            if detected == "en":
-                                target = "ru"
-                            elif detected == "ru":
-                                target = "en"
-                            else:
-                                target = fallback
-
-                            logger.debug(f"OCR auto mode with swap: detected='{detected}', target='{target}', fallback='{fallback}'")
-                            response = translation_service.translate_text_sync(
-                                original_text,
-                                source_lang=detected if detected != "auto" else None,
-                                target_lang=target
-                            )
+                                logger.debug(f"OCR auto-swap enabled: detected='{detected}', target='{target}'")
+                                response = translation_service.translate_text_sync(
+                                    original_text, source_lang=detected, target_lang=target
+                                )
+                            except Exception as e:
+                                logger.warning(f"OCR auto-swap detection/translation failed: {e}")
+                                # Fallback to default translation call
+                                response = translation_service.translate_text_sync(original_text)
                         else:
-                            # Explicit target mode (no swap)
-                            target = target_pref
-                            logger.debug(f"OCR explicit target mode: detected='{detected}', target='{target}', swap_enabled={ocr_auto_swap}")
+                            # Use the synchronous translation API which returns a TranslationResponse
+                            # When auto-swap is disabled, use UI-selected languages instead of global settings
+                            ui_source = getattr(settings, "ui_source_language", "auto")
+                            ui_target = getattr(settings, "ui_target_language", "en")
                             response = translation_service.translate_text_sync(
-                                original_text,
-                                source_lang=detected if detected != "auto" else None,
-                                target_lang=target
+                                original_text, source_lang=ui_source, target_lang=ui_target
                             )
 
                         if response and getattr(response, "success", False):
@@ -215,6 +200,29 @@ class CaptureOcrTranslateWorker(QObject):
         """Backward compatibility method for existing callers in _process_selection."""
         self.ocr_finished.emit(text)
         self.finished.emit(text, "", "")
+
+
+class SettingsSaveWorker(QObject):
+    """Worker for saving settings asynchronously."""
+    finished = Signal(bool, str)  # success, error_message
+
+    def __init__(self, settings_to_save: Dict[str, Any]):
+        super().__init__()
+        self.settings_to_save = settings_to_save
+
+    def run(self):
+        """Save settings using the settings manager."""
+        try:
+            from ..core.config import Settings
+            new_settings = Settings(**self.settings_to_save)
+            if config_service.save_settings(new_settings):
+                self.finished.emit(True, "Settings saved successfully.")
+            else:
+                self.finished.emit(False, "Failed to save settings.")
+        except Exception as e:
+            logger.error(f"Error in SettingsSaveWorker: {e}", exc_info=True)
+            self.finished.emit(False, f"An error occurred: {e}")
+
 
 class QtApp(QObject, SettingsObserver):
     """Qt-based application class with compatible interface."""
@@ -840,6 +848,31 @@ class QtApp(QObject, SettingsObserver):
             self.ui_service.open_settings()
         else:
             logger.error("open_settings called but UIService is not available")
+
+    def save_settings_async(self, settings_data: Dict[str, Any]):
+        """Save settings asynchronously using a worker thread."""
+        logger.info("Starting asynchronous settings save.")
+        worker = SettingsSaveWorker(settings_data)
+        thread = QThread()
+        worker.moveToThread(thread)
+
+        worker.finished.connect(self._on_settings_saved_async)
+        thread.started.connect(worker.run)
+        worker.finished.connect(thread.quit)
+        worker.finished.connect(worker.deleteLater)
+        thread.finished.connect(thread.deleteLater)
+
+        thread.start()
+        self._worker_threads.append((thread, worker))
+
+    def _on_settings_saved_async(self, success: bool, message: str):
+        """Handle the result of the asynchronous settings save."""
+        if success:
+            logger.info(message)
+            self.show_tray_notification("WhisperBridge", message)
+        else:
+            logger.error(f"Failed to save settings asynchronously: {message}")
+            self.show_tray_notification("WhisperBridge", f"Error: {message}")
 
     def show_overlay_window(self, original_text: str, translated_text: str,
                             position: Optional[tuple] = None, overlay_id: str = "main"):

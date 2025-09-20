@@ -488,7 +488,7 @@ class CopyTranslateDiagnostic:
                     if self.translation_service and self.translation_service.is_initialized():
                         print("Translating copied text (auto -> target)...")
                         try:
-                            trans = self.translation_service.translate_text_sync(text=new_clip, source_lang="auto", target_lang=settings.target_language)
+                            trans = self.translation_service.translate_text_sync(text=new_clip, source_lang="auto", target_lang="en")
                             if trans and getattr(trans, "success", False) and getattr(trans, "translated_text", ""):
                                 print("✅ Translation result:")
                                 print(getattr(trans, "translated_text"))

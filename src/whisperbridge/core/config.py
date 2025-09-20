@@ -24,17 +24,19 @@ class Settings(BaseSettings):
     model: str = Field(default="gpt-5-nano", description="GPT model")
     api_timeout: int = Field(default=30, description="API request timeout in seconds")
 
-    # Language Settings
-    source_language: str = Field(default="auto", description="Source language (auto for detection)")
-    target_language: str = Field(default="ru", description="Target language")
+    # Language Settings (legacy - now handled by UI overlay)
     supported_languages: List[str] = Field(
-        default=["en", "ru", "uk", "de", "es", "fr", "it", "pt", "ja", "ko", "zh", "ar"],
+        default=["en", "ru", "de", "ua"],
         description="List of supported languages"
     )
-    favorite_languages: List[str] = Field(
-        default=["en", "ru", "uk"],
-        description="Favorite target languages for quick selection"
-    )
+
+    # Overlay UI-specific language selections (do not affect core behavior)
+    # - ui_source_language: "auto" or explicit ISO code
+    # - ui_target_mode: "auto_swap" or "explicit"
+    # - ui_target_language: explicit ISO code used when ui_target_mode == "explicit"
+    ui_source_language: str = Field(default="auto", description="Overlay UI source language ('auto' or ISO code)")
+    ui_target_mode: Literal["auto_swap", "explicit"] = Field(default="explicit", description="Overlay UI target selection mode")
+    ui_target_language: str = Field(default="en", description="Overlay UI explicit target language (ISO code)")
 
     # Translation behavior flags
     # When True, OCR translation will auto-swap between English and Russian:
@@ -68,7 +70,7 @@ class Settings(BaseSettings):
     )
 
     # OCR Settings
-    ocr_languages: List[str] = Field(default=["en", "ru"], description="OCR languages")
+    ocr_languages: List[str] = Field(default=["en", "ru", "ua"], description="OCR languages")
     ocr_confidence_threshold: float = Field(default=0.7, description="OCR confidence threshold")
     ocr_timeout: int = Field(default=10, description="OCR timeout in seconds")
     # OCR initialization flag (default: disabled)
@@ -105,7 +107,7 @@ class Settings(BaseSettings):
         extra='ignore'
     )
 
-    @field_validator('source_language', 'target_language')
+    @field_validator('ui_source_language', 'ui_target_language')
     @classmethod
     def validate_language(cls, v: str) -> str:
         """Validate language codes."""
@@ -154,12 +156,7 @@ class Settings(BaseSettings):
             raise ValueError(f'Invalid log level: {v}. Must be one of {valid_levels}')
         return v.upper()
 
-    @model_validator(mode='after')
-    def validate_dependencies(self) -> 'Settings':
-        """Validate interdependent settings."""
-        if self.source_language == self.target_language and self.source_language != 'auto':
-            raise ValueError('Source and target languages cannot be the same')
-        return self
+    # Removed legacy language validation - now handled by UI overlay
 
 
 # Global settings instance (will be loaded by load_settings() below)

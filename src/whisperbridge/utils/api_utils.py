@@ -85,7 +85,11 @@ def detect_language(text: str) -> Optional[str]:
     if re.search(r'\b(the|a|an|is|are|was|were|in|on|at|and|or|but)\b', text):
         return "en"
 
-    # Cyrillic characters (Russian, Ukrainian, etc.)
+    # Ukrainian characters
+    if re.search(r'[ієїґ]', text):
+        return "ua"
+
+    # Cyrillic characters (Russian)
     if re.search(r'[а-яё]', text):
         return "ru"
 
@@ -134,6 +138,7 @@ def get_language_name(code: str) -> str:
     language_names = {
         "en": "English",
         "ru": "Russian",
+        "ua": "Ukrainian",
         "es": "Spanish",
         "fr": "French",
         "de": "German",

@@ -198,16 +198,22 @@ class ConfigService:
                 settings = self.get_settings()
                 old_value = getattr(settings, key, None)
 
-                # Update the setting
-                setattr(settings, key, value)
+                # Use the new method to save only one setting
+                success = self._settings_manager.save_single_setting(key, value)
 
-                # Validate the change
-                settings.model_validate(settings.model_dump())
-
-                # Save and notify
-                success = self.save_settings(settings)
                 if success:
+                    # Update in-memory cache and notify observers
                     self._set_cached_value(key, value)
+                    self._notify_observers('changed', key, old_value, value)
+                    
+                    # If log level changed, reconfigure logging
+                    if key == "log_level":
+                        try:
+                            from ..core.logger import setup_logging
+                            setup_logging()
+                            logger.info(f"Applied new log level: {value}")
+                        except Exception as e:
+                            logger.error(f"Failed to apply new log level '{value}': {e}")
 
                 return success
 
@@ -219,26 +225,11 @@ class ConfigService:
         """Update multiple settings at once."""
         with self._lock:
             try:
-                settings = self.get_settings()
-                old_dict = settings.model_dump()
-
-                # Apply updates
+                # This is less efficient as it writes the file for each setting,
+                # but it reuses the existing single-setting save logic.
                 for key, value in updates.items():
-                    if hasattr(settings, key):
-                        setattr(settings, key, value)
-
-                # Validate all changes
-                settings.model_validate(settings.model_dump())
-
-                # Save and notify
-                success = self.save_settings(settings)
-                if success:
-                    # Update cache for changed values
-                    for key, value in updates.items():
-                        self._set_cached_value(key, value)
-
-                return success
-
+                    self.set_setting(key, value)
+                return True
             except Exception as e:
                 logger.error(f"Failed to update settings: {e}")
                 return False

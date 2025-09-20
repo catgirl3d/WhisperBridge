@@ -187,8 +187,11 @@ class TranslationService:
             # Use settings defaults if not specified
             current_settings = config_service.get_settings()
             logger.debug(f"Loaded settings in translate_text_async. System prompt: '{current_settings.system_prompt}'")
-            source_lang = source_lang or current_settings.source_language
-            target_lang = target_lang or current_settings.target_language
+            # Legacy language settings removed - languages must be explicitly provided
+            if source_lang is None:
+                source_lang = "auto"
+            if target_lang is None:
+                target_lang = "en"  # Default fallback
             logger.debug(f"Resolved languages: source='{source_lang}', target='{target_lang}'")
 
             # Auto-detect source language if needed
@@ -244,8 +247,8 @@ class TranslationService:
             return TranslationResponse(
                 success=False,
                 error_message=str(e),
-                source_lang=source_lang or settings.source_language,
-                target_lang=target_lang or settings.target_language
+                source_lang=source_lang or "auto",
+                target_lang=target_lang or "en"
             )
 
     async def _detect_language_async(self, text: str) -> Optional[str]:
@@ -366,8 +369,8 @@ class TranslationService:
             return TranslationResponse(
                 success=False,
                 error_message=str(e),
-                source_lang=source_lang or settings.source_language,
-                target_lang=target_lang or settings.target_language
+                source_lang=source_lang or "auto",
+                target_lang=target_lang or "en"
             )
 
     def clear_cache(self):

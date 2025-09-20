@@ -2,14 +2,16 @@
 Overlay window implementation for Qt-based UI.
 """
 
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QLabel, QTextEdit, QApplication, QPushButton, QFrame, QMenu
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QLabel, QTextEdit, QApplication, QPushButton, QFrame, QComboBox, QHBoxLayout, QSpacerItem, QSizePolicy, QCheckBox
 from PySide6.QtCore import Qt, QPoint, QRect, QTimer, QThread, Signal, QObject, QSize, QEvent
-from PySide6.QtGui import QFont, QKeyEvent
+from PySide6.QtGui import QFont, QKeyEvent, QPixmap, QIcon
 
 import qtawesome as qta
+from pathlib import Path
 
 from loguru import logger
 from ..services.config_service import config_service
+from ..utils.api_utils import get_language_name, detect_language
 
 
 class OverlayWindow(QWidget):
@@ -41,62 +43,32 @@ class OverlayWindow(QWidget):
 
         # Main vertical layout
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(16, 8, 16, 2)
+        layout.setContentsMargins(16, 12, 16, 2)
         layout.setSpacing(6)
 
         # Header: title and close button
         header_layout = QVBoxLayout()
-        # Use a horizontal layout-like composition (keep simple)
-        title_label = QLabel("Переводчик")
-        title_label.setFont(QFont("Arial", 12, QFont.Bold))
+        # Use a horizontal layout-like composition
+        title_label = QLabel("Translator")
+        title_label.setFont(QFont("Arial", 11, QFont.Bold))
         layout.addWidget(title_label)
 
         # Original text label and widget
-        self.original_label = QLabel("Оригинал:")
+        self.original_label = QLabel("Original:")
         self.original_label.setFont(QFont("Arial", 10, QFont.Bold))
-        self.original_label.setStyleSheet("padding-bottom: 6px;")
-        self.original_label.setStyleSheet("padding-bottom: 6px;")
  
-        # Row: Original label + detected language + auto-swap checkbox
-        from PySide6.QtWidgets import QHBoxLayout, QSpacerItem, QSizePolicy, QCheckBox
-        orig_row = QHBoxLayout()
-        orig_row.addWidget(self.original_label)
-        orig_row.addItem(QSpacerItem(10, 10, QSizePolicy.Expanding, QSizePolicy.Minimum))
- 
+        # Row: detected language + auto-swap checkbox
+        info_row = QHBoxLayout()
+        info_row.addItem(QSpacerItem(10, 10, QSizePolicy.Expanding, QSizePolicy.Minimum))
+
         # Detected language label (short)
-        self.detected_lang_label = QLabel("Язык: —")
+        self.detected_lang_label = QLabel("Language: —")
         self.detected_lang_label.setFixedWidth(120)
-        orig_row.addWidget(self.detected_lang_label)
+        info_row.addWidget(self.detected_lang_label)
 
-        # Target language quick selector label
-        self.target_lang_label = QLabel("")
-        self.target_lang_label.setCursor(Qt.PointingHandCursor)
-        self.target_lang_label.setToolTip("Left-click: cycle favorites. Right-click: choose any target language.")
-        orig_row.addWidget(self.target_lang_label)
-
-        # Initialize favorites/supported and current target from settings
-        try:
-            self._favorite_languages = config_service.get_setting("favorite_languages", use_cache=False) or ["en", "ru", "uk"]
-            self._supported_languages = config_service.get_setting("supported_languages", use_cache=False) or ["en", "ru", "uk", "de", "es", "fr", "it", "pt", "ja", "ko", "zh", "ar"]
-            self._current_target = (config_service.get_setting("target_language", use_cache=False) or "en").lower()
-        except Exception:
-            self._favorite_languages = ["en", "ru", "uk"]
-            self._supported_languages = ["en", "ru", "uk"]
-            self._current_target = "en"
-        # Normalize and guard
-        self._favorite_languages = [str(x).lower() for x in (self._favorite_languages or [])]
-        self._supported_languages = [str(x).lower() for x in (self._supported_languages or [])]
-        # Install event filter for click handling
-        try:
-            self.target_lang_label.installEventFilter(self)
-        except Exception:
-            logger.debug("Failed to install event filter for target_lang_label")
-        # Initial render
-        self._update_target_label()
- 
         # Auto-swap checkbox for EN <-> RU behavior
-        self.auto_swap_checkbox = QCheckBox("Авто-перевод EN ↔ RU")
-        self.auto_swap_checkbox.setToolTip("Если включено, английский будет переводиться на русский, а русский — на английский")
+        self.auto_swap_checkbox = QCheckBox("Auto-translate EN ↔ RU")
+        self.auto_swap_checkbox.setToolTip("If enabled, English will be translated to Russian, and Russian to English")
         # Initialize state from settings (fallback True)
         try:
             cfg = config_service.get_settings()
@@ -110,21 +82,144 @@ class OverlayWindow(QWidget):
             self.auto_swap_checkbox.stateChanged.connect(self._on_auto_swap_changed)
         except Exception:
             logger.debug("Failed to connect auto_swap_checkbox.stateChanged")
-        orig_row.addWidget(self.auto_swap_checkbox)
+        info_row.addWidget(self.auto_swap_checkbox)
+
+        layout.addLayout(info_row)
+
+        # New row: language controls (Original label + Source/Swap/Target)
+        language_row = QHBoxLayout()
+
+        # Original label
+        language_row.addWidget(self.original_label)
+
+        # Add a spacer to push language controls to the right
+        language_row.addItem(QSpacerItem(10, 10, QSizePolicy.Expanding, QSizePolicy.Minimum))
+
+        # Source combo
+        self.source_combo = QComboBox()
+        self.source_combo.setFixedSize(120, 28)
+        self.source_combo.setSizeAdjustPolicy(QComboBox.AdjustToContents)
+        language_row.addWidget(self.source_combo)
+
+        # Swap button
+        self.swap_btn = QPushButton()
+        self.swap_btn.setFixedSize(35, 28)
+        img_path = Path(__file__).parent.parent.parent.parent / "img" / "arrows-exchange.png"
+        pixmap = QPixmap(str(img_path))
+        self.swap_btn.setIcon(QIcon(pixmap))
+        self.swap_btn.setIconSize(QSize(20, 24))
+        language_row.addWidget(self.swap_btn)
+
+        # Target label and combo
+
+        self.target_combo = QComboBox()
+        self.target_combo.setFixedSize(120, 28)
+        self.target_combo.setSizeAdjustPolicy(QComboBox.AdjustToContents)
+        language_row.addWidget(self.target_combo)
+
+        # Add font-awesome chevron arrows to comboboxes (overlay labels; preserve mouse events)
+        self._combo_arrows = {}
+        try:
+            self._decorate_combobox(self.source_combo)
+            self._decorate_combobox(self.target_combo)
+        except Exception as e:
+            logger.debug(f"Failed to decorate combobox arrows: {e}")
+
+
+        # Populate combos
+        self._programmatic_combo_change = False
+        try:
+            cfg = config_service.get_settings()
+        except Exception:
+            cfg = None
+
+        # Build a concise canonical language list limited to requested languages
+        # Keep display names consistent (English full names)
+        codes_set = ["en", "ru", "ua", "de"]
+
+        # Display name overrides for codes not present in get_language_name mappings
+        display_overrides = {}
+
+        # Source combo: selected canonical codes (use full English names)
+        try:
+            for code in codes_set:
+                display = display_overrides.get(code, get_language_name(code))
+                self.source_combo.addItem(display, userData=code)
+        except Exception as e:
+            logger.debug(f"Failed to populate source combo: {e}")
+
+        # Target combo: selected canonical codes (use consistent full names)
+        try:
+            for code in codes_set:
+                display = display_overrides.get(code, get_language_name(code))
+                self.target_combo.addItem(display, userData=code)
+        except Exception as e:
+            logger.debug(f"Failed to populate target combo: {e}")
+
+        # Restore persisted UI selections or defaults
+        try:
+            ui_source_language = getattr(cfg, "ui_source_language", "en") if cfg else "en"
+            ui_target_mode = getattr(cfg, "ui_target_mode", "explicit") if cfg else "explicit"
+            # Default target language - no fallback to legacy settings
+            ui_target_language = getattr(cfg, "ui_target_language", "en") if cfg else "en"
+
+            # If legacy or persisted value is "auto", map it to explicit default "en"
+            if ui_source_language == "auto":
+                ui_source_language = "en"
+
+            # Apply to combos without emitting signals
+            self._programmatic_combo_change = True
+            self.source_combo.blockSignals(True)
+            self.target_combo.blockSignals(True)
+
+            # Helper: set combo to a userData value
+            def _set_combo_by_data(combo: QComboBox, value: str):
+                for i in range(combo.count()):
+                    if combo.itemData(i) == value:
+                        combo.setCurrentIndex(i)
+                        return True
+                return False
+
+            # Source: try persisted value, fallback to "en"
+            if not _set_combo_by_data(self.source_combo, ui_source_language):
+                _set_combo_by_data(self.source_combo, "en")
  
-        layout.addLayout(orig_row)
- 
+            # Target: use persisted explicit language or fallback to "en"
+            if not _set_combo_by_data(self.target_combo, ui_target_language):
+                _set_combo_by_data(self.target_combo, "en")
+
+            self.source_combo.blockSignals(False)
+            self.target_combo.blockSignals(False)
+            self._programmatic_combo_change = False
+        except Exception as e:
+            logger.debug(f"Failed to restore language UI selections: {e}")
+            self._programmatic_combo_change = False
+            try:
+                self.source_combo.blockSignals(False)
+                self.target_combo.blockSignals(False)
+            except Exception:
+                pass
+
+        # Connect handlers
+        try:
+            self.source_combo.currentIndexChanged.connect(self._on_source_changed)
+            self.target_combo.currentIndexChanged.connect(self._on_target_changed)
+            self.swap_btn.clicked.connect(self._on_swap_clicked)
+        except Exception:
+            logger.debug("Failed to connect language controls signals")
+
+        # Add the language row to main layout
+        layout.addLayout(language_row)
+
         self.original_text = QTextEdit()
         # Make the field interactive (editable) so user can select/modify text
         self.original_text.setReadOnly(False)
         self.original_text.setAcceptRichText(False)
         # Allow vertical expansion within layout
         # Make the text area expand in both directions
-        from PySide6.QtWidgets import QSizePolicy
         self.original_text.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         # Placeholder test text for manual verification and visibility
-        self.original_text.setPlainText("Тестовый оригинал: Здесь будет распознанный текст (заглушка).")
-        self.original_text.setPlaceholderText("Здесь появится распознанный текст...")
+        self.original_text.setPlaceholderText("Recognized text will appear here...")
         # Ensure explicit black text color and white background on the widget (override app palette)
         try:
             self.original_text.setStyleSheet("QTextEdit { color: #111111; background-color: #ffffff; }")
@@ -136,18 +231,39 @@ class OverlayWindow(QWidget):
         layout.addSpacing(6)
 
         # Buttons row for original text (positioned under the field)
-        from PySide6.QtWidgets import QHBoxLayout, QPushButton, QSpacerItem, QSizePolicy
         btn_row_orig = QHBoxLayout()
         btn_row_orig.addItem(QSpacerItem(10, 10, QSizePolicy.Expanding, QSizePolicy.Minimum))
  
         # Translate button under the original field
-        self.translate_btn = QPushButton("Перевести")
+        self.translate_btn = QPushButton("  Translate")
+        self.translate_btn.setObjectName("translateButton") # Set object name for specific styling
         self.translate_btn.setFixedHeight(28)
         self.translate_btn.setFixedWidth(120)
-        self.translate_btn.setIcon(qta.icon('fa5s.language', color='black'))
-        self.translate_btn.setIconSize(QSize(16, 16))
+        try:
+            img_path = Path(__file__).parent.parent.parent.parent / "img" / "translation-icon.png"
+            pixmap = QPixmap(str(img_path))
+            if not pixmap.isNull():
+                self.translate_btn.setIcon(QIcon(pixmap))
+            else:
+                self.translate_btn.setIcon(qta.icon('fa5s.language', color='white'))
+        except Exception:
+            self.translate_btn.setIcon(qta.icon('fa5s.language', color='white'))
+        self.translate_btn.setIconSize(QSize(14, 14))
         self.translate_btn.clicked.connect(self._on_translate_clicked)
         btn_row_orig.addWidget(self.translate_btn)
+
+        # Clear original button
+        self.clear_original_btn = QPushButton("")
+        self.clear_original_btn.setFixedHeight(28)
+        self.clear_original_btn.setFixedWidth(40)
+        try:
+            self.clear_original_btn.setIcon(qta.icon('fa5s.eraser', color='black'))
+        except Exception:
+            self.clear_original_btn.setText("Clear")
+        self.clear_original_btn.setIconSize(QSize(16, 16))
+        self.clear_original_btn.setToolTip("Clear original text")
+        self.clear_original_btn.clicked.connect(self._clear_original_text)
+        btn_row_orig.addWidget(self.clear_original_btn)
  
         # Copy original button (kept for parity with existing UI)
         self.copy_original_btn = QPushButton("")
@@ -168,7 +284,7 @@ class OverlayWindow(QWidget):
             logger.debug("Failed to connect original_text.textChanged signal")
 
         # Translated text label and widget
-        self.translated_label = QLabel("Перевод:")
+        self.translated_label = QLabel("Translation:")
         self.translated_label.setFont(QFont("Arial", 10, QFont.Bold))
         self.translated_label.setStyleSheet("padding-bottom: 6px;")
         layout.addWidget(self.translated_label)
@@ -178,11 +294,9 @@ class OverlayWindow(QWidget):
         self.translated_text.setReadOnly(False)
         self.translated_text.setAcceptRichText(False)
         # Allow vertical expansion within layout
-        from PySide6.QtWidgets import QSizePolicy
         self.translated_text.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         # Placeholder test text for manual verification
-        self.translated_text.setPlainText("Тестовый перевод: Здесь будет переведённый текст (заглушка).")
-        self.translated_text.setPlaceholderText("Здесь появится перевод...")
+        self.translated_text.setPlaceholderText("Translation will appear here...")
         try:
             self.translated_text.setStyleSheet("QTextEdit { color: #111111; background-color: #ffffff; }")
         except Exception:
@@ -205,6 +319,20 @@ class OverlayWindow(QWidget):
         # Buttons row for translated text (positioned under the field)
         btn_row_tr = QHBoxLayout()
         btn_row_tr.addItem(QSpacerItem(10, 10, QSizePolicy.Expanding, QSizePolicy.Minimum))
+
+        # Clear translated button
+        self.clear_translated_btn = QPushButton("")
+        self.clear_translated_btn.setFixedHeight(28)
+        self.clear_translated_btn.setFixedWidth(40)
+        try:
+            self.clear_translated_btn.setIcon(qta.icon('fa5s.eraser', color='black'))
+        except Exception:
+            self.clear_translated_btn.setText("Clear")
+        self.clear_translated_btn.setIconSize(QSize(16, 16))
+        self.clear_translated_btn.setToolTip("Clear translated text")
+        self.clear_translated_btn.clicked.connect(self._clear_translated_text)
+        btn_row_tr.addWidget(self.clear_translated_btn)
+
         self.copy_translated_btn = QPushButton("")
         self.copy_translated_btn.setFixedHeight(28)
         self.copy_translated_btn.setFixedWidth(40)
@@ -218,24 +346,30 @@ class OverlayWindow(QWidget):
         footer_row = QHBoxLayout()
         footer_row.setContentsMargins(0, 0, 0, 10)  # Left/right margins, bottom margin
         # Remove the expanding spacer to keep button aligned to the right
-        self.close_btn = QPushButton("Закрыть")
-        self.close_btn.setIcon(qta.icon('fa5s.times', color='black'))
+        self.close_btn = QPushButton("Close")
+        self.close_btn.setFixedHeight(28)
+        self.close_btn.setFixedWidth(87)
+        self.close_btn.setObjectName("closeButton") # Set object name for specific styling
+        self.close_icon_normal = qta.icon('fa5s.times', color='black')
+        self.close_icon_hover = qta.icon('fa5s.times', color='white')
+        self.close_btn.setIcon(self.close_icon_normal)
         self.close_btn.setIconSize(QSize(16, 16))
         self.close_btn.clicked.connect(self.hide_overlay)
+        self.close_btn.installEventFilter(self)
         footer_row.addWidget(self.close_btn, alignment=Qt.AlignRight)  # Align to right
         layout.addLayout(footer_row)
 
 
         # Add close button in top-right corner
         self.close_btn_top = QPushButton(self)
-        self.close_btn_top.setFixedSize(16, 16)
+        self.close_btn_top.setFixedSize(22, 22)
         self.close_btn_top.setIcon(qta.icon('fa5s.times', color='black'))
-        self.close_btn_top.setIconSize(QSize(10, 10))
+        self.close_btn_top.setIconSize(QSize(14, 14))
         self.close_btn_top.setStyleSheet("""
             QPushButton {
                 background-color: #f0f0f0;
                 border: 1px solid #cccccc;
-                border-radius: 2px;
+                border-radius: 0px;
             }
             QPushButton:hover {
                 background-color: #ff6b6b;
@@ -274,6 +408,56 @@ class OverlayWindow(QWidget):
             QPushButton:hover {
                 background-color: #e8e8e8;
             }
+            QPushButton#translateButton {
+                background-color: #356bd0;
+                color: #ffffff;
+                font-weight: 600;
+            }
+            QPushButton#translateButton:hover {
+                background-color: #2f5db3;
+            }
+            QPushButton#closeButton:hover {
+                background-color: #d02d2d; /* Red background on hover */
+                color: #ffffff;
+            }
+
+            /* ComboBox styling */
+            QComboBox {
+                border: 1px solid rgba(0,0,0,0.12);
+                border-radius: 4px;
+                padding: 0px 0px 0px 8px;
+                background-color: #ffffff;
+                color: #111111;
+                selection-background-color: #0078d7;
+            }
+            QComboBox::drop-down {
+                subcontrol-origin: padding;
+                subcontrol-position: top right;
+                width: 22px;
+                border-left: 1px solid rgba(0,0,0,0.08);
+                border-top-right-radius: 3px;
+                border-bottom-right-radius: 3px;
+                background-color: transparent;
+                
+            }
+            /* Popup list */
+            QComboBox QAbstractItemView {
+                border: 1px solid rgba(0,0,0,0.12);
+                background-color: #ffffff;
+                color: #111111;
+                selection-background-color: #0078d7;
+                selection-color: #ffffff;
+                outline: none;
+                padding: 4px;
+            }
+            QComboBox QAbstractItemView::item {
+                min-height: 22px;
+                padding: 4px 8px;
+            }
+            QComboBox QAbstractItemView::item:selected {
+                background: #0078d7;
+                color: #ffffff;
+            }
         """)
         # Lifecycle helpers expected by overlay service
         # Public flag used by services to determine if window was destroyed
@@ -297,16 +481,10 @@ class OverlayWindow(QWidget):
         try:
             logger.info("OverlayWindow: show_loading() called")
             if position:
-                try:
-                    x, y = position
-                    self.move(x, y)
-                except Exception:
-                    logger.debug("Failed to position loading overlay")
-            # Simple loading placeholder: replace original text with 'Loading...'
-            try:
-                self.original_text.setPlainText("Загрузка...")
-            except Exception:
-                pass
+                x, y = position
+                self.move(x, y)
+
+            self.original_text.setPlainText("Loading...")
             self.show()
             self.raise_()
             self.activateWindow()
@@ -498,34 +676,65 @@ class OverlayWindow(QWidget):
         super().resizeEvent(event)
         self._position_top_buttons()
 
-    def _copy_original_to_clipboard(self):
-        """Copy original text to clipboard."""
+    def _copy_text_to_clipboard(self, text_widget: QTextEdit, button: QPushButton, text_name: str):
+        """Copy text from a QTextEdit to clipboard and provide visual feedback on a button."""
         try:
             clipboard = QApplication.clipboard()
-            clipboard.setText(self.original_text.toPlainText())
-            logger.info("Original text copied to clipboard")
-            # Preserve current icon and text so we can restore them after transient feedback.
-            prev_icon = self.copy_original_btn.icon()
-            prev_text = self.copy_original_btn.text()
-            # Show a check/done icon as transient feedback
+            clipboard.setText(text_widget.toPlainText())
+            logger.info(f"{text_name} text copied to clipboard")
+            
+            prev_icon = button.icon()
+            prev_text = button.text()
+            
             try:
-                self.copy_original_btn.setIcon(qta.icon('fa5s.check', color='green'))
+                button.setIcon(qta.icon('fa5s.check', color='green'))
             except Exception:
-                # Fallback: if qtawesome icon creation fails, keep existing icon
-                pass
-            # Clear text (buttons here are usually icon-only)
-            self.copy_original_btn.setText("")
-            QTimer.singleShot(1200, lambda p_icon=prev_icon, p_text=prev_text: (self.copy_original_btn.setIcon(p_icon), self.copy_original_btn.setText(p_text)))
+                pass # Fallback to existing icon
+            
+            button.setText("")
+            QTimer.singleShot(1200, lambda p_icon=prev_icon, p_text=prev_text: (button.setIcon(p_icon), button.setText(p_text)))
         except Exception as e:
-            logger.error(f"Failed to copy original text: {e}")
+            logger.error(f"Failed to copy {text_name} text: {e}")
 
-    def _on_original_text_changed(self):
-        """Update detected language label when original text changes."""
+    def _copy_original_to_clipboard(self):
+        """Copy original text to clipboard."""
+        self._copy_text_to_clipboard(self.original_text, self.copy_original_btn, "Original")
+
+    def _clear_original_text(self):
+        """Clear original text area and reset language label."""
         try:
-            from ..utils.api_utils import detect_language, get_language_name
+            self.original_text.clear()
+            try:
+                self.detected_lang_label.setText("Language: —")
+            except Exception:
+                pass
+        except Exception as e:
+            logger.error(f"Failed to clear original text: {e}")
+
+    def _clear_translated_text(self):
+        """Clear translated text area."""
+        try:
+            self.translated_text.clear()
+        except Exception as e:
+            logger.error(f"Failed to clear translated text: {e}")
+
+    def _clear_focused_text(self):
+        """Clear text in the currently focused text area (if any)."""
+        try:
+            w = QApplication.focusWidget()
+            if w is self.original_text:
+                self._clear_original_text()
+            elif w is self.translated_text:
+                self._clear_translated_text()
+        except Exception as e:
+            logger.debug(f"Clear focused text failed: {e}")
+ 
+    def _on_original_text_changed(self):
+        """Update detected language label when original text changes and auto-update Source if needed."""
+        try:
             text = self.original_text.toPlainText().strip()
             if not text:
-                self.detected_lang_label.setText("Язык: —")
+                self.detected_lang_label.setText("Language: —")
                 return
 
             # Detect language (may return codes like 'en', 'ru', etc.)
@@ -533,128 +742,170 @@ class OverlayWindow(QWidget):
             if lang_code:
                 lang_name = get_language_name(lang_code)
                 # Show short name in Russian UI, e.g., "Язык: English"
-                self.detected_lang_label.setText(f"Язык: {lang_name}")
+                self.detected_lang_label.setText(f"Language: {lang_name}")
+
             else:
-                self.detected_lang_label.setText("Язык: —")
+                self.detected_lang_label.setText("Language: —")
         except Exception as e:
             logger.debug(f"Failed to update detected language label: {e}")
-
-    def eventFilter(self, obj, event):
-        """Handle clicks on the target language label."""
-        try:
-            if obj is getattr(self, "target_lang_label", None) and event.type() == QEvent.Type.MouseButtonPress:
-                if event.button() == Qt.MouseButton.LeftButton:
-                    self._cycle_favorite_target()
-                    return True
-                elif event.button() == Qt.MouseButton.RightButton:
-                    self._show_target_menu()
-                    return True
-        except Exception as e:
-            logger.debug(f"eventFilter error: {e}")
-        return super().eventFilter(obj, event)
-
-    def _update_target_label(self):
-        """Render the target selector label text, and toggle auto-swap checkbox availability."""
-        try:
-            code = (getattr(self, "_current_target", None) or "en").lower()
-            if code == "auto":
-                text = "Target: Auto"
-            else:
-                text = f"Target: {code.upper()}"
-            self.target_lang_label.setText(text)
-            # Enable auto-swap checkbox only when Target=Auto
-            try:
-                if hasattr(self, "auto_swap_checkbox"):
-                    is_auto = (code == "auto")
-                    self.auto_swap_checkbox.setEnabled(is_auto)
-                    if not is_auto:
-                        self.auto_swap_checkbox.setToolTip("Auto EN ↔ RU is active only when Target is set to Auto")
-                    else:
-                        self.auto_swap_checkbox.setToolTip("If enabled and Target=Auto, English will be translated to Russian and Russian to English")
-            except Exception:
-                pass
-        except Exception as e:
-            logger.debug(f"Failed to update target label: {e}")
-
-    def _persist_target_language(self, code: str):
-        """Persist chosen target language to settings via config_service."""
-        try:
-            code = (code or "en").lower()
-            if config_service.set_setting("target_language", code):
-                self._current_target = code
-                self._update_target_label()
-                logger.info(f"Target language set to '{code}'")
-            else:
-                logger.warning("Failed to persist target_language via config_service")
-        except Exception as e:
-            logger.error(f"Error persisting target_language: {e}")
-
-    def _cycle_favorite_target(self):
-        """Cycle through favorite languages on left-click."""
-        try:
-            favs = getattr(self, "_favorite_languages", None) or ["en", "ru", "uk"]
-            favs = [str(x).lower() for x in favs if isinstance(x, str)]
-            if not favs:
-                favs = ["en", "ru", "uk"]
-            cur = (getattr(self, "_current_target", None) or "en").lower()
-            # If current is not in favorites or is 'auto', start from first
-            if cur not in favs or cur == "auto":
-                next_code = favs[0]
-            else:
-                idx = favs.index(cur)
-                next_code = favs[(idx + 1) % len(favs)]
-            self._persist_target_language(next_code)
-        except Exception as e:
-            logger.debug(f"Failed to cycle favorite language: {e}")
-
-    def _show_target_menu(self):
-        """Show full language picker on right-click."""
-        try:
-            menu = QMenu(self)
-            # Auto option
-            auto_action = menu.addAction("Auto (EN ↔ RU)")
-            auto_action.setData("auto")
-            menu.addSeparator()
-            # Build full list from supported languages
-            langs = list(dict.fromkeys((getattr(self, "_supported_languages", None) or [])))
-            if "en" not in langs:
-                langs.insert(0, "en")
-            from ..utils.api_utils import get_language_name
-            for code in langs:
-                try:
-                    label = f"{code.upper()} — {get_language_name(code)}"
-                except Exception:
-                    label = code.upper()
-                act = menu.addAction(label)
-                act.setData(code)
-            # Bold current
-            for act in menu.actions():
-                if act.data() and str(act.data()).lower() == (getattr(self, "_current_target", "en") or "en"):
-                    f = act.font()
-                    f.setBold(True)
-                    act.setFont(f)
-            pos = self.target_lang_label.mapToGlobal(self.target_lang_label.rect().bottomLeft())
-            chosen = menu.exec(pos)
-            if chosen and chosen.data():
-                self._persist_target_language(str(chosen.data()))
-        except Exception as e:
-            logger.debug(f"Failed to show target language menu: {e}")
 
     def _on_auto_swap_changed(self, state):
         """Persist OCR auto-swap checkbox state to settings when changed."""
         try:
             enabled = bool(state)
             try:
-                # Use config_service to get and save settings
-                current = config_service.get_settings()
-                current.ocr_auto_swap_en_ru = enabled
-                # Save via config_service so observers are notified
-                config_service.save_settings(current)
+                # Use config_service to set the specific setting
+                config_service.set_setting("ocr_auto_swap_en_ru", enabled)
                 logger.info(f"OCR auto-swap setting updated: {enabled}")
             except Exception as e:
                 logger.error(f"Failed to save OCR auto-swap setting: {e}")
         except Exception as e:
             logger.debug(f"Error in _on_auto_swap_changed: {e}")
+
+    # --- New handlers for language controls ---
+
+    def _find_index_by_data(self, combo: QComboBox, data_value: str) -> int:
+        try:
+            for i in range(combo.count()):
+                if combo.itemData(i) == data_value:
+                    return i
+        except Exception:
+            pass
+        return -1
+
+    # --- ComboBox arrow decoration using qtawesome (font-awesome) ---
+
+    def _decorate_combobox(self, combo: QComboBox):
+        """Overlay a small chevron-down icon on the right side of the QComboBox."""
+        try:
+            from PySide6.QtWidgets import QLabel
+            arrow_label = QLabel(combo)
+            # Use a subtle color to match UI; adjust size as needed
+            try:
+                icon = qta.icon('fa5s.chevron-down', color='#666666')
+            except Exception:
+                # Fallback to angle-down if chevron unavailable
+                icon = qta.icon('fa5s.angle-down', color='#666666')
+            pix = icon.pixmap(12, 12)
+            arrow_label.setPixmap(pix)
+            arrow_label.setFixedSize(12, 12)
+            # Allow clicks to pass through to the combo
+            arrow_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+            arrow_label.setObjectName("comboArrow")
+            arrow_label.show()
+
+            # Store and install event filter to reposition on resize/style changes
+            self._combo_arrows[combo] = arrow_label
+            combo.installEventFilter(self)
+            self._position_combo_arrow(combo)
+        except Exception as e:
+            logger.debug(f"_decorate_combobox failed: {e}")
+
+    def _position_combo_arrow(self, combo: QComboBox):
+        """Position the overlay arrow label inside the combo (right-aligned, centered vertically)."""
+        try:
+            label = self._combo_arrows.get(combo)
+            if not label:
+                return
+            aw, ah = label.width(), label.height()
+            # Center arrow in the drop-down area (22px wide)
+            x = max(0, combo.width() - 22 + (22 - aw) // 2)
+            y = max(0, (combo.height() - ah) // 2)
+            label.move(x, y)
+            label.raise_()
+            label.show()
+        except Exception as e:
+            logger.debug(f"_position_combo_arrow failed: {e}")
+
+    def eventFilter(self, obj, event):
+        """Handle events for child widgets."""
+        # Reposition combo arrow on resize/show/style changes
+        try:
+            if isinstance(obj, QComboBox) and event.type() in (QEvent.Resize, QEvent.Show, QEvent.StyleChange):
+                self._position_combo_arrow(obj)
+        except Exception:
+            pass
+        
+        # Change close button icon on hover
+        try:
+            if obj == self.close_btn:
+                if event.type() == QEvent.Enter:
+                    self.close_btn.setIcon(self.close_icon_hover)
+                elif event.type() == QEvent.Leave:
+                    self.close_btn.setIcon(self.close_icon_normal)
+        except Exception:
+            pass
+
+        return super().eventFilter(obj, event)
+
+    def _on_source_changed(self, index: int):
+        """User changed Source combo -> persist ui_source_language."""
+        try:
+            if getattr(self, "_programmatic_combo_change", False):
+                return
+            code = self.source_combo.currentData()
+            config_service.set_setting("ui_source_language", code)
+            logger.info(f"UI source language updated: {code}")
+        except Exception as e:
+            logger.error(f"Failed to persist ui_source_language: {e}")
+
+    def _on_target_changed(self, index: int):
+        """User changed Target combo -> persist ui_target_mode/ui_target_language."""
+        try:
+            if getattr(self, "_programmatic_combo_change", False):
+                return
+            data = self.target_combo.currentData()
+            updates = {
+                "ui_target_mode": "explicit",
+                "ui_target_language": data
+            }
+            config_service.update_settings(updates)
+            logger.info(f"UI target updated: mode=explicit, lang={data}")
+        except Exception as e:
+            logger.error(f"Failed to persist target selection: {e}")
+
+    def _on_swap_clicked(self):
+        """Swap button behavior"""
+        try:
+            if not hasattr(self, "source_combo") or not hasattr(self, "target_combo"):
+                return
+
+            src_data = self.source_combo.currentData()
+            tgt_data = self.target_combo.currentData()
+
+            new_source = tgt_data
+            new_target = src_data
+
+            self._programmatic_combo_change = True
+            try:
+                self.source_combo.blockSignals(True)
+                self.target_combo.blockSignals(True)
+                idx_s = self._find_index_by_data(self.source_combo, new_source)
+                if idx_s != -1:
+                    self.source_combo.setCurrentIndex(idx_s)
+                idx_t = self._find_index_by_data(self.target_combo, new_target)
+                if idx_t != -1:
+                    self.target_combo.setCurrentIndex(idx_t)
+            finally:
+                try:
+                    self.source_combo.blockSignals(False)
+                    self.target_combo.blockSignals(False)
+                except Exception:
+                    pass
+                self._programmatic_combo_change = False
+
+            try:
+                updates = {
+                    "ui_source_language": new_source,
+                    "ui_target_mode": "explicit",
+                    "ui_target_language": new_target
+                }
+                config_service.update_settings(updates)
+                logger.info(f"Swapped source/target and persisted: source={new_source}, target={new_target}")
+            except Exception as e:
+                logger.error(f"Failed to save swapped languages: {e}")
+        except Exception as e:
+            logger.error(f"Error in _on_swap_clicked: {e}")
 
     def _on_translate_clicked(self):
         """Translate the text from the original_text field and put result into translated_text using a background thread."""
@@ -667,54 +918,56 @@ class OverlayWindow(QWidget):
             # Disable button and provide feedback
             self.translate_btn.setEnabled(False)
             prev_text = self.translate_btn.text()
-            self.translate_btn.setText("Перевод...")
+            self.translate_btn.setText("  Translating...")
             QApplication.processEvents()
+
+            # Determine detected language from input
+            detected = detect_language(text) or "auto"
+
+            # Read all relevant settings
+            settings = config_service.get_settings()
+            swap_enabled = getattr(settings, "ocr_auto_swap_en_ru", False)
+            
+            # Determine effective source language from Source combo
+            try:
+                source_lang = self.source_combo.currentData() or detected
+            except Exception:
+                source_lang = detected
+
+            # Determine effective target language with checkbox priority
+            try:
+                ui_target_language = self.target_combo.currentData()
+            except Exception:
+                ui_target_language = getattr(settings, "ui_target_language", "en")
+
+            if swap_enabled:
+                if detected == "en":
+                    target_lang = "ru"
+                elif detected == "ru":
+                    target_lang = "en"
+                else:
+                    # If auto-swap is on but language is not en/ru, use the explicit UI target
+                    target_lang = ui_target_language
+            else:
+                # If auto-swap is off, use the explicit UI target
+                target_lang = ui_target_language
+
+            logger.debug(f"Translate clicked with detected='{detected}', source='{source_lang}', target='{target_lang}'")
 
             # Worker that runs translation in a separate thread and its own event loop
             class TranslationWorker(QObject):
                 finished = Signal(bool, str)  # success, result_or_error
 
-                def __init__(self, text_to_translate: str):
+                def __init__(self, text_to_translate: str, source_lang: str, target_lang: str):
                     super().__init__()
                     self.text = text_to_translate
+                    self.source_lang = source_lang
+                    self.target_lang = target_lang
 
                 def run(self):
                     try:
                         from ..services.translation_service import get_translation_service
-                        from ..utils.api_utils import detect_language
-                        from ..services.config_service import config_service as _cfg
                         service = get_translation_service()
-
-                        # Detect source language from text
-                        detected = detect_language(self.text) or "auto"
-
-                        # Determine target language based on explicit selection vs Auto EN↔RU
-                        try:
-                            swap_enabled = bool(_cfg.get_setting("ocr_auto_swap_en_ru", use_cache=False))
-                        except Exception:
-                            swap_enabled = True
-                        try:
-                            target_pref = (_cfg.get_setting("target_language", use_cache=False) or "en").lower()
-                        except Exception:
-                            target_pref = "en"
-                        try:
-                            favorites = _cfg.get_setting("favorite_languages", use_cache=False) or ["en", "ru", "uk"]
-                        except Exception:
-                            favorites = ["en", "ru", "uk"]
-                        # Fallback target when Auto is selected and text is not EN/RU
-                        fallback = next((c for c in favorites if (isinstance(c, str) and c.lower() != "auto")), "en")
-
-                        if target_pref == "auto" and swap_enabled:
-                            if detected == "en":
-                                target = "ru"
-                            elif detected == "ru":
-                                target = "en"
-                            else:
-                                target = fallback
-                        else:
-                            target = target_pref
-
-                        logger.debug(f"Detected language '{detected}' for translation; pref='{target_pref}', swap_enabled={swap_enabled}, using target '{target}'")
 
                         import asyncio
                         # Create and use a new event loop in this thread to avoid conflicting with Qt's loop
@@ -722,7 +975,7 @@ class OverlayWindow(QWidget):
                         try:
                             asyncio.set_event_loop(loop)
                             resp = loop.run_until_complete(
-                                service.translate_text_async(self.text, source_lang=detected, target_lang=target)
+                                service.translate_text_async(self.text, source_lang=self.source_lang, target_lang=self.target_lang)
                             )
                         finally:
                             try:
@@ -738,7 +991,7 @@ class OverlayWindow(QWidget):
                         self.finished.emit(False, str(e))
 
             # Create worker and thread
-            self._translation_worker = TranslationWorker(text)
+            self._translation_worker = TranslationWorker(text, source_lang, target_lang)
             self._translation_thread = QThread()
             self._translation_worker.moveToThread(self._translation_thread)
 
@@ -759,11 +1012,11 @@ class OverlayWindow(QWidget):
         except Exception as e:
             logger.error(f"Error starting translation worker: {e}")
             from PySide6.QtWidgets import QMessageBox
-            QMessageBox.critical(self, "Ошибка", f"Ошибка при запуске перевода: {e}")
+            QMessageBox.critical(self, "Error", f"Error starting translation: {e}")
             # Ensure button re-enabled
             try:
                 self.translate_btn.setEnabled(True)
-                self.translate_btn.setText("Перевести")
+                self.translate_btn.setText("Translate")
             except Exception:
                 pass
 
@@ -776,12 +1029,12 @@ class OverlayWindow(QWidget):
                 logger.info("Translation completed and inserted into translated_text")
             else:
                 from PySide6.QtWidgets import QMessageBox
-                QMessageBox.warning(self, "Перевод не удался", f"Ошибка перевода: {result}")
+                QMessageBox.warning(self, "Translation failed", f"Translation error: {result}")
                 logger.error(f"Translation failed: {result}")
         finally:
             try:
                 # Use stored prev_text (set when translation started)
-                prev_text = getattr(self, "_translation_prev_text", "Перевести")
+                prev_text = getattr(self, "_translation_prev_text", "Translate")
                 self.translate_btn.setEnabled(True)
                 self.translate_btn.setText(prev_text)
                 # Clean up stored value
@@ -792,24 +1045,7 @@ class OverlayWindow(QWidget):
 
     def _copy_translated_to_clipboard(self):
         """Copy translated text to clipboard."""
-        try:
-            clipboard = QApplication.clipboard()
-            clipboard.setText(self.translated_text.toPlainText())
-            logger.info("Translated text copied to clipboard")
-            # Preserve current icon and text so we can restore them after transient feedback.
-            prev_icon = self.copy_translated_btn.icon()
-            prev_text = self.copy_translated_btn.text()
-            # Show a check/done icon as transient feedback
-            try:
-                self.copy_translated_btn.setIcon(qta.icon('fa5s.check', color='green'))
-            except Exception:
-                # Fallback: if qtawesome icon creation fails, keep existing icon
-                pass
-            # Clear text (buttons here are usually icon-only)
-            self.copy_translated_btn.setText("")
-            QTimer.singleShot(1200, lambda p_icon=prev_icon, p_text=prev_text: (self.copy_translated_btn.setIcon(p_icon), self.copy_translated_btn.setText(p_text)))
-        except Exception as e:
-            logger.error(f"Failed to copy translated text: {e}")
+        self._copy_text_to_clipboard(self.translated_text, self.copy_translated_btn, "Translated")
 
     def show_overlay(self, original_text: str = "", translated_text: str = "", position: tuple = None):
         """Show the overlay with specified content.
