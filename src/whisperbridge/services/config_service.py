@@ -203,6 +203,10 @@ class ConfigService:
 
                 if success:
                     # Update in-memory cache and notify observers
+                    # Update the main settings object as well
+                    if self._settings:
+                        setattr(self._settings, key, value)
+                    
                     self._set_cached_value(key, value)
                     self._notify_observers('changed', key, old_value, value)
                     

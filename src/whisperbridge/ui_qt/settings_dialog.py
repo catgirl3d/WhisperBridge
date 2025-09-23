@@ -426,7 +426,7 @@ class SettingsDialog(QDialog, SettingsObserver):
         # Don't set model here - it will be set after loading models
         self.api_timeout_spin.setValue(settings.api_timeout)
 
-        # Translation tab - language settings removed
+        # Translation tab 
         # OCR auto-swap checkbox (EN <-> RU)
         try:
             self.ocr_auto_swap_checkbox.setChecked(bool(getattr(settings, "ocr_auto_swap_en_ru", False)))
@@ -784,6 +784,9 @@ class SettingsDialog(QDialog, SettingsObserver):
             self._apply_proper_colors()
             # Update the theme combo box to reflect the change
             self.theme_combo.setCurrentText(new_value)
+        elif key == "ocr_auto_swap_en_ru":
+            logger.debug(f"OCR auto-swap setting changed from {old_value} to {new_value}")
+            self.ocr_auto_swap_checkbox.setChecked(bool(new_value))
 
     def on_settings_loaded(self, settings):
         """Called when settings are loaded."""
