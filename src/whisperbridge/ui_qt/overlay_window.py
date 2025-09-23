@@ -12,6 +12,8 @@ from pathlib import Path
 from loguru import logger
 from ..services.config_service import config_service
 from ..utils.api_utils import get_language_name, detect_language
+from .minibar_overlay import MiniBarOverlay
+
 
 
 class OverlayWindow(QWidget):
@@ -34,7 +36,7 @@ class OverlayWindow(QWidget):
         # Enable window resizing
         self.setWindowFlag(Qt.WindowType.WindowMaximizeButtonHint, True)
         # No title bar, so no window title needed
-        # Default size (width x height). Height set to 430px as requested.
+        # Default size (width x height). Height set to 430px
         self.resize(480, 430)
         self.setMouseTracking(True)
         self.setMinimumSize(320, 220)  # Increased minimum height to accommodate footer layout with resize grip
@@ -43,10 +45,10 @@ class OverlayWindow(QWidget):
 
         # Main vertical layout
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(16, 12, 16, 2)
+        layout.setContentsMargins(10, 7, 10, 10) # left-top-right-bottom
         layout.setSpacing(6)
 
-        # Header: title and close button
+        # Header: title
         header_layout = QVBoxLayout()
         # Use a horizontal layout-like composition
         title_label = QLabel("Translator")
@@ -227,7 +229,7 @@ class OverlayWindow(QWidget):
             logger.debug("Unable to apply style to original_text")
         layout.addWidget(self.original_text)
 
-        # Small spacing before buttons
+        # Small spacing before buttons (translate, erase, copy)
         layout.addSpacing(6)
 
         # Buttons row for original text (positioned under the field)
@@ -324,10 +326,7 @@ class OverlayWindow(QWidget):
         self.clear_translated_btn = QPushButton("")
         self.clear_translated_btn.setFixedHeight(28)
         self.clear_translated_btn.setFixedWidth(40)
-        try:
-            self.clear_translated_btn.setIcon(qta.icon('fa5s.eraser', color='black'))
-        except Exception:
-            self.clear_translated_btn.setText("Clear")
+        self.clear_translated_btn.setIcon(qta.icon('fa5s.eraser', color='black'))
         self.clear_translated_btn.setIconSize(QSize(16, 16))
         self.clear_translated_btn.setToolTip("Clear translated text")
         self.clear_translated_btn.clicked.connect(self._clear_translated_text)
@@ -344,11 +343,11 @@ class OverlayWindow(QWidget):
 
         # Footer row with Close button
         footer_row = QHBoxLayout()
-        footer_row.setContentsMargins(0, 0, 0, 10)  # Left/right margins, bottom margin
+        footer_row.setContentsMargins(0, 0, 0, 0)  # Left/right margins, bottom margin
         # Remove the expanding spacer to keep button aligned to the right
         self.close_btn = QPushButton("Close")
         self.close_btn.setFixedHeight(28)
-        self.close_btn.setFixedWidth(87)
+        self.close_btn.setFixedWidth(86)
         self.close_btn.setObjectName("closeButton") # Set object name for specific styling
         self.close_icon_normal = qta.icon('fa5s.times', color='black')
         self.close_icon_hover = qta.icon('fa5s.times', color='white')
@@ -360,23 +359,24 @@ class OverlayWindow(QWidget):
         layout.addLayout(footer_row)
 
 
-        # Add close button in top-right corner
+        # Close and collapse buttons in top-right corner
         self.close_btn_top = QPushButton(self)
+        self.close_btn_top.setObjectName("closeBtnTop")
         self.close_btn_top.setFixedSize(22, 22)
-        self.close_btn_top.setIcon(qta.icon('fa5s.times', color='black'))
-        self.close_btn_top.setIconSize(QSize(14, 14))
-        self.close_btn_top.setStyleSheet("""
-            QPushButton {
-                background-color: #f0f0f0;
-                border: 1px solid #cccccc;
-                border-radius: 0px;
-            }
-            QPushButton:hover {
-                background-color: #ff6b6b;
-                border-color: #cc5555;
-            }
-        """)
+        try:
+            self.close_btn_top.setIcon(qta.icon('fa5s.times', color='black'))
+        except Exception:
+            self.close_btn_top.setText("X")
+        self.close_btn_top.setIconSize(QSize(20, 16))
         self.close_btn_top.clicked.connect(self.hide_overlay)
+
+        # Collapse button (to left of close)
+        self.collapse_btn_top = QPushButton(self)
+        self.collapse_btn_top.setObjectName("collapseBtnTop")
+        self.collapse_btn_top.setFixedSize(22, 22)
+        self.collapse_btn_top.setIcon(qta.icon('fa5s.compress-alt', color='black'))
+        self.collapse_btn_top.setIconSize(QSize(20, 16))
+        self.collapse_btn_top.clicked.connect(self.collapse_to_minibar)
 
         # Position buttons initially
         self._position_top_buttons()
@@ -419,6 +419,25 @@ class OverlayWindow(QWidget):
             QPushButton#closeButton:hover {
                 background-color: #d02d2d; /* Red background on hover */
                 color: #ffffff;
+            }
+            QPushButton#closeBtnTop {
+                color: #111111;
+                padding: 3px 6px;
+                border-radius: 3px;
+                background-color: #fff;
+            }
+            QPushButton#closeBtnTop:hover {
+                background-color: #ff6b6b;
+            }
+            QPushButton#collapseBtnTop {
+                color: #111111;
+                padding: 3px 6px;
+                border: none;
+                border-radius: 3px;
+                background-color: #fff;
+            }
+            QPushButton#collapseBtnTop:hover {
+                background-color: #e8e8e8;
             }
 
             /* ComboBox styling */
@@ -476,6 +495,13 @@ class OverlayWindow(QWidget):
         self._resize_margin = 8
         self._resize_mode = None
 
+        # Mini-bar integration state
+        self._minibar: MiniBarOverlay | None = None
+        self._expanded_geometry: QRect | None = None
+
+        # Padding for top-right control buttons
+        self._top_button_padding = {'top': 3, 'right': 4, 'bottom': 0, 'left': 2}
+
     def show_loading(self, position: tuple | None = None):
         """Show a minimal loading state at an optional absolute position."""
         try:
@@ -498,6 +524,16 @@ class OverlayWindow(QWidget):
             logger.info("OverlayWindow: _close_window called — hiding and marking destroyed")
             # Cancel any pending callbacks/timers
             self._cancel_pending_callbacks()
+            # Ensure minibar is closed so no orphan window remains
+            try:
+                if hasattr(self, "_minibar") and self._minibar:
+                    self._minibar.close()
+            except Exception:
+                pass
+            try:
+                self._minibar = None
+            except Exception:
+                pass
             # Hide the widget instead of closing the app
             try:
                 self.hide()
@@ -613,17 +649,33 @@ class OverlayWindow(QWidget):
                 self.setCursor(Qt.ArrowCursor)
             event.accept()
 
+    def mouseDoubleClickEvent(self, event):
+        """Handle double-click to collapse to minibar."""
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.collapse_to_minibar()
+            event.accept()
+        else:
+            super().mouseDoubleClickEvent(event)
+
 
     def _position_top_buttons(self):
-        """Position the close button in the top-right corner."""
+        """Position the top-right control buttons (collapse + close) with padding."""
+        padding = getattr(self, "_top_button_padding", {'top': 0, 'right': 0, 'bottom': 0, 'left': 0})
+        
+        close_x_pos = self.width()
+
         if hasattr(self, 'close_btn_top'):
             close_size = self.close_btn_top.size()
+            close_x_pos = self.width() - close_size.width() - padding['right']
+            close_y_pos = padding['top']
+            self.close_btn_top.move(close_x_pos, close_y_pos)
 
-            # Position close button on the rightmost position
-            self.close_btn_top.move(
-                self.width() - close_size.width(),
-                0  # Top of the window
-            )
+        if hasattr(self, 'collapse_btn_top'):
+            collapse_size = self.collapse_btn_top.size()
+            # 'left' padding acts as spacing between buttons
+            collapse_x_pos = close_x_pos - collapse_size.width() - padding.get('left', 0)
+            collapse_y_pos = padding['top']
+            self.collapse_btn_top.move(collapse_x_pos, collapse_y_pos)
 
     def _hit_test_resize(self, pos: QPoint):
         """Return resize mode string given a position in widget coords, or None if not on edge."""
@@ -675,6 +727,77 @@ class OverlayWindow(QWidget):
         """Handle window resize to reposition the top buttons."""
         super().resizeEvent(event)
         self._position_top_buttons()
+
+    def collapse_to_minibar(self):
+        """Collapse the main overlay to a detachable MiniBar."""
+        try:
+            # Save current geometry to restore later
+            try:
+                self._expanded_geometry = QRect(self.geometry())
+            except Exception:
+                self._expanded_geometry = self.geometry()
+            # Create MiniBar if not existing
+            if self._minibar is None:
+                self._minibar = MiniBarOverlay(self, self.restore_from_minibar)
+                # Ensure layout is calculated for accurate width
+                self._minibar.adjustSize()
+            # Position minibar so its right edge aligns with overlay's right edge
+            g = self.geometry()
+            minibar_x = g.x() + g.width() - self._minibar.width()
+            minibar_y = g.y()
+            self._minibar.show_at((minibar_x, minibar_y))
+            # Hide main overlay (do NOT mark destroyed)
+            self.hide()
+        except Exception as e:
+            logger.error(f"Failed to collapse to minibar: {e}")
+
+    def restore_from_minibar(self):
+        """Restore the overlay from the MiniBar to its last geometry and bring to front.
+
+        Position is restored so that the overlay's top-right aligns with the MiniBar's top-right.
+        """
+        try:
+            # Determine minibar geometry for alignment
+            minibar_geom = None
+            try:
+                if self._minibar:
+                    try:
+                        minibar_geom = self._minibar.frameGeometry()
+                    except Exception:
+                        minibar_geom = self._minibar.geometry()
+            except Exception:
+                minibar_geom = None
+
+            if self._expanded_geometry is not None:
+                g = QRect(self._expanded_geometry)
+                if minibar_geom is not None:
+                    # Align overlay's top-right with minibar's top-right
+                    minibar_right = minibar_geom.x() + minibar_geom.width()
+                    minibar_top = minibar_geom.y()
+                    overlay_left = minibar_right - g.width()
+                    g.moveTopLeft(QPoint(overlay_left, minibar_top))
+                self.setGeometry(g)
+            elif minibar_geom is not None:
+                # If we don't know previous size, position so right aligns
+                minibar_right = minibar_geom.x() + minibar_geom.width()
+                minibar_top = minibar_geom.y()
+                overlay_left = minibar_right - self.width()
+                self.move(overlay_left, minibar_top)
+        except Exception:
+            pass
+        # Show and raise overlay
+        self.show()
+        try:
+            self.raise_()
+            self.activateWindow()
+        except Exception:
+            pass
+        # Hide minibar if present
+        if self._minibar:
+            try:
+                self._minibar.hide()
+            except Exception:
+                pass
 
     def _copy_text_to_clipboard(self, text_widget: QTextEdit, button: QPushButton, text_name: str):
         """Copy text from a QTextEdit to clipboard and provide visual feedback on a button."""
@@ -1081,8 +1204,19 @@ class OverlayWindow(QWidget):
         logger.debug("Overlay window hidden")
 
     def closeEvent(self, event):
-        """Intercept window close (X) and hide the overlay instead of exiting the app."""
+        """Intercept window close (X) and hide the overlay instead of exiting the app.
+
+        Additionally ensure any MiniBar is closed to avoid orphan windows.
+        """
         try:
+            # Close minibar if present to avoid orphan window
+            try:
+                if hasattr(self, "_minibar") and self._minibar:
+                    self._minibar.close()
+                    self._minibar = None
+            except Exception:
+                pass
+
             logger.info("Overlay closeEvent triggered — hiding overlay instead of closing application")
             # Hide the overlay and ignore the close so application keeps running
             self.hide_overlay()
