@@ -1,11 +1,10 @@
-from typing import Callable, Optional, Union
 import weakref
-
-from PySide6.QtCore import Qt, QPoint, QSize
-from PySide6.QtGui import QFont
-from PySide6.QtWidgets import QWidget, QHBoxLayout, QLabel, QPushButton
+from typing import Callable, Union
 
 import qtawesome as qta
+from PySide6.QtCore import QPoint, QSize, Qt
+from PySide6.QtGui import QFont
+from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QWidget
 
 
 class MiniBarOverlay(QWidget):
@@ -71,7 +70,7 @@ class MiniBarOverlay(QWidget):
         self.close_btn.setObjectName("closeBtnMini")
         self.close_btn.setFixedSize(QSize(22, 22))
         try:
-            self.close_btn.setIcon(qta.icon('fa5s.times', color='black'))
+            self.close_btn.setIcon(qta.icon("fa5s.times", color="black"))
         except Exception:
             self.close_btn.setText("X")
         self.close_btn.clicked.connect(self.close)

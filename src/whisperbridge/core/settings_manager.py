@@ -6,16 +6,14 @@ JSON persistence, secure key storage, migration support, and thread-safety.
 """
 
 import json
-import shutil
 import threading
 from pathlib import Path
-from typing import Dict, Any, Optional, Callable
-from datetime import datetime
+from typing import Any, Callable, Dict, Optional
 
 import keyring
 from loguru import logger
 
-from .config import Settings, ensure_config_dir, get_config_path
+from .config import Settings, get_config_path
 
 
 class SettingsManager:
@@ -42,12 +40,12 @@ class SettingsManager:
         logger.info("Migrating settings from version 1.0.0")
 
         # Add new fields with defaults
-        data.setdefault('system_prompt', "You are a professional translator...")
-        data.setdefault('activation_hotkey', 'ctrl+shift+a')
-        data.setdefault('api_timeout', 30)
-        data.setdefault('max_retries', 3)
-        data.setdefault('cache_enabled', True)
-        data.setdefault('cache_ttl', 3600)
+        data.setdefault("system_prompt", "You are a professional translator...")
+        data.setdefault("activation_hotkey", "ctrl+shift+a")
+        data.setdefault("api_timeout", 30)
+        data.setdefault("max_retries", 3)
+        data.setdefault("cache_enabled", True)
+        data.setdefault("cache_ttl", 3600)
 
         return data
 
@@ -56,9 +54,9 @@ class SettingsManager:
         logger.info("Migrating settings from version 1.1.0")
 
         # Add newer fields
-        data.setdefault('supported_languages', ["en", "ru", "es", "fr", "de"])
-        data.setdefault('thread_pool_size', 4)
-        data.setdefault('log_to_file', True)
+        data.setdefault("supported_languages", ["en", "ru", "es", "fr", "de"])
+        data.setdefault("thread_pool_size", 4)
+        data.setdefault("log_to_file", True)
 
         return data
 
@@ -67,8 +65,8 @@ class SettingsManager:
         logger.info("Migrating settings from version 1.2.1")
 
         # Add UI backend field
-        data.setdefault('ui_backend', 'qt')
-        data.setdefault('copy_translate_hotkey', 'ctrl+shift+j')
+        data.setdefault("ui_backend", "qt")
+        data.setdefault("copy_translate_hotkey", "ctrl+shift+j")
 
         return data
 
@@ -95,14 +93,14 @@ class SettingsManager:
 
     def _migrate_settings(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """Apply migrations to settings data."""
-        current_version = data.get('version', '1.0.0')
+        current_version = data.get("version", "1.0.0")
 
         # Apply migrations in order
         for version, handler in sorted(self._migration_handlers.items()):
             if self._compare_versions(current_version, version) < 0:
                 try:
                     data = handler(data)
-                    data['version'] = version
+                    data["version"] = version
                     logger.info(f"Applied migration to version {version}")
                 except Exception as e:
                     logger.error(f"Failed to apply migration {version}: {e}")
@@ -111,8 +109,8 @@ class SettingsManager:
 
     def _compare_versions(self, v1: str, v2: str) -> int:
         """Compare two version strings."""
-        v1_parts = [int(x) for x in v1.split('.')]
-        v2_parts = [int(x) for x in v2.split('.')]
+        v1_parts = [int(x) for x in v1.split(".")]
+        v2_parts = [int(x) for x in v2.split(".")]
 
         for i in range(max(len(v1_parts), len(v2_parts))):
             v1_part = v1_parts[i] if i < len(v1_parts) else 0
@@ -132,7 +130,7 @@ class SettingsManager:
                 settings_file = self._get_settings_file()
 
                 if settings_file.exists():
-                    with open(settings_file, 'r', encoding='utf-8') as f:
+                    with open(settings_file, "r", encoding="utf-8") as f:
                         data = json.load(f)
 
                     # Apply migrations
@@ -143,7 +141,7 @@ class SettingsManager:
                 # Load API key
                 api_key = self._load_api_key()
                 if api_key:
-                    data['openai_api_key'] = api_key
+                    data["openai_api_key"] = api_key
 
                 # Create and validate settings
                 self._settings = Settings(**data)
@@ -159,6 +157,7 @@ class SettingsManager:
     def save_settings(self, settings: Optional[Settings] = None) -> bool:
         """Save settings to file with backup (with caller debug)."""
         import inspect
+
         with self._lock:
             try:
                 if settings is None:
@@ -171,26 +170,26 @@ class SettingsManager:
                 stack = inspect.stack()
                 caller_frame = stack[1]
                 caller_info = f"{caller_frame.function} in {caller_frame.filename}:{caller_frame.lineno}"
-                print(f"DEBUG: SettingsManager.save_settings called from {caller_info}")
-                print(f"DEBUG: SettingsManager.save_settings called with theme='{settings.theme}'")
+                logger.debug(f"SettingsManager.save_settings called from {caller_info}")
+                logger.debug(f"SettingsManager.save_settings called with theme='{settings.theme}'")
 
                 settings_file = self._get_settings_file()
 
                 # Prepare data for saving
                 data = settings.model_dump()
-                data['version'] = '1.2.1'  # Current version
+                data["version"] = "1.2.1"  # Current version
 
-                print(f"DEBUG: Data to save - theme='{data.get('theme', 'NOT_FOUND')}'")
-                print(f"DEBUG: Full data keys: {list(data.keys())}")
+                logger.debug(f"Data to save - theme='{data.get('theme', 'NOT_FOUND')}'")
+                logger.debug(f"Full data keys: {list(data.keys())}")
 
                 # Remove API key from JSON (stored in keyring)
-                api_key = data.pop('openai_api_key', None)
+                api_key = data.pop("openai_api_key", None)
 
                 # Save to JSON
-                with open(settings_file, 'w', encoding='utf-8') as f:
+                with open(settings_file, "w", encoding="utf-8") as f:
                     json.dump(data, f, indent=2, ensure_ascii=False)
 
-                print(f"DEBUG: Settings saved to file: {settings_file}")
+                logger.debug(f"Settings saved to file: {settings_file}")
 
                 # Save API key separately
                 if api_key:
@@ -209,10 +208,10 @@ class SettingsManager:
         with self._lock:
             try:
                 settings_file = self._get_settings_file()
-                
+
                 # Load existing data
                 if settings_file.exists():
-                    with open(settings_file, 'r', encoding='utf-8') as f:
+                    with open(settings_file, "r", encoding="utf-8") as f:
                         data = json.load(f)
                 else:
                     data = {}
@@ -221,7 +220,7 @@ class SettingsManager:
                 data[key] = value
 
                 # Write the updated data back
-                with open(settings_file, 'w', encoding='utf-8') as f:
+                with open(settings_file, "w", encoding="utf-8") as f:
                     json.dump(data, f, indent=2, ensure_ascii=False)
 
                 # Update in-memory settings if they exist
@@ -230,7 +229,7 @@ class SettingsManager:
                     new_data = self._settings.model_dump()
                     new_data[key] = value
                     self._settings = Settings(**new_data)
-                
+
                 logger.info(f"Successfully saved single setting: {key}={value}")
                 return True
 
@@ -282,7 +281,7 @@ class SettingsManager:
                 settings = self.get_settings()
                 data = settings.model_dump()
 
-                with open(export_path, 'w', encoding='utf-8') as f:
+                with open(export_path, "w", encoding="utf-8") as f:
                     json.dump(data, f, indent=2, ensure_ascii=False)
 
                 logger.info(f"Settings exported to {export_path}")
@@ -296,7 +295,7 @@ class SettingsManager:
         """Import settings from a file."""
         with self._lock:
             try:
-                with open(import_path, 'r', encoding='utf-8') as f:
+                with open(import_path, "r", encoding="utf-8") as f:
                     data = json.load(f)
 
                 # Validate imported settings

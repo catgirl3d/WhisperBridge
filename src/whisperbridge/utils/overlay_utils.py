@@ -6,11 +6,12 @@ handling screen boundaries, and managing smooth animations.
 """
 
 import math
-from typing import Tuple, Optional, Any
+from typing import Any, Tuple
 
 try:
     from PySide6.QtGui import QGuiApplication
-    from PySide6.QtWidgets import QWidget, QApplication
+    from PySide6.QtWidgets import QApplication, QWidget
+
     PYSIDE_AVAILABLE = True
 except Exception:
     PYSIDE_AVAILABLE = False
@@ -61,7 +62,7 @@ def calculate_smart_position(
     trigger_position: Tuple[int, int],
     window_size: Tuple[int, int],
     screen_bounds: ScreenBounds,
-    margin: int = 20
+    margin: int = 20,
 ) -> OverlayPosition:
     """Calculate optimal overlay position with smart boundary handling.
 
@@ -109,7 +110,7 @@ def calculate_position_with_preference(
     window_size: Tuple[int, int],
     screen_bounds: ScreenBounds,
     preferred_direction: str = "southeast",
-    margin: int = 20
+    margin: int = 20,
 ) -> OverlayPosition:
     """Calculate position with directional preference.
 
@@ -127,7 +128,7 @@ def calculate_position_with_preference(
         "southeast": (1, 1),
         "southwest": (-1, 1),
         "northeast": (1, -1),
-        "northwest": (-1, -1)
+        "northwest": (-1, -1),
     }
 
     if preferred_direction not in directions:
@@ -219,7 +220,7 @@ def is_position_visible(
     position: Tuple[int, int],
     window_size: Tuple[int, int],
     screen_bounds: ScreenBounds,
-    margin: int = 0
+    margin: int = 0,
 ) -> bool:
     """Check if a position is fully visible on screen.
 
@@ -236,10 +237,10 @@ def is_position_visible(
     width, height = window_size
 
     return (
-        x >= margin and
-        y >= margin and
-        x + width <= screen_bounds.width - margin and
-        y + height <= screen_bounds.height - margin
+        x >= margin
+        and y >= margin
+        and x + width <= screen_bounds.width - margin
+        and y + height <= screen_bounds.height - margin
     )
 
 
@@ -247,7 +248,7 @@ def clamp_position(
     position: Tuple[int, int],
     window_size: Tuple[int, int],
     screen_bounds: ScreenBounds,
-    margin: int = 0
+    margin: int = 0,
 ) -> OverlayPosition:
     """Clamp position to ensure window stays within screen bounds.
 
@@ -292,7 +293,7 @@ def interpolate_position(
     start_pos: Tuple[int, int],
     end_pos: Tuple[int, int],
     progress: float,
-    easing_func: callable = AnimationEasing.linear
+    easing_func: callable = AnimationEasing.linear,
 ) -> Tuple[int, int]:
     """Interpolate between two positions with easing.
 
@@ -321,7 +322,7 @@ def calculate_adaptive_size(
     max_width: int = 400,
     max_height: int = 300,
     min_width: int = 300,
-    min_height: int = 200
+    min_height: int = 200,
 ) -> Tuple[int, int]:
     """Calculate adaptive window size based on text content.
 

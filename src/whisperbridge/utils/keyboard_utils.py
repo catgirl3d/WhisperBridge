@@ -6,75 +6,103 @@ converting between different formats, and validating hotkey strings.
 """
 
 import re
-from typing import List, Dict, Set, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
+
 from loguru import logger
 
 # Platform-specific key mappings
 PLATFORM_KEYS = {
-    'windows': {
-        'cmd': 'win',
-        'super': 'win',
-        'meta': 'win',
-        'control': 'ctrl'
-    },
-    'linux': {
-        'cmd': 'super',
-        'win': 'super',
-        'meta': 'super',
-        'control': 'ctrl'
-    },
-    'darwin': {
-        'win': 'cmd',
-        'super': 'cmd',
-        'meta': 'cmd',
-        'control': 'ctrl'
-    }
+    "windows": {"cmd": "win", "super": "win", "meta": "win", "control": "ctrl"},
+    "linux": {"cmd": "super", "win": "super", "meta": "super", "control": "ctrl"},
+    "darwin": {"win": "cmd", "super": "cmd", "meta": "cmd", "control": "ctrl"},
 }
 
 # Standard modifier keys
-MODIFIERS = {'ctrl', 'alt', 'shift', 'cmd', 'win', 'super', 'meta'}
+MODIFIERS = {"ctrl", "alt", "shift", "cmd", "win", "super", "meta"}
 
 # Special keys that need special handling
 SPECIAL_KEYS = {
-    'space': 'space',
-    'enter': 'enter',
-    'return': 'enter',
-    'tab': 'tab',
-    'esc': 'esc',
-    'escape': 'esc',
-    'backspace': 'backspace',
-    'delete': 'delete',
-    'del': 'delete',  # Alternative name for delete
-    'insert': 'insert',
-    'home': 'home',
-    'end': 'end',
-    'pageup': 'pageup',
-    'pagedown': 'pagedown',
-    'up': 'up',
-    'down': 'down',
-    'left': 'left',
-    'right': 'right',
-    'f1': 'f1', 'f2': 'f2', 'f3': 'f3', 'f4': 'f4',
-    'f5': 'f5', 'f6': 'f6', 'f7': 'f7', 'f8': 'f8',
-    'f9': 'f9', 'f10': 'f10', 'f11': 'f11', 'f12': 'f12'
+    "space": "space",
+    "enter": "enter",
+    "return": "enter",
+    "tab": "tab",
+    "esc": "esc",
+    "escape": "esc",
+    "backspace": "backspace",
+    "delete": "delete",
+    "del": "delete",  # Alternative name for delete
+    "insert": "insert",
+    "home": "home",
+    "end": "end",
+    "pageup": "pageup",
+    "pagedown": "pagedown",
+    "up": "up",
+    "down": "down",
+    "left": "left",
+    "right": "right",
+    "f1": "f1",
+    "f2": "f2",
+    "f3": "f3",
+    "f4": "f4",
+    "f5": "f5",
+    "f6": "f6",
+    "f7": "f7",
+    "f8": "f8",
+    "f9": "f9",
+    "f10": "f10",
+    "f11": "f11",
+    "f12": "f12",
 }
 
 # Common system hotkeys to avoid conflicts
 SYSTEM_HOTKEYS = {
-    'windows': {
-        'ctrl+alt+del', 'ctrl+shift+esc', 'win+d', 'win+l', 'win+r',
-        'alt+f4', 'alt+tab', 'ctrl+c', 'ctrl+v', 'ctrl+x', 'ctrl+z',
-        'ctrl+a', 'ctrl+s', 'ctrl+o', 'ctrl+n', 'ctrl+w', 'ctrl+q'
+    "windows": {
+        "ctrl+alt+del",
+        "ctrl+shift+esc",
+        "win+d",
+        "win+l",
+        "win+r",
+        "alt+f4",
+        "alt+tab",
+        "ctrl+c",
+        "ctrl+v",
+        "ctrl+x",
+        "ctrl+z",
+        "ctrl+a",
+        "ctrl+s",
+        "ctrl+o",
+        "ctrl+n",
+        "ctrl+w",
+        "ctrl+q",
     },
-    'linux': {
-        'ctrl+alt+t', 'ctrl+alt+l', 'alt+f2', 'ctrl+alt+del',
-        'ctrl+c', 'ctrl+v', 'ctrl+x', 'ctrl+z', 'ctrl+a', 'ctrl+s'
+    "linux": {
+        "ctrl+alt+t",
+        "ctrl+alt+l",
+        "alt+f2",
+        "ctrl+alt+del",
+        "ctrl+c",
+        "ctrl+v",
+        "ctrl+x",
+        "ctrl+z",
+        "ctrl+a",
+        "ctrl+s",
     },
-    'darwin': {
-        'cmd+space', 'cmd+tab', 'cmd+q', 'cmd+w', 'cmd+c', 'cmd+v',
-        'cmd+x', 'cmd+z', 'cmd+a', 'cmd+s', 'cmd+o', 'cmd+n',
-        'ctrl+cmd+f', 'ctrl+cmd+space'
-    }
+    "darwin": {
+        "cmd+space",
+        "cmd+tab",
+        "cmd+q",
+        "cmd+w",
+        "cmd+c",
+        "cmd+v",
+        "cmd+x",
+        "cmd+z",
+        "cmd+a",
+        "cmd+s",
+        "cmd+o",
+        "cmd+n",
+        "ctrl+cmd+f",
+        "ctrl+cmd+space",
+    },
 }
 
 
@@ -85,15 +113,16 @@ class KeyboardUtils:
     def get_platform() -> str:
         """Get the current platform."""
         import platform
+
         system = platform.system().lower()
-        if system == 'windows':
-            return 'windows'
-        elif system == 'linux':
-            return 'linux'
-        elif system == 'darwin':
-            return 'darwin'
+        if system == "windows":
+            return "windows"
+        elif system == "linux":
+            return "linux"
+        elif system == "darwin":
+            return "darwin"
         else:
-            return 'unknown'
+            return "unknown"
 
     @staticmethod
     def normalize_hotkey(hotkey: str) -> str:
@@ -112,7 +141,7 @@ class KeyboardUtils:
         hotkey = hotkey.lower().strip()
 
         # Split by '+'
-        parts = [part.strip() for part in hotkey.split('+') if part.strip()]
+        parts = [part.strip() for part in hotkey.split("+") if part.strip()]
 
         if not parts:
             return ""
@@ -143,7 +172,7 @@ class KeyboardUtils:
 
         # Combine
         if modifiers:
-            return '+'.join(modifiers + [main_key])
+            return "+".join(modifiers + [main_key])
         else:
             return main_key
 
@@ -160,19 +189,19 @@ class KeyboardUtils:
             return platform_map[modifier]
 
         # Standard normalization
-        if modifier in {'ctrl', 'control'}:
-            return 'ctrl'
-        elif modifier in {'alt', 'option'}:
-            return 'alt'
-        elif modifier in {'shift'}:
-            return 'shift'
-        elif modifier in {'cmd', 'command', 'super', 'win', 'meta'}:
-            if platform == 'darwin':
-                return 'cmd'
-            elif platform == 'windows':
-                return 'win'
+        if modifier in {"ctrl", "control"}:
+            return "ctrl"
+        elif modifier in {"alt", "option"}:
+            return "alt"
+        elif modifier in {"shift"}:
+            return "shift"
+        elif modifier in {"cmd", "command", "super", "win", "meta"}:
+            if platform == "darwin":
+                return "cmd"
+            elif platform == "windows":
+                return "win"
             else:
-                return 'super'
+                return "super"
 
         return None
 
@@ -190,11 +219,11 @@ class KeyboardUtils:
             return key
 
         # Function keys
-        if re.match(r'^f\d+$', key):
+        if re.match(r"^f\d+$", key):
             return key
 
         # Numpad keys
-        if key.startswith('numpad') or key.startswith('num'):
+        if key.startswith("numpad") or key.startswith("num"):
             return key
 
         return None
@@ -218,7 +247,7 @@ class KeyboardUtils:
             return False, "Invalid hotkey format"
 
         # Check format
-        parts = normalized.split('+')
+        parts = normalized.split("+")
         if len(parts) < 1:
             return False, "Hotkey must have at least one key"
 
@@ -264,7 +293,7 @@ class KeyboardUtils:
         if not normalized:
             return None
 
-        parts = normalized.split('+')
+        parts = normalized.split("+")
         if not parts:
             return None
 
@@ -280,10 +309,7 @@ class KeyboardUtils:
         if not main_key:
             return None
 
-        return {
-            'modifiers': modifiers,
-            'key': main_key
-        }
+        return {"modifiers": modifiers, "key": main_key}
 
     @staticmethod
     def format_hotkey_for_pynput(hotkey: str) -> str:
@@ -299,7 +325,7 @@ class KeyboardUtils:
         if not normalized:
             return ""
 
-        parts = normalized.split('+')
+        parts = normalized.split("+")
         if not parts:
             return ""
 
@@ -310,7 +336,7 @@ class KeyboardUtils:
             else:  # Last part is the main key
                 formatted_parts.append(part)
 
-        return '+'.join(formatted_parts)
+        return "+".join(formatted_parts)
 
     @staticmethod
     def format_hotkey_for_display(hotkey: str) -> str:
@@ -329,7 +355,7 @@ class KeyboardUtils:
         if not normalized:
             return hotkey
 
-        parts = normalized.split('+')
+        parts = normalized.split("+")
 
         # Capitalize modifiers
         formatted_parts = []
@@ -345,7 +371,7 @@ class KeyboardUtils:
         else:
             formatted_parts.append(main_key)
 
-        return ' + '.join(formatted_parts)
+        return " + ".join(formatted_parts)
 
     @staticmethod
     def get_available_modifiers() -> List[str]:
@@ -356,12 +382,12 @@ class KeyboardUtils:
         """
         platform = KeyboardUtils.get_platform()
 
-        if platform == 'darwin':
-            return ['cmd', 'ctrl', 'alt', 'shift']
-        elif platform == 'windows':
-            return ['ctrl', 'alt', 'shift', 'win']
+        if platform == "darwin":
+            return ["cmd", "ctrl", "alt", "shift"]
+        elif platform == "windows":
+            return ["ctrl", "alt", "shift", "win"]
         else:  # linux and others
-            return ['ctrl', 'alt', 'shift', 'super']
+            return ["ctrl", "alt", "shift", "super"]
 
     @staticmethod
     def suggest_alternative_hotkey(conflicting_hotkey: str) -> List[str]:
@@ -377,7 +403,7 @@ class KeyboardUtils:
 
         # Try different modifier combinations
         modifiers = KeyboardUtils.get_available_modifiers()
-        main_keys = ['t', 'q', 'a', 's', 'd', 'f', 'g', 'h', 'j', 'k']
+        main_keys = ["t", "q", "a", "s", "d", "f", "g", "h", "j", "k"]
 
         for mod1 in modifiers:
             for mod2 in modifiers:

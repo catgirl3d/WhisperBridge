@@ -96,7 +96,7 @@ where = ["src"]
 whisperbridge = ["assets/*", "config/*", "assets/icons/*", "assets/sounds/*", "assets/themes/*"]
 
 [tool.black]
-line-length = 88
+line-length = 200
 target-version = ['py38', 'py39', 'py310', 'py311']
 include = '\.pyi?$'
 extend-exclude = '''
@@ -116,7 +116,7 @@ extend-exclude = '''
 [tool.isort]
 profile = "black"
 multi_line_output = 3
-line_length = 88
+line_length = 200
 known_first_party = ["whisperbridge"]
 known_third_party = ["PIL", "pynput", "pystray", "mss", "easyocr", "openai", "httpx", "tenacity", "pydantic", "keyring", "appdirs", "loguru", "click"]
 

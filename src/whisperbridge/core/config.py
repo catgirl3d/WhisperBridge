@@ -5,29 +5,31 @@ This module handles application configuration, settings loading,
 and environment variable management.
 """
 
-import os
 import json
-import keyring
+import re
 from pathlib import Path
-from typing import Dict, Any, Optional, List, Literal
-from pydantic import Field, ConfigDict, field_validator, model_validator
-from pydantic_settings import BaseSettings
+from typing import List, Literal, Optional
+
+import keyring
 from loguru import logger
+from pydantic import ConfigDict, Field, field_validator
+from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
     """Application settings model with comprehensive validation."""
 
     # API Settings
-    openai_api_key: Optional[str] = Field(default=None, description="OpenAI API key (stored securely)")
+    openai_api_key: Optional[str] = Field(
+        default=None, description="OpenAI API key (stored securely)"
+    )
     api_provider: str = Field(default="openai", description="API provider")
     model: str = Field(default="gpt-5-nano", description="GPT model")
     api_timeout: int = Field(default=30, description="API request timeout in seconds")
 
     # Language Settings (legacy - now handled by UI overlay)
     supported_languages: List[str] = Field(
-        default=["en", "ru", "de", "ua"],
-        description="List of supported languages"
+        default=["en", "ru", "de", "ua"], description="List of supported languages"
     )
 
     # Overlay UI-specific language selections (do not affect core behavior)
@@ -44,7 +46,7 @@ class Settings(BaseSettings):
     # - If OCR detects Russian, translate to English
     ocr_auto_swap_en_ru: bool = Field(
         default=True,
-        description="If enabled, OCR translations will auto-swap EN <-> RU based on detected language"
+        description="If enabled, OCR translations will auto-swap EN <-> RU based on detected language",
     )
 
     # Hotkeys
@@ -55,18 +57,17 @@ class Settings(BaseSettings):
 
     # Copy-Translate enhancements
     auto_copy_translated: bool = Field(
-        default=False,
-        description="Automatically copy translated text to clipboard"
+        default=False, description="Automatically copy translated text to clipboard"
     )
     clipboard_poll_timeout_ms: int = Field(
         default=2000,
-        description="Clipboard polling timeout in milliseconds (used by clipboard monitoring)"
+        description="Clipboard polling timeout in milliseconds (used by clipboard monitoring)",
     )
 
     # System Prompt
     system_prompt: str = Field(
         default="You are a translation engine. Do not reason. Do not explain. Do not add any extra text. Only return the translated text.",
-        description="System prompt for GPT translation"
+        description="System prompt for GPT translation",
     )
 
     # OCR Settings
@@ -76,7 +77,7 @@ class Settings(BaseSettings):
     # OCR initialization flag (default: disabled)
     initialize_ocr: bool = Field(
         default=False,
-        description="Initialize OCR service on startup and enable OCR actions"
+        description="Initialize OCR service on startup and enable OCR actions",
     )
 
     # UI Settings
@@ -101,40 +102,36 @@ class Settings(BaseSettings):
     max_log_size: int = Field(default=10, description="Max log file size in MB")
 
     model_config = ConfigDict(
-        env_file=".env",
-        case_sensitive=False,
-        validate_assignment=True,
-        extra='ignore'
+        env_file=".env", case_sensitive=False, validate_assignment=True, extra="ignore"
     )
 
-    @field_validator('ui_source_language', 'ui_target_language')
+    @field_validator("ui_source_language", "ui_target_language")
     @classmethod
     def validate_language(cls, v: str) -> str:
         """Validate language codes."""
-        if v not in ['auto'] and len(v) != 2:
-            raise ValueError(f'Invalid language code: {v}')
+        if v not in ["auto"] and len(v) != 2:
+            raise ValueError(f"Invalid language code: {v}")
         return v
 
-    @field_validator('theme')
+    @field_validator("theme")
     @classmethod
     def validate_theme(cls, v: str) -> str:
         """Validate theme value."""
-        valid_themes = ['light', 'dark', 'system']
+        valid_themes = ["light", "dark", "system"]
         if v not in valid_themes:
-            raise ValueError(f'Invalid theme: {v}. Must be one of {valid_themes}')
+            raise ValueError(f"Invalid theme: {v}. Must be one of {valid_themes}")
         return v
 
-
-    @field_validator('api_provider')
+    @field_validator("api_provider")
     @classmethod
     def validate_api_provider(cls, v: str) -> str:
         """Validate API provider."""
-        valid_providers = ['openai', 'anthropic', 'google']
+        valid_providers = ["openai", "anthropic", "google"]
         if v not in valid_providers:
             raise ValueError(f'Invalid API provider: {v}. Must be one of {valid_providers}')
         return v
 
-    @field_validator('clipboard_poll_timeout_ms')
+    @field_validator("clipboard_poll_timeout_ms")
     @classmethod
     def validate_clipboard_timeout(cls, v: int) -> int:
         """Validate clipboard polling timeout (ms). Must be between 500 and 10000."""
@@ -146,21 +143,16 @@ class Settings(BaseSettings):
             raise ValueError("clipboard_poll_timeout_ms must be between 500 and 10000")
         return iv
 
-
-    @field_validator('log_level')
+    @field_validator("log_level")
     @classmethod
     def validate_log_level(cls, v: str) -> str:
         """Validate log level."""
-        valid_levels = ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']
+        valid_levels = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
         if v.upper() not in valid_levels:
-            raise ValueError(f'Invalid log level: {v}. Must be one of {valid_levels}')
+            raise ValueError(f"Invalid log level: {v}. Must be one of {valid_levels}")
         return v.upper()
 
-    # Removed legacy language validation - now handled by UI overlay
 
-
-# Global settings instance (will be loaded by load_settings() below)
-settings: Settings
 
 
 def get_config_path() -> Path:
@@ -195,70 +187,25 @@ def save_api_key(api_key: str) -> bool:
         return False
 
 
-def load_settings() -> Settings:
-    """Load settings from file and environment with error handling."""
-    global settings
-    try:
-        config_path = ensure_config_dir()
-        settings_file = config_path / "settings.json"
+def validate_api_key_format(api_key: str) -> bool:
+    """Validate OpenAI API key format.
 
-        # Load from file if exists
-        if settings_file.exists():
-            with open(settings_file, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-        else:
-            data = {}
-
-        # Load API key from keyring
-        api_key = load_api_key()
-        if api_key:
-            data['openai_api_key'] = api_key
-
-        # Create settings with loaded data
-        settings = Settings(**data)
-        logger.info("Settings loaded successfully")
-        return settings
-
-    except Exception as e:
-        logger.error(f"Failed to load settings: {e}")
-        # Fallback to default settings
-        settings = Settings()
-        return settings
-
-
-def save_settings(settings: Settings) -> bool:
-    """Save settings to file with error handling and caller debug."""
-    import inspect
-    try:
-        # Caller info for debugging unexpected overwrites
-        stack = inspect.stack()
-        caller_frame = stack[1]
-        caller_info = f"{caller_frame.function} in {caller_frame.filename}:{caller_frame.lineno}"
-        print(f"DEBUG: core.config.save_settings called from {caller_info}")
-        print(f"DEBUG: core.config.save_settings called with theme='{getattr(settings, 'theme', None)}'")
-
-        config_path = ensure_config_dir()
-        settings_file = config_path / "settings.json"
-
-        # Prepare data for saving (exclude API key)
-        data = settings.model_dump()
-        data.pop('openai_api_key', None)
-
-        # Save to JSON
-        with open(settings_file, 'w', encoding='utf-8') as f:
-            json.dump(data, f, indent=2, ensure_ascii=False)
-
-        # Save API key separately if present
-        if settings.openai_api_key:
-            save_api_key(settings.openai_api_key)
-
-        logger.info("Settings saved successfully")
-        return True
-
-    except Exception as e:
-        logger.error(f"Failed to save settings: {e}", exc_info=True)
+    Moved here from utils to centralize API key handling alongside
+    keyring load/save helpers.
+    """
+    if not api_key or not isinstance(api_key, str):
         return False
 
+    # OpenAI API keys start with 'sk-'
+    if not api_key.startswith("sk-"):
+        return False
 
-# Load settings on import
-settings = load_settings()
+    # Should be reasonably long
+    if len(api_key) < 20:
+        return False
+
+    # Should contain only valid characters
+    if not re.match(r"^sk-[a-zA-Z0-9\-_]+$", api_key):
+        return False
+
+    return True

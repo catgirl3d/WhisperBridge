@@ -6,9 +6,8 @@ including request formatting, response validation, and language detection.
 """
 
 import re
-import json
-from typing import Optional, Dict, Any, List
 from dataclasses import dataclass
+from typing import Optional
 
 from loguru import logger
 
@@ -16,6 +15,7 @@ from loguru import logger
 @dataclass
 class TranslationRequest:
     """Request data for translation API."""
+
     text: str
     source_lang: str
     target_lang: str
@@ -26,6 +26,7 @@ class TranslationRequest:
 @dataclass
 class TranslationResponse:
     """Response data from translation API."""
+
     success: bool
     translated_text: str = ""
     source_lang: str = ""
@@ -82,51 +83,51 @@ def detect_language(text: str) -> Optional[str]:
     text = text.strip().lower()
 
     # More specific English patterns
-    if re.search(r'\b(the|a|an|is|are|was|were|in|on|at|and|or|but)\b', text):
+    if re.search(r"\b(the|a|an|is|are|was|were|in|on|at|and|or|but)\b", text):
         return "en"
 
     # Ukrainian characters
-    if re.search(r'[ієїґ]', text):
+    if re.search(r"[ієїґ]", text):
         return "ua"
 
     # Cyrillic characters (Russian)
-    if re.search(r'[а-яё]', text):
+    if re.search(r"[а-яё]", text):
         return "ru"
 
     # Chinese characters
-    if re.search(r'[\u4e00-\u9fff]', text):
+    if re.search(r"[\u4e00-\u9fff]", text):
         return "zh"
 
     # Japanese characters (Hiragana, Katakana, Kanji)
-    if re.search(r'[\u3040-\u309f\u30a0-\u30ff\u4e00-\u9fff]', text):
+    if re.search(r"[\u3040-\u309f\u30a0-\u30ff\u4e00-\u9fff]", text):
         return "ja"
 
     # Korean characters
-    if re.search(r'[\uac00-\ud7af]', text):
+    if re.search(r"[\uac00-\ud7af]", text):
         return "ko"
 
     # Arabic characters
-    if re.search(r'[\u0600-\u06ff]', text):
+    if re.search(r"[\u0600-\u06ff]", text):
         return "ar"
 
     # Spanish common patterns
-    if re.search(r'\b(el|la|los|las|es|son|está|están)\b', text):
+    if re.search(r"\b(el|la|los|las|es|son|está|están)\b", text):
         return "es"
 
     # French common patterns
-    if re.search(r'\b(le|la|les|et|est|sont|dans|pour)\b', text):
+    if re.search(r"\b(le|la|les|et|est|sont|dans|pour)\b", text):
         return "fr"
 
     # German common patterns
-    if re.search(r'\b(der|die|das|und|ist|sind|in|für)\b', text):
+    if re.search(r"\b(der|die|das|und|ist|sind|in|für)\b", text):
         return "de"
 
     # Italian common patterns
-    if re.search(r'\b(il|la|i|gli|le|e|è|sono|in|per)\b', text):
+    if re.search(r"\b(il|la|i|gli|le|e|è|sono|in|per)\b", text):
         return "it"
 
     # Portuguese common patterns
-    if re.search(r'\b(o|a|os|as|e|é|são|em|para)\b', text):
+    if re.search(r"\b(o|a|os|as|e|é|são|em|para)\b", text):
         return "pt"
 
     # Default to English if no other language is detected
@@ -148,7 +149,7 @@ def get_language_name(code: str) -> str:
         "ko": "Korean",
         "zh": "Chinese",
         "ar": "Arabic",
-        "auto": "Auto-detect"
+        "auto": "Auto-detect",
     }
 
     return language_names.get(code.lower(), code.upper())
@@ -176,10 +177,10 @@ def sanitize_text(text: str) -> str:
         return ""
 
     # Remove excessive whitespace
-    text = re.sub(r'\s+', ' ', text.strip())
+    text = re.sub(r"\s+", " ", text.strip())
 
     # Remove control characters
-    text = re.sub(r'[\x00-\x1f\x7f-\x9f]', '', text)
+    text = re.sub(r"[\x00-\x1f\x7f-\x9f]", "", text)
 
     return text
 
@@ -226,7 +227,7 @@ def parse_gpt_response(response_text: str) -> str:
         "Translation:",
         "Translated text:",
         "Here's the translation:",
-        "The translation is:"
+        "The translation is:",
     ]
 
     text = response_text.strip()
@@ -245,7 +246,9 @@ def parse_gpt_response(response_text: str) -> str:
     return text
 
 
-def create_system_prompt_template(source_lang: str = "auto", target_lang: str = "en") -> str:
+def create_system_prompt_template(
+    source_lang: str = "auto", target_lang: str = "en"
+) -> str:
     """Create a customized system prompt template."""
     if source_lang == "auto":
         template = f"""You are a professional translator. Your task is to translate text accurately and naturally to {get_language_name(target_lang)}.
@@ -278,7 +281,7 @@ def validate_api_key_format(api_key: str) -> bool:
         return False
 
     # OpenAI API keys start with 'sk-'
-    if not api_key.startswith('sk-'):
+    if not api_key.startswith("sk-"):
         return False
 
     # Should be reasonably long
@@ -286,7 +289,7 @@ def validate_api_key_format(api_key: str) -> bool:
         return False
 
     # Should contain only valid characters
-    if not re.match(r'^sk-[a-zA-Z0-9\-_]+$', api_key):
+    if not re.match(r"^sk-[a-zA-Z0-9\-_]+$", api_key):
         return False
 
     return True

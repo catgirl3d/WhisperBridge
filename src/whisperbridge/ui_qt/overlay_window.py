@@ -2,8 +2,30 @@
 Overlay window implementation for Qt-based UI.
 """
 
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QLabel, QTextEdit, QApplication, QPushButton, QFrame, QComboBox, QHBoxLayout, QSpacerItem, QSizePolicy, QCheckBox
-from PySide6.QtCore import Qt, QPoint, QRect, QTimer, QThread, Signal, QObject, QSize, QEvent
+from PySide6.QtWidgets import (
+    QWidget,
+    QVBoxLayout,
+    QLabel,
+    QTextEdit,
+    QApplication,
+    QPushButton,
+    QComboBox,
+    QHBoxLayout,
+    QSpacerItem,
+    QSizePolicy,
+    QCheckBox,
+)
+from PySide6.QtCore import (
+    Qt,
+    QPoint,
+    QRect,
+    QTimer,
+    QThread,
+    Signal,
+    QObject,
+    QSize,
+    QEvent,
+)
 from PySide6.QtGui import QFont, QKeyEvent, QPixmap, QIcon
 
 import qtawesome as qta
@@ -11,9 +33,8 @@ from pathlib import Path
 
 from loguru import logger
 from ..services.config_service import config_service
-from ..utils.api_utils import get_language_name, detect_language
+from ..utils.language_utils import get_language_name, detect_language
 from .minibar_overlay import MiniBarOverlay
-
 
 
 class OverlayWindow(QWidget):
@@ -25,9 +46,9 @@ class OverlayWindow(QWidget):
 
         # Configure window properties — frameless window with resize capability
         self.setWindowFlags(
-            Qt.WindowType.Window |
-            Qt.WindowType.WindowStaysOnTopHint |
-            Qt.WindowType.FramelessWindowHint
+            Qt.WindowType.Window
+            | Qt.WindowType.WindowStaysOnTopHint
+            | Qt.WindowType.FramelessWindowHint
         )
         # Set object name for CSS styling
         self.setObjectName("OverlayWindow")
@@ -39,17 +60,18 @@ class OverlayWindow(QWidget):
         # Default size (width x height). Height set to 430px
         self.resize(480, 430)
         self.setMouseTracking(True)
-        self.setMinimumSize(320, 220)  # Increased minimum height to accommodate footer layout with resize grip
+        self.setMinimumSize(
+            320, 220
+        )  # Increased minimum height to accommodate footer layout with resize grip
 
         logger.debug("Overlay window configured as regular translator window")
 
         # Main vertical layout
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(10, 7, 10, 10) # left-top-right-bottom
+        layout.setContentsMargins(10, 7, 10, 10)  # left-top-right-bottom
         layout.setSpacing(6)
 
         # Header: title
-        header_layout = QVBoxLayout()
         # Use a horizontal layout-like composition
         title_label = QLabel("Translator")
         title_label.setFont(QFont("Arial", 11, QFont.Bold))
@@ -58,7 +80,7 @@ class OverlayWindow(QWidget):
         # Original text label and widget
         self.original_label = QLabel("Original:")
         self.original_label.setFont(QFont("Arial", 10, QFont.Bold))
- 
+
         # Row: detected language + auto-swap checkbox
         info_row = QHBoxLayout()
         info_row.addItem(QSpacerItem(10, 10, QSizePolicy.Expanding, QSizePolicy.Minimum))
@@ -70,15 +92,10 @@ class OverlayWindow(QWidget):
 
         # Auto-swap checkbox for EN <-> RU behavior
         self.auto_swap_checkbox = QCheckBox("Auto-translate EN ↔ RU")
-        self.auto_swap_checkbox.setToolTip("If enabled, English will be translated to Russian, and Russian to English")
-        # Initialize state from settings (fallback True)
-        try:
-            cfg = config_service.get_settings()
-            init_state = bool(getattr(cfg, "ocr_auto_swap_en_ru", True))
-            self.auto_swap_checkbox.setChecked(init_state)
-        except Exception:
-            logger.debug("Failed to load ocr_auto_swap_en_ru from config; defaulting to True")
-            self.auto_swap_checkbox.setChecked(True)
+        self.auto_swap_checkbox.setToolTip(
+            "If enabled, English will be translated to Russian, and Russian to English"
+        )
+        # The state of this checkbox is now set in `show_overlay` to ensure it's always up-to-date.
         # Persist changes when user toggles the checkbox
         try:
             self.auto_swap_checkbox.stateChanged.connect(self._on_auto_swap_changed)
@@ -127,7 +144,6 @@ class OverlayWindow(QWidget):
         except Exception as e:
             logger.debug(f"Failed to decorate combobox arrows: {e}")
 
-
         # Populate combos
         self._programmatic_combo_change = False
         try:
@@ -147,6 +163,17 @@ class OverlayWindow(QWidget):
             for code in codes_set:
                 display = display_overrides.get(code, get_language_name(code))
                 self.source_combo.addItem(display, userData=code)
+            # Insert 'Auto' option at the top for source language
+            try:
+                self.source_combo.insertItem(0, "Auto", userData="auto")
+            except Exception:
+                # Fallback to get_language_name if available
+                try:
+                    self.source_combo.insertItem(
+                        0, get_language_name("auto"), userData="auto"
+                    )
+                except Exception:
+                    pass
         except Exception as e:
             logger.debug(f"Failed to populate source combo: {e}")
 
@@ -160,14 +187,17 @@ class OverlayWindow(QWidget):
 
         # Restore persisted UI selections or defaults
         try:
-            ui_source_language = getattr(cfg, "ui_source_language", "en") if cfg else "en"
-            ui_target_mode = getattr(cfg, "ui_target_mode", "explicit") if cfg else "explicit"
+            ui_source_language = (
+                getattr(cfg, "ui_source_language", "en") if cfg else "en"
+            )
+            # ui_target_mode is not used in this context
+            getattr(cfg, "ui_target_mode", "explicit") if cfg else "explicit"
             # Default target language - no fallback to legacy settings
-            ui_target_language = getattr(cfg, "ui_target_language", "en") if cfg else "en"
+            ui_target_language = (
+                getattr(cfg, "ui_target_language", "en") if cfg else "en"
+            )
 
-            # If legacy or persisted value is "auto", map it to explicit default "en"
-            if ui_source_language == "auto":
-                ui_source_language = "en"
+            # Allow 'auto' persisted value; no remapping to 'en'
 
             # Apply to combos without emitting signals
             self._programmatic_combo_change = True
@@ -185,7 +215,7 @@ class OverlayWindow(QWidget):
             # Source: try persisted value, fallback to "en"
             if not _set_combo_by_data(self.source_combo, ui_source_language):
                 _set_combo_by_data(self.source_combo, "en")
- 
+
             # Target: use persisted explicit language or fallback to "en"
             if not _set_combo_by_data(self.target_combo, ui_target_language):
                 _set_combo_by_data(self.target_combo, "en")
@@ -247,9 +277,9 @@ class OverlayWindow(QWidget):
             if not pixmap.isNull():
                 self.translate_btn.setIcon(QIcon(pixmap))
             else:
-                self.translate_btn.setIcon(qta.icon('fa5s.language', color='white'))
+                self.translate_btn.setIcon(qta.icon("fa5s.language", color="white"))
         except Exception:
-            self.translate_btn.setIcon(qta.icon('fa5s.language', color='white'))
+            self.translate_btn.setIcon(qta.icon("fa5s.language", color="white"))
         self.translate_btn.setIconSize(QSize(14, 14))
         self.translate_btn.clicked.connect(self._on_translate_clicked)
         btn_row_orig.addWidget(self.translate_btn)
@@ -259,26 +289,26 @@ class OverlayWindow(QWidget):
         self.clear_original_btn.setFixedHeight(28)
         self.clear_original_btn.setFixedWidth(40)
         try:
-            self.clear_original_btn.setIcon(qta.icon('fa5s.eraser', color='black'))
+            self.clear_original_btn.setIcon(qta.icon("fa5s.eraser", color="black"))
         except Exception:
             self.clear_original_btn.setText("Clear")
         self.clear_original_btn.setIconSize(QSize(16, 16))
         self.clear_original_btn.setToolTip("Clear original text")
         self.clear_original_btn.clicked.connect(self._clear_original_text)
         btn_row_orig.addWidget(self.clear_original_btn)
- 
+
         # Copy original button (kept for parity with existing UI)
         self.copy_original_btn = QPushButton("")
         # Ensure button size
         self.copy_original_btn.setFixedHeight(28)
         self.copy_original_btn.setFixedWidth(40)
-        self.copy_original_btn.setIcon(qta.icon('fa5.copy', color='black'))
+        self.copy_original_btn.setIcon(qta.icon("fa5.copy", color="black"))
         self.copy_original_btn.setIconSize(QSize(16, 16))
         self.copy_original_btn.clicked.connect(self._copy_original_to_clipboard)
         btn_row_orig.addWidget(self.copy_original_btn)
- 
+
         layout.addLayout(btn_row_orig)
- 
+
         # Update detected language when original text changes
         try:
             self.original_text.textChanged.connect(self._on_original_text_changed)
@@ -326,7 +356,7 @@ class OverlayWindow(QWidget):
         self.clear_translated_btn = QPushButton("")
         self.clear_translated_btn.setFixedHeight(28)
         self.clear_translated_btn.setFixedWidth(40)
-        self.clear_translated_btn.setIcon(qta.icon('fa5s.eraser', color='black'))
+        self.clear_translated_btn.setIcon(qta.icon("fa5s.eraser", color="black"))
         self.clear_translated_btn.setIconSize(QSize(16, 16))
         self.clear_translated_btn.setToolTip("Clear translated text")
         self.clear_translated_btn.clicked.connect(self._clear_translated_text)
@@ -335,7 +365,7 @@ class OverlayWindow(QWidget):
         self.copy_translated_btn = QPushButton("")
         self.copy_translated_btn.setFixedHeight(28)
         self.copy_translated_btn.setFixedWidth(40)
-        self.copy_translated_btn.setIcon(qta.icon('fa5.copy', color='black'))
+        self.copy_translated_btn.setIcon(qta.icon("fa5.copy", color="black"))
         self.copy_translated_btn.setIconSize(QSize(16, 16))
         self.copy_translated_btn.clicked.connect(self._copy_translated_to_clipboard)
         btn_row_tr.addWidget(self.copy_translated_btn)
@@ -348,9 +378,11 @@ class OverlayWindow(QWidget):
         self.close_btn = QPushButton("Close")
         self.close_btn.setFixedHeight(28)
         self.close_btn.setFixedWidth(86)
-        self.close_btn.setObjectName("closeButton") # Set object name for specific styling
-        self.close_icon_normal = qta.icon('fa5s.times', color='black')
-        self.close_icon_hover = qta.icon('fa5s.times', color='white')
+        self.close_btn.setObjectName(
+            "closeButton"
+        )  # Set object name for specific styling
+        self.close_icon_normal = qta.icon("fa5s.times", color="black")
+        self.close_icon_hover = qta.icon("fa5s.times", color="white")
         self.close_btn.setIcon(self.close_icon_normal)
         self.close_btn.setIconSize(QSize(16, 16))
         self.close_btn.clicked.connect(self.hide_overlay)
@@ -358,13 +390,12 @@ class OverlayWindow(QWidget):
         footer_row.addWidget(self.close_btn, alignment=Qt.AlignRight)  # Align to right
         layout.addLayout(footer_row)
 
-
         # Close and collapse buttons in top-right corner
         self.close_btn_top = QPushButton(self)
         self.close_btn_top.setObjectName("closeBtnTop")
         self.close_btn_top.setFixedSize(22, 22)
         try:
-            self.close_btn_top.setIcon(qta.icon('fa5s.times', color='black'))
+            self.close_btn_top.setIcon(qta.icon("fa5s.times", color="black"))
         except Exception:
             self.close_btn_top.setText("X")
         self.close_btn_top.setIconSize(QSize(20, 16))
@@ -374,7 +405,7 @@ class OverlayWindow(QWidget):
         self.collapse_btn_top = QPushButton(self)
         self.collapse_btn_top.setObjectName("collapseBtnTop")
         self.collapse_btn_top.setFixedSize(22, 22)
-        self.collapse_btn_top.setIcon(qta.icon('fa5s.compress-alt', color='black'))
+        self.collapse_btn_top.setIcon(qta.icon("fa5s.compress-alt", color="black"))
         self.collapse_btn_top.setIconSize(QSize(20, 16))
         self.collapse_btn_top.clicked.connect(self.collapse_to_minibar)
 
@@ -382,7 +413,8 @@ class OverlayWindow(QWidget):
         self._position_top_buttons()
 
         # Set background and styling — solid card with readable text
-        self.setStyleSheet("""
+        self.setStyleSheet(
+            """
             OverlayWindow {
                 background-color: #ffffff;
                 border: 1px solid #f5f5f5;
@@ -457,7 +489,6 @@ class OverlayWindow(QWidget):
                 border-top-right-radius: 3px;
                 border-bottom-right-radius: 3px;
                 background-color: transparent;
-                
             }
             /* Popup list */
             QComboBox QAbstractItemView {
@@ -477,7 +508,8 @@ class OverlayWindow(QWidget):
                 background: #0078d7;
                 color: #ffffff;
             }
-        """)
+        """
+        )
         # Lifecycle helpers expected by overlay service
         # Public flag used by services to determine if window was destroyed
         self.is_destroyed = False
@@ -500,7 +532,7 @@ class OverlayWindow(QWidget):
         self._expanded_geometry: QRect | None = None
 
         # Padding for top-right control buttons
-        self._top_button_padding = {'top': 3, 'right': 4, 'bottom': 0, 'left': 2}
+        self._top_button_padding = {"top": 3, "right": 4, "bottom": 0, "left": 2}
 
     def show_loading(self, position: tuple | None = None):
         """Show a minimal loading state at an optional absolute position."""
@@ -657,20 +689,19 @@ class OverlayWindow(QWidget):
         else:
             super().mouseDoubleClickEvent(event)
 
-
     def _position_top_buttons(self):
         """Position the top-right control buttons (collapse + close) with padding."""
-        padding = getattr(self, "_top_button_padding", {'top': 0, 'right': 0, 'bottom': 0, 'left': 0})
+        padding = getattr(self, "_top_button_padding", {"top": 0, "right": 0, "bottom": 0, "left": 0})
         
         close_x_pos = self.width()
 
-        if hasattr(self, 'close_btn_top'):
+        if hasattr(self, "close_btn_top"):
             close_size = self.close_btn_top.size()
-            close_x_pos = self.width() - close_size.width() - padding['right']
-            close_y_pos = padding['top']
+            close_x_pos = self.width() - close_size.width() - padding["right"]
+            close_y_pos = padding["top"]
             self.close_btn_top.move(close_x_pos, close_y_pos)
 
-        if hasattr(self, 'collapse_btn_top'):
+        if hasattr(self, "collapse_btn_top"):
             collapse_size = self.collapse_btn_top.size()
             # 'left' padding acts as spacing between buttons
             collapse_x_pos = close_x_pos - collapse_size.width() - padding.get('left', 0)
@@ -721,7 +752,6 @@ class OverlayWindow(QWidget):
             self.setCursor(Qt.SizeVerCursor)
         else:
             self.setCursor(Qt.ArrowCursor)
-
 
     def resizeEvent(self, event):
         """Handle window resize to reposition the top buttons."""
@@ -805,17 +835,23 @@ class OverlayWindow(QWidget):
             clipboard = QApplication.clipboard()
             clipboard.setText(text_widget.toPlainText())
             logger.info(f"{text_name} text copied to clipboard")
-            
+
             prev_icon = button.icon()
             prev_text = button.text()
-            
+
             try:
-                button.setIcon(qta.icon('fa5s.check', color='green'))
+                button.setIcon(qta.icon("fa5s.check", color="green"))
             except Exception:
-                pass # Fallback to existing icon
-            
+                pass  # Fallback to existing icon
+
             button.setText("")
-            QTimer.singleShot(1200, lambda p_icon=prev_icon, p_text=prev_text: (button.setIcon(p_icon), button.setText(p_text)))
+            QTimer.singleShot(
+                1200,
+                lambda p_icon=prev_icon, p_text=prev_text: (
+                    button.setIcon(p_icon),
+                    button.setText(p_text),
+                ),
+            )
         except Exception as e:
             logger.error(f"Failed to copy {text_name} text: {e}")
 
@@ -851,7 +887,7 @@ class OverlayWindow(QWidget):
                 self._clear_translated_text()
         except Exception as e:
             logger.debug(f"Clear focused text failed: {e}")
- 
+
     def _on_original_text_changed(self):
         """Update detected language label when original text changes and auto-update Source if needed."""
         try:
@@ -902,13 +938,14 @@ class OverlayWindow(QWidget):
         """Overlay a small chevron-down icon on the right side of the QComboBox."""
         try:
             from PySide6.QtWidgets import QLabel
+
             arrow_label = QLabel(combo)
             # Use a subtle color to match UI; adjust size as needed
             try:
-                icon = qta.icon('fa5s.chevron-down', color='#666666')
+                icon = qta.icon("fa5s.chevron-down", color="#666666")
             except Exception:
                 # Fallback to angle-down if chevron unavailable
-                icon = qta.icon('fa5s.angle-down', color='#666666')
+                icon = qta.icon("fa5s.angle-down", color="#666666")
             pix = icon.pixmap(12, 12)
             arrow_label.setPixmap(pix)
             arrow_label.setFixedSize(12, 12)
@@ -948,7 +985,7 @@ class OverlayWindow(QWidget):
                 self._position_combo_arrow(obj)
         except Exception:
             pass
-        
+
         # Change close button icon on hover
         try:
             if obj == self.close_btn:
@@ -978,10 +1015,7 @@ class OverlayWindow(QWidget):
             if getattr(self, "_programmatic_combo_change", False):
                 return
             data = self.target_combo.currentData()
-            updates = {
-                "ui_target_mode": "explicit",
-                "ui_target_language": data
-            }
+            updates = {"ui_target_mode": "explicit", "ui_target_language": data}
             config_service.update_settings(updates)
             logger.info(f"UI target updated: mode=explicit, lang={data}")
         except Exception as e:
@@ -995,6 +1029,37 @@ class OverlayWindow(QWidget):
 
             src_data = self.source_combo.currentData()
             tgt_data = self.target_combo.currentData()
+
+            # If Source is set to 'auto', don't put 'auto' into Target (which doesn't support it).
+            # Instead, move the current Target language into Source and keep Target unchanged.
+            if src_data == "auto":
+                self._programmatic_combo_change = True
+                try:
+                    self.source_combo.blockSignals(True)
+                    idx_s = self._find_index_by_data(self.source_combo, tgt_data)
+                    if idx_s != -1:
+                        self.source_combo.setCurrentIndex(idx_s)
+                finally:
+                    try:
+                        self.source_combo.blockSignals(False)
+                    except Exception:
+                        pass
+                    self._programmatic_combo_change = False
+
+                try:
+                    updates = {
+                        "ui_source_language": tgt_data,
+                        "ui_target_mode": "explicit",
+                        # Keep target as-is; read current data to persist the actual visible target
+                        "ui_target_language": self.target_combo.currentData(),
+                    }
+                    config_service.update_settings(updates)
+                    logger.info(
+                        f"Swap with 'auto' source: moved target '{tgt_data}' into source; kept target unchanged"
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to save swap with 'auto' source: {e}")
+                return
 
             new_source = tgt_data
             new_target = src_data
@@ -1021,7 +1086,7 @@ class OverlayWindow(QWidget):
                 updates = {
                     "ui_source_language": new_source,
                     "ui_target_mode": "explicit",
-                    "ui_target_language": new_target
+                    "ui_target_language": new_target,
                 }
                 config_service.update_settings(updates)
                 logger.info(f"Swapped source/target and persisted: source={new_source}, target={new_target}")
@@ -1050,11 +1115,15 @@ class OverlayWindow(QWidget):
             # Read all relevant settings
             settings = config_service.get_settings()
             swap_enabled = getattr(settings, "ocr_auto_swap_en_ru", False)
-            
+
             # Determine effective source language from Source combo
             try:
                 source_lang = self.source_combo.currentData() or detected
             except Exception:
+                source_lang = detected
+
+            # If 'Auto' is selected in Source, use detected language for the worker call
+            if source_lang == "auto":
                 source_lang = detected
 
             # Determine effective target language with checkbox priority
@@ -1093,12 +1162,17 @@ class OverlayWindow(QWidget):
                         service = get_translation_service()
 
                         import asyncio
+
                         # Create and use a new event loop in this thread to avoid conflicting with Qt's loop
                         loop = asyncio.new_event_loop()
                         try:
                             asyncio.set_event_loop(loop)
                             resp = loop.run_until_complete(
-                                service.translate_text_async(self.text, source_lang=self.source_lang, target_lang=self.target_lang)
+                                service.translate_text_async(
+                                    self.text,
+                                    source_lang=self.source_lang,
+                                    target_lang=self.target_lang,
+                                )
                             )
                         finally:
                             try:
@@ -1135,6 +1209,7 @@ class OverlayWindow(QWidget):
         except Exception as e:
             logger.error(f"Error starting translation worker: {e}")
             from PySide6.QtWidgets import QMessageBox
+
             QMessageBox.critical(self, "Error", f"Error starting translation: {e}")
             # Ensure button re-enabled
             try:
@@ -1179,6 +1254,18 @@ class OverlayWindow(QWidget):
             position: (x, y) position for the window (ignored for fullscreen)
         """
         logger.info("Showing overlay window")
+
+        # Update auto-swap checkbox state from settings each time the window is shown
+        try:
+            cfg = config_service.get_settings()
+            current_state = bool(getattr(cfg, "ocr_auto_swap_en_ru", True))
+            self.auto_swap_checkbox.setChecked(current_state)
+        except Exception:
+            logger.debug(
+                "Failed to load ocr_auto_swap_en_ru for overlay; defaulting to True"
+            )
+            self.auto_swap_checkbox.setChecked(True)
+
         self.original_text.setPlainText(original_text)
         self.translated_text.setPlainText(translated_text)
 

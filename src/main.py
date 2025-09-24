@@ -5,23 +5,19 @@ This module initializes and runs the WhisperBridge desktop application
 for quick text translation using OCR and GPT API.
 """
 
-import sys
 import asyncio
-from pathlib import Path
+import sys
 
-# Add src to path for imports
-sys.path.insert(0, str(Path(__file__).parent))
-
-from whisperbridge.core.config import settings
-from whisperbridge.core.logger import logger, setup_logging
-from whisperbridge.ui_qt.app import init_qt_app
+from .whisperbridge.core.logger import logger, setup_logging
+from .whisperbridge.services.config_service import config_service
+from .whisperbridge.ui_qt.app import init_qt_app
 
 
 async def main():
     """Main application entry point."""
     try:
         # Setup logging
-        setup_logging()
+        setup_logging(config_service)
 
         logger.info("Starting WhisperBridge application...")
 

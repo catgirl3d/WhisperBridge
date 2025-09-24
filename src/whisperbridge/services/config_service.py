@@ -7,7 +7,7 @@ observer pattern for change notifications, caching, and validation.
 
 import threading
 import time
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Dict, Optional
 from weakref import WeakSet
 
 from loguru import logger
@@ -50,11 +50,11 @@ class ConfigService:
         """Notify all observers of an event."""
         for observer in list(self._observers):
             try:
-                if event == 'changed':
+                if event == "changed":
                     observer.on_settings_changed(*args, **kwargs)
-                elif event == 'loaded':
+                elif event == "loaded":
                     observer.on_settings_loaded(*args, **kwargs)
-                elif event == 'saved':
+                elif event == "saved":
                     observer.on_settings_saved(*args, **kwargs)
             except Exception as e:
                 logger.warning(f"Observer notification failed: {e}")
@@ -105,7 +105,7 @@ class ConfigService:
             try:
                 self._settings = self._settings_manager.load_settings()
                 self._invalidate_cache()  # Clear cache on reload
-                self._notify_observers('loaded', self._settings)
+                self._notify_observers("loaded", self._settings)
                 logger.info("Settings loaded via config service")
                 return self._settings
             except Exception as e:
@@ -122,18 +122,18 @@ class ConfigService:
                         logger.warning("No settings to save")
                         return False
 
-                print(f"DEBUG: ConfigService.save_settings called with theme='{settings.theme}'")
+                logger.debug(f"ConfigService.save_settings called with theme='{settings.theme}'")
 
                 # Track changes for notifications
                 old_settings = self._settings.model_copy() if self._settings else None
 
                 success = self._settings_manager.save_settings(settings)
-                print(f"DEBUG: SettingsManager.save_settings returned: {success}")
+                logger.debug(f"SettingsManager.save_settings returned: {success}")
 
                 if success:
                     self._settings = settings
                     self._invalidate_cache()  # Clear cache on save
-                    self._notify_observers('saved', self._settings)
+                    self._notify_observers("saved", self._settings)
 
                     # Notify about individual changes
                     if old_settings:
@@ -149,18 +149,19 @@ class ConfigService:
         """Notify observers about individual setting changes."""
         old_dict = old_settings.model_dump()
         new_dict = new_settings.model_dump()
-    
+
         for key, new_value in new_dict.items():
             old_value = old_dict.get(key)
             if old_value != new_value:
-                self._notify_observers('changed', key, old_value, new_value)
-    
+                self._notify_observers("changed", key, old_value, new_value)
+
                 # If log level changed, reconfigure logging immediately so new level takes effect.
                 if key == "log_level":
                     try:
                         # Import here to avoid circular import at module import time
                         from ..core.logger import setup_logging
-                        setup_logging()
+
+                        setup_logging(self)
                         logger.info(f"Applied new log level: {new_value}")
                     except Exception as e:
                         logger.error(f"Failed to apply new log level '{new_value}': {e}")
@@ -206,15 +207,16 @@ class ConfigService:
                     # Update the main settings object as well
                     if self._settings:
                         setattr(self._settings, key, value)
-                    
+
                     self._set_cached_value(key, value)
-                    self._notify_observers('changed', key, old_value, value)
-                    
+                    self._notify_observers("changed", key, old_value, value)
+
                     # If log level changed, reconfigure logging
                     if key == "log_level":
                         try:
                             from ..core.logger import setup_logging
-                            setup_logging()
+
+                            setup_logging(self)
                             logger.info(f"Applied new log level: {value}")
                         except Exception as e:
                             logger.error(f"Failed to apply new log level '{value}': {e}")
@@ -257,6 +259,7 @@ class ConfigService:
         with self._lock:
             try:
                 from ..core.config import Settings as DefaultSettings
+
                 default_settings = DefaultSettings()
                 return self.save_settings(default_settings)
             except Exception as e:
@@ -267,10 +270,10 @@ class ConfigService:
         """Get cache statistics."""
         with self._lock:
             return {
-                'cache_size': len(self._cache),
-                'cache_ttl': self._cache_ttl,
-                'cached_keys': list(self._cache.keys()),
-                'observer_count': len(self._observers)
+                "cache_size": len(self._cache),
+                "cache_ttl": self._cache_ttl,
+                "cached_keys": list(self._cache.keys()),
+                "observer_count": len(self._observers),
             }
 
     def clear_cache(self):

@@ -1,39 +1,22 @@
 """
 UI service extracted from QtApp.
 
-This module was extracted from src/whisperbridge/ui_qt/app.py to centralize
-window creation, display and lifecycle logic. Methods moved from QtApp:
-
-- show_main_window
-- hide_main_window_to_tray
-- open_settings
-- show_overlay_window
-- hide_overlay_window
-- _handle_worker_finished -> handle_worker_finished
-- _handle_copy_translate -> handle_copy_translate
-
-The service owns:
-- main_window (MainWindow)
-- tray_manager (TrayManager)
-- overlay_windows (dict of OverlayWindow)
-- selection_overlay (SelectionOverlayQt)
-- settings_dialog (SettingsDialog)
-
 It provides slots/handlers that can be connected to worker signals so UI-related
 work happens in the main Qt thread.
 """
 
-from typing import Optional, Dict, Tuple
-from PySide6.QtCore import Slot, QThread
-from PySide6.QtWidgets import QApplication
+from typing import Dict, Optional, Tuple
+
 from loguru import logger as _default_logger
+from PySide6.QtCore import QThread, Slot
+from PySide6.QtWidgets import QApplication
 
 # UI widgets (import from ui_qt package)
 from ..ui_qt.main_window import MainWindow
-from ..ui_qt.tray import TrayManager
 from ..ui_qt.overlay_window import OverlayWindow
 from ..ui_qt.selection_overlay import SelectionOverlayQt
 from ..ui_qt.settings_dialog import SettingsDialog
+from ..ui_qt.tray import TrayManager
 
 # Clipboard accessor (fallback)
 from .clipboard_service import get_clipboard_service
@@ -62,7 +45,7 @@ class UIService:
         overlay_windows: Optional[Dict[str, OverlayWindow]] = None,
         clipboard_service=None,
         logger=None,
-        app=None
+        app=None,
     ):
         # Accept injected dependencies for easier wiring/testing
         self.main_window = main_window
@@ -86,9 +69,21 @@ class UIService:
             # Create tray manager early as it's lightweight and needed for notifications
             try:
                 # Use app methods as callbacks if available, otherwise no-op lambdas
-                on_show = getattr(app, "show_main_window_signal", None).emit if app else (lambda: None)
-                on_toggle = getattr(app, "toggle_overlay_signal", None).emit if app else (lambda: None)
-                on_open = getattr(app, "show_settings_signal", None).emit if app else (lambda: None)
+                on_show = (
+                    getattr(app, "show_main_window_signal", None).emit
+                    if app
+                    else (lambda: None)
+                )
+                on_toggle = (
+                    getattr(app, "toggle_overlay_signal", None).emit
+                    if app
+                    else (lambda: None)
+                )
+                on_open = (
+                    getattr(app, "show_settings_signal", None).emit
+                    if app
+                    else (lambda: None)
+                )
                 on_exit = getattr(app, "exit_app", None) or (lambda: None)
                 on_activate = getattr(app, "activate_ocr", None) or (lambda: None)
 
@@ -97,7 +92,7 @@ class UIService:
                     on_toggle_overlay=on_toggle,
                     on_open_settings=on_open,
                     on_exit_app=on_exit,
-                    on_activate_ocr=on_activate
+                    on_activate_ocr=on_activate,
                 )
                 if not self.tray_manager.create():
                     self.logger.warning("UIService: Failed to initialize system tray")
@@ -112,6 +107,7 @@ class UIService:
         """Create the main window (called lazily in main thread)."""
         try:
             from ..ui_qt.app import get_qt_app  # To get app for callbacks
+
             app = get_qt_app()
             on_save_cb = getattr(app, "_on_settings_saved", None)
             self.main_window = MainWindow(on_save_callback=on_save_cb)
@@ -238,7 +234,7 @@ class UIService:
         original_text: str,
         translated_text: str,
         position: Optional[Tuple[int, int]] = None,
-        overlay_id: str = "main"
+        overlay_id: str = "main",
     ):
         """Show or create an overlay window with translation results.
 
@@ -257,25 +253,43 @@ class UIService:
                     self.overlay_windows[overlay_id] = OverlayWindow()
                     self.logger.debug(f"UIService: Created OverlayWindow for id '{overlay_id}'")
                 except Exception as e:
-                    self.logger.error(f"UIService: Failed to create OverlayWindow '{overlay_id}': {e}", exc_info=True)
+                    self.logger.error(
+                        f"UIService: Failed to create OverlayWindow '{overlay_id}': {e}",
+                        exc_info=True,
+                    )
                     if self.tray_manager:
-                        self.tray_manager.show_notification("WhisperBridge", f"Overlay creation failed: {e}")
+                        self.tray_manager.show_notification(
+                            "WhisperBridge", f"Overlay creation failed: {e}"
+                        )
                     return
 
             overlay = self.overlay_windows[overlay_id]
             try:
-                overlay.show_overlay(original_text or "", translated_text or "", position)
-                self.logger.info(f"Overlay '{overlay_id}' displayed successfully by UIService")
+                overlay.show_overlay(
+                    original_text or "", translated_text or "", position
+                )
+                self.logger.info(
+                    f"Overlay '{overlay_id}' displayed successfully by UIService"
+                )
             except Exception as e:
-                self.logger.error(f"UIService: Failed to show overlay '{overlay_id}': {e}", exc_info=True)
+                self.logger.error(
+                    f"UIService: Failed to show overlay '{overlay_id}': {e}",
+                    exc_info=True,
+                )
                 if self.tray_manager:
                     try:
-                        self.tray_manager.show_notification("WhisperBridge", f"Overlay display error: {e}")
+                        self.tray_manager.show_notification(
+                            "WhisperBridge", f"Overlay display error: {e}"
+                        )
                     except Exception:
-                        self.logger.debug("Failed to show tray notification for overlay display error")
+                        self.logger.debug(
+                            "Failed to show tray notification for overlay display error"
+                        )
 
         except Exception as e:
-            self.logger.error(f"Unexpected error in UIService.show_overlay_window: {e}", exc_info=True)
+            self.logger.error(
+                f"Unexpected error in UIService.show_overlay_window: {e}", exc_info=True
+            )
 
     def hide_overlay_window(self, overlay_id: str = "main"):
         """Hide an overlay window if present."""
@@ -290,7 +304,10 @@ class UIService:
                     except Exception:
                         pass
         except Exception as e:
-            self.logger.error(f"UIService.hide_overlay_window error for id '{overlay_id}': {e}", exc_info=True)
+            self.logger.error(
+                f"UIService.hide_overlay_window error for id '{overlay_id}': {e}",
+                exc_info=True,
+            )
 
     def toggle_overlay(self):
         """Toggle overlay visibility. If no overlay exists, create a basic fullscreen overlay."""
@@ -308,19 +325,28 @@ class UIService:
                         self.logger.debug(f"Overlay {overlay_id} shown")
                     return
                 except Exception as e:
-                    self.logger.error(f"UIService: Error while toggling existing overlay: {e}", exc_info=True)
+                    self.logger.error(
+                        f"UIService: Error while toggling existing overlay: {e}",
+                        exc_info=True,
+                    )
         except Exception as e:
-            self.logger.error(f"UIService: Error while accessing overlay_windows: {e}", exc_info=True)
+            self.logger.error(
+                f"UIService: Error while accessing overlay_windows: {e}", exc_info=True
+            )
 
         # No overlays exist — create a basic fullscreen overlay (M0) and show it
         try:
-            self.logger.info("UIService: No existing overlay found — creating a basic fullscreen overlay (M0)")
+            self.logger.info(
+                "UIService: No existing overlay found — creating a basic fullscreen overlay (M0)"
+            )
             overlay_id = "main"
             self.overlay_windows[overlay_id] = OverlayWindow()
             self.overlay_windows[overlay_id].show_overlay("", "")
             self.logger.info(f"Created and showed overlay '{overlay_id}'")
         except Exception as e:
-            self.logger.error(f"UIService: Failed to create/show overlay: {e}", exc_info=True)
+            self.logger.error(
+                f"UIService: Failed to create/show overlay: {e}", exc_info=True
+            )
 
     def activate_ocr(self):
         """Activate OCR selection overlay in the main Qt thread."""
@@ -333,6 +359,7 @@ class UIService:
                 # Lazily create and wire selection overlay
                 try:
                     from ..ui_qt.app import get_qt_app
+
                     app = get_qt_app()
                 except Exception:
                     app = None
@@ -348,7 +375,9 @@ class UIService:
     # --- Slots / handlers -----------------------------------------------------
 
     @Slot(str, str, str)
-    def handle_worker_finished(self, original_text: str, translated_text: str, overlay_id: str):
+    def handle_worker_finished(
+        self, original_text: str, translated_text: str, overlay_id: str
+    ):
         """
         Handler for worker finished events.
 
@@ -359,12 +388,18 @@ class UIService:
             self.logger.info("UIService.handle_worker_finished invoked in main thread")
             canonical_overlay_id = "ocr"
             # Always show OCR results in canonical overlay
-            self.show_overlay_window(original_text, translated_text, overlay_id=canonical_overlay_id)
+            self.show_overlay_window(
+                original_text, translated_text, overlay_id=canonical_overlay_id
+            )
         except Exception as e:
-            self.logger.error(f"UIService.handle_worker_finished error: {e}", exc_info=True)
+            self.logger.error(
+                f"UIService.handle_worker_finished error: {e}", exc_info=True
+            )
 
     @Slot(str, str, bool)
-    def handle_copy_translate(self, clipboard_text: str, translated_text: str, auto_copy: bool = False):
+    def handle_copy_translate(
+        self, clipboard_text: str, translated_text: str, auto_copy: bool = False
+    ):
         """
         Handle copy->translate results.
 
@@ -374,29 +409,37 @@ class UIService:
         """
         try:
             # Show overlay first
-            self.show_overlay_window(clipboard_text, translated_text, overlay_id="copy_translate")
+            self.show_overlay_window(
+                clipboard_text, translated_text, overlay_id="copy_translate"
+            )
 
             # If auto-copy requested, copy AFTER overlay is shown
             if auto_copy:
                 clipboard_service = self._clipboard_service or get_clipboard_service()
                 try:
-                    if clipboard_service and clipboard_service.copy_text(translated_text):
+                    if clipboard_service and clipboard_service.copy_text(
+                        translated_text
+                    ):
                         self.logger.info("Translated text copied to clipboard (auto_copy_translated enabled)")
                     else:
-                        self.logger.warning("Failed to copy translated text to clipboard (ClipboardService.copy_text returned False or service unavailable)")
+                        self.logger.warning(
+                            "Failed to copy translated text to clipboard (ClipboardService.copy_text returned False or service unavailable)"
+                        )
                 except Exception as e:
                     self.logger.error(f"UIService: Auto-copy failed: {e}", exc_info=True)
- 
+
             self.logger.info("Copy-translate overlay shown successfully by UIService")
- 
+
         except Exception as e:
             self.logger.error(f"UIService.handle_copy_translate error: {e}", exc_info=True)
             if self.tray_manager:
                 try:
-                    self.tray_manager.show_notification("WhisperBridge", f"Copy-translate overlay error: {e}")
+                    self.tray_manager.show_notification(
+                        "WhisperBridge", f"Copy-translate overlay error: {e}"
+                    )
                 except Exception:
                     self.logger.debug("Failed to show tray notification for copy-translate error")
- 
+
     # --- Additional UI helpers moved from QtApp --------------------------------
     def show_tray_notification(self, title: str, message: str):
         """Show a notification through the tray manager (if available)."""
@@ -406,16 +449,20 @@ class UIService:
                 self.logger.debug(f"Tray notification shown: {title}")
         except Exception as e:
             self.logger.error(f"UIService.show_tray_notification error: {e}", exc_info=True)
- 
-    def update_tray_status(self, is_active: bool = False, has_error: bool = False, is_loading: bool = False):
+
+    def update_tray_status(
+        self, is_active: bool = False, has_error: bool = False, is_loading: bool = False
+    ):
         """Update the tray icon status (kept for parity with QtApp.update_tray_status)."""
         # Keep behavior minimal (QtApp previously just logged); expose hook for future TrayManager behavior
         try:
-            self.logger.debug(f"UIService.update_tray_status requested: active={is_active}, error={has_error}, loading={is_loading}")
+            self.logger.debug(
+                f"UIService.update_tray_status requested: active={is_active}, error={has_error}, loading={is_loading}"
+            )
             # Optionally, the tray manager could reflect status here in future
         except Exception as e:
             self.logger.error(f"UIService.update_tray_status error: {e}", exc_info=True)
- 
+
     def update_window_opacity(self, opacity: float):
         """Update window opacity for all managed windows."""
         try:
@@ -434,8 +481,10 @@ class UIService:
                     pass
             self.logger.debug(f"UIService: Window opacity updated to: {opacity}")
         except Exception as e:
-            self.logger.error(f"UIService.update_window_opacity error: {e}", exc_info=True)
- 
+            self.logger.error(
+                f"UIService.update_window_opacity error: {e}", exc_info=True
+            )
+
     def hide_main_window(self):
         """Hide the main window (minimize to tray)."""
         try:
@@ -447,16 +496,17 @@ class UIService:
                     pass
         except Exception as e:
             self.logger.error(f"UIService.hide_main_window error: {e}", exc_info=True)
- 
+
     def update_theme(self, theme: str):
         """Persist theme setting and log (keeps parity with QtApp.update_theme)."""
         try:
             from ..services.config_service import config_service
+
             config_service.set_setting("theme", theme)
             self.logger.debug(f"UIService: theme updated to: {theme}")
         except Exception as e:
             self.logger.error(f"UIService.update_theme error: {e}", exc_info=True)
- 
+
     def shutdown_ui(self):
         """Shutdown/cleanup UI-specific resources: tray, overlays, main window."""
         try:

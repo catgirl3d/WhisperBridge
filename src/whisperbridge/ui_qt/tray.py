@@ -4,20 +4,27 @@ Provides system tray functionality with icon, menu, and event handling.
 """
 
 import os
-from typing import Optional, Callable
-from PySide6.QtWidgets import QSystemTrayIcon, QMenu, QApplication
-from PySide6.QtGui import QIcon, QAction, QFont
-from PySide6.QtCore import QObject, Signal
+from typing import Callable, Optional
 
 from loguru import logger
+from PySide6.QtCore import QObject
+from PySide6.QtGui import QAction, QFont, QIcon
+from PySide6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
+
 from ..services.config_service import config_service
 
 
 class TrayManager(QObject):
     """Manager for system tray functionality."""
 
-    def __init__(self, on_show_main_window: Callable, on_toggle_overlay: Callable,
-                 on_open_settings: Callable, on_exit_app: Callable, on_activate_ocr: Callable):
+    def __init__(
+        self,
+        on_show_main_window: Callable,
+        on_toggle_overlay: Callable,
+        on_open_settings: Callable,
+        on_exit_app: Callable,
+        on_activate_ocr: Callable,
+    ):
         """
         Initialize the tray manager.
 
@@ -55,7 +62,15 @@ class TrayManager(QObject):
             self.tray_icon = QSystemTrayIcon(self)
 
             # Try to load custom icon
-            icon_path = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'assets', 'icons', 'app_tray.png')
+            icon_path = os.path.join(
+                os.path.dirname(__file__),
+                "..",
+                "..",
+                "..",
+                "assets",
+                "icons",
+                "app_tray.png",
+            )
             if os.path.exists(icon_path):
                 self.tray_icon.setIcon(QIcon(icon_path))
                 logger.debug(f"Loaded custom tray icon from: {icon_path}")
@@ -214,7 +229,7 @@ class TrayManager(QObject):
     def update_ocr_action_enabled(self, enabled: bool):
         """Update the enabled state of the OCR activation menu action."""
         try:
-            if hasattr(self, 'activate_ocr_action'):
+            if hasattr(self, "activate_ocr_action"):
                 self.activate_ocr_action.setEnabled(enabled)
                 logger.debug(f"Tray: OCR menu action enabled state updated to: {enabled}")
         except Exception as e:

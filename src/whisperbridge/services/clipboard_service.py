@@ -7,12 +7,14 @@ Handles text copying, reading, monitoring clipboard changes, and cross-platform 
 
 import threading
 import time
-from typing import Optional, Callable, Any, Dict
 from concurrent.futures import ThreadPoolExecutor
+from typing import Any, Callable, Dict, Optional
+
 from loguru import logger
 
 try:
     import pyperclip
+
     PYPERCLIP_AVAILABLE = True
 except ImportError:
     logger.warning("pyperclip not available. Clipboard service will not function.")
@@ -22,6 +24,7 @@ except ImportError:
 
 class ClipboardError(Exception):
     """Exception raised when clipboard operations fail."""
+
     pass
 
 
@@ -64,7 +67,7 @@ class ClipboardService:
                 self._monitor_thread = threading.Thread(
                     target=self._monitor_clipboard_changes,
                     name="clipboard-monitor",
-                    daemon=True
+                    daemon=True,
                 )
                 self._monitor_thread.start()
 
@@ -222,11 +225,11 @@ class ClipboardService:
         """
         with self._lock:
             return {
-                'running': self._running,
-                'pyperclip_available': PYPERCLIP_AVAILABLE,
-                'monitor_interval': self._monitor_interval,
-                'registered_callbacks': len(self._change_callbacks),
-                'last_clipboard_length': len(self._last_clipboard_content)
+                "running": self._running,
+                "pyperclip_available": PYPERCLIP_AVAILABLE,
+                "monitor_interval": self._monitor_interval,
+                "registered_callbacks": len(self._change_callbacks),
+                "last_clipboard_length": len(self._last_clipboard_content),
             }
 
     def _cleanup(self):
@@ -237,15 +240,17 @@ class ClipboardService:
                 self._monitor_thread.join(timeout=1.0)
         except Exception as e:
             logger.error(f"Error during cleanup: {e}")
- 
+
     def __del__(self):
         """Destructor to ensure cleanup."""
         self.stop()
- 
+
+
 # Singleton accessor for ClipboardService
 # Provides a single started instance that can be reused across the application.
 _clipboard_service_instance: Optional[ClipboardService] = None
- 
+
+
 def get_clipboard_service() -> Optional[ClipboardService]:
     """
     Return a singleton ClipboardService instance. If pyperclip is not available

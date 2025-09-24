@@ -4,13 +4,14 @@ Qt-native overlay service for managing overlay windows lifecycle.
 This mirrors the public API of the legacy Tk-based overlay service but uses
 Qt widgets and avoids any tkinter/customtkinter imports.
 """
-from typing import Optional, Dict, List, Callable, Tuple, Any
+
 import threading
 import time
+from typing import Any, Callable, Dict, List, Optional, Tuple
+
 from loguru import logger
+from PySide6.QtCore import QMetaObject, Qt
 from PySide6.QtWidgets import QApplication
-from PySide6.QtCore import QTimer, Qt, QObject, QMetaObject, Slot
-from PySide6.QtGui import QCursor
 
 # Lazy import of default overlay window to avoid import cycles during module import
 DEFAULT_OVERLAY_MODULE = "..ui_qt.overlay_window"
@@ -86,7 +87,7 @@ class OverlayServiceQt:
         overlay_id: str,
         timeout: Optional[int] = None,
         on_close_callback: Optional[Callable] = None,
-        overlay_window_class: Optional[type] = None
+        overlay_window_class: Optional[type] = None,
     ) -> Optional[Any]:
         """Create or return an existing overlay window (Qt)."""
         with self.lock:
@@ -144,7 +145,7 @@ class OverlayServiceQt:
         original_text: str,
         translated_text: str,
         position: Optional[Tuple[int, int]] = None,
-        show_loading_first: bool = False
+        show_loading_first: bool = False,
     ) -> bool:
         """Show overlay with content. Must be called from Qt main thread or will invoke via QMetaObject."""
         try:
@@ -189,12 +190,11 @@ class OverlayServiceQt:
 
             if QMetaObject.invokeMethod:
                 # Ensure execution on main thread
-                success = QMetaObject.invokeMethod(
+                QMetaObject.invokeMethod(
                     QApplication.instance(),
                     lambda: _show(),
-                    Qt.ConnectionType.BlockingQueuedConnection
+                    Qt.ConnectionType.BlockingQueuedConnection,
                 )
-                # invokeMethod returns bool about invocation; actual return value likely lost, but assume success
                 return True
             else:
                 # Fallback direct call (if already in main thread)
@@ -263,7 +263,11 @@ class OverlayServiceQt:
 
     def get_active_overlays(self) -> List[str]:
         with self.lock:
-            return [overlay_id for overlay_id, inst in self.overlays.items() if inst.is_visible]
+            return [
+                overlay_id
+                for overlay_id, inst in self.overlays.items()
+                if inst.is_visible
+            ]
 
     def update_timeout(self, overlay_id: str, timeout: int):
         with self.lock:
@@ -310,7 +314,6 @@ _overlay_service_qt: Optional[OverlayServiceQt] = None
 
 
 def get_overlay_service() -> OverlayServiceQt:
-    global _overlay_service_qt
     if _overlay_service_qt is None:
         raise RuntimeError("Qt Overlay service not initialized. Call init_overlay_service() first.")
     return _overlay_service_qt

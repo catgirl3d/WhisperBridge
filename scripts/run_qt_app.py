@@ -18,6 +18,7 @@ import sys
 import traceback
 import asyncio
 
+from loguru import logger
 # Ensure project root is on sys.path
 this_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.abspath(os.path.join(this_dir, os.pardir))
@@ -27,13 +28,12 @@ if project_root not in sys.path:
 # Set UI backend to Qt
 os.environ["UI_BACKEND"] = "qt"
 
-print(f"Starting WhisperBridge (UI_BACKEND=qt) from: {project_root}")
+logger.info(f"Starting WhisperBridge (UI_BACKEND=qt) from: {project_root}")
 try:
     # Import main entrypoint
     from src.main import main as app_main
 except Exception as e:
-    print("Failed to import application entry point (src.main.main).")
-    traceback.print_exc()
+    logger.exception("Failed to import application entry point (src.main.main).")
     sys.exit(2)
 
 try:
@@ -44,6 +44,5 @@ try:
         # fallback for non-async entrypoints
         app_main()
 except Exception as e:
-    print("Application raised an exception during runtime:")
-    traceback.print_exc()
+    logger.exception("Application raised an exception during runtime:")
     sys.exit(1)

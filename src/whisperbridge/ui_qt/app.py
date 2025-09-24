@@ -4,37 +4,38 @@ Provides compatible interface with the existing CTK-based application.
 """
 
 import sys
-from typing import Optional, Dict, Any
 import time
+from typing import Any, Dict, Optional
+
+from loguru import logger
+from PySide6.QtCore import QObject, QThread, Signal, Slot
 from PySide6.QtWidgets import QApplication
 
-from PySide6.QtCore import Qt, QObject, Signal, Slot, QThread
-from PySide6.QtGui import QPalette, QColor
-
-from .main_window import MainWindow
-from .overlay_window import OverlayWindow
-from .tray import TrayManager
-from .selection_overlay import SelectionOverlayQt
-from .settings_dialog import SettingsDialog
-from ..services.hotkey_service import HotkeyService
-from ..services.overlay_service_qt import init_overlay_service, get_overlay_service
-from ..core.keyboard_manager import KeyboardManager
-from ..services.ocr_service import get_ocr_service, OCRRequest
-from ..services.translation_service import get_translation_service
 from ..core.api_manager import init_api_manager
-from ..utils.screen_utils import Rectangle
-from ..services.screen_capture_service import get_capture_service
-from ..services.config_service import config_service, SettingsObserver
-from ..services.theme_service import ThemeService
+from ..core.keyboard_manager import KeyboardManager
+
 # Clipboard singleton accessor (used to obtain a shared ClipboardService)
 from ..services.clipboard_service import get_clipboard_service
+from ..services.config_service import SettingsObserver, config_service
 from ..services.copy_translate_service import CopyTranslateService
+from ..services.hotkey_service import HotkeyService
+from ..services.ocr_service import OCRRequest, get_ocr_service
+from ..services.screen_capture_service import get_capture_service
+from ..services.theme_service import ThemeService
+from ..services.translation_service import get_translation_service
+
 # UI service extracted to manage window/overlay lifecycle
 from ..services.ui_service import UIService
-from loguru import logger
+from ..utils.screen_utils import Rectangle
+from .main_window import MainWindow
+from .overlay_window import OverlayWindow
+from .selection_overlay import SelectionOverlayQt
+from .settings_dialog import SettingsDialog
+from .tray import TrayManager
 
 try:
     from pynput.keyboard import Controller, Key
+
     PYNPUT_AVAILABLE = True
 except ImportError:
     logger.warning("pynput not available. Copy-translate hotkey will not function.")
@@ -45,6 +46,7 @@ except ImportError:
 
 class CaptureOcrTranslateWorker(QObject):
     """Worker for synchronous capture, OCR, and optional translation."""
+
     started = Signal()
     progress = Signal(str)
     ocr_finished = Signal(str)
@@ -65,10 +67,10 @@ class CaptureOcrTranslateWorker(QObject):
 
     def run(self):
         logger.info("CaptureOcrTranslateWorker run started")
-        
+
         try:
             self.started.emit()
-            
+
             image_to_process = None
 
             if self.image is not None:
@@ -83,7 +85,7 @@ class CaptureOcrTranslateWorker(QObject):
                     logger.error("Capture failed")
                     self.error.emit("Capture failed")
                     return
-                
+
                 image_to_process = capture_result.image
                 self.progress.emit("Capture completed, starting OCR")
             else:
@@ -116,7 +118,7 @@ class CaptureOcrTranslateWorker(QObject):
                 image=image_to_process,
                 languages=ocr_languages,
                 preprocess=True,
-                use_cache=True
+                use_cache=True,
             )
             ocr_response = ocr_service.process_image(ocr_request)
 
@@ -144,7 +146,8 @@ class CaptureOcrTranslateWorker(QObject):
                         # If auto-swap enabled, detect language and swap en<->ru
                         if ocr_auto_swap:
                             try:
-                                from ..utils.api_utils import detect_language
+                                from ..utils.language_utils import detect_language
+
                                 detected = detect_language(original_text) or "auto"
                                 if detected == "en":
                                     target = "ru"
@@ -204,6 +207,7 @@ class CaptureOcrTranslateWorker(QObject):
 
 class SettingsSaveWorker(QObject):
     """Worker for saving settings asynchronously."""
+
     finished = Signal(bool, str)  # success, error_message
 
     def __init__(self, settings_to_save: Dict[str, Any]):
@@ -214,6 +218,7 @@ class SettingsSaveWorker(QObject):
         """Save settings using the settings manager."""
         try:
             from ..core.config import Settings
+
             new_settings = Settings(**self.settings_to_save)
             if config_service.save_settings(new_settings):
                 self.finished.emit(True, "Settings saved successfully.")
@@ -229,7 +234,7 @@ class QtApp(QObject, SettingsObserver):
 
     # Signal for copy-translate hotkey to ensure UI operations happen in main thread
     copy_translate_signal = Signal(str, str)
-    
+
     # New signals for UI operations
     show_main_window_signal = Signal()
     show_settings_signal = Signal()
@@ -268,33 +273,35 @@ class QtApp(QObject, SettingsObserver):
 
         # Pending actions (set by hotkey handler and consumed in main thread)
         self._pending_auto_copy_translated = False
- 
+
         # Register as config service observer first
         config_service.add_observer(self)
- 
+
         # Connect copy-translate signal to slot
         self.copy_translate_signal.connect(self._handle_copy_translate)
-        
+
         # Connect UI signals to slots
         self.show_main_window_signal.connect(self._show_main_window_slot)
         self.show_settings_signal.connect(self._show_settings_slot)
         self.toggle_overlay_signal.connect(self._toggle_overlay_slot)
         self.activate_ocr_signal.connect(self._activate_ocr_slot)
- 
+
         # Initialize clipboard service singleton (if available)
         try:
             self.clipboard_service = get_clipboard_service()
             if self.clipboard_service:
                 logger.info("ClipboardService initialized and started in QtApp")
             else:
-                logger.warning("ClipboardService not available; clipboard-backed features may be limited")
+                logger.warning(
+                    "ClipboardService not available; clipboard-backed features may be limited"
+                )
         except Exception as e:
             self.clipboard_service = None
             logger.warning(f"Failed to initialize ClipboardService in QtApp: {e}")
- 
+
         # Ensure settings are loaded before getting theme
         _ = config_service.get_settings()
-  
+
         # Initialize theme service
         self.theme_service = ThemeService(qt_app=self.qt_app, config_service=config_service)
         self._current_theme = self.theme_service._current_theme
@@ -306,7 +313,7 @@ class QtApp(QObject, SettingsObserver):
 
             # Initialize overlay service
             self._initialize_overlay_service()
-    
+
             # Instantiate UIService to centralize window/overlay management.
             # Pass app=self so UIService can create and manage all UI components.
             try:
@@ -326,11 +333,10 @@ class QtApp(QObject, SettingsObserver):
             except Exception as e:
                 logger.error(f"Failed to instantiate UIService: {e}", exc_info=True)
                 raise
-    
+
             # Create copy-translate service
             self.copy_translate_service = CopyTranslateService(
-                tray_manager=self.tray_manager,
-                clipboard_service=self.clipboard_service
+                tray_manager=self.tray_manager, clipboard_service=self.clipboard_service
             )
             self.copy_translate_service.result_ready.connect(self._on_copy_translate_result)
     
@@ -407,7 +413,7 @@ class QtApp(QObject, SettingsObserver):
                 on_toggle_overlay=self.toggle_overlay,
                 on_open_settings=self.open_settings,
                 on_exit_app=self.exit_app,
-                on_activate_ocr=self.activate_ocr
+                on_activate_ocr=self.activate_ocr,
             )
             if not self.tray_manager.create():
                 logger.warning("Failed to initialize system tray")
@@ -432,7 +438,7 @@ class QtApp(QObject, SettingsObserver):
                 self.keyboard_manager.register_hotkey(
                     current_settings.translate_hotkey,
                     self._on_translate_hotkey,
-                    "Main translation (OCR) hotkey"
+                    "Main translation (OCR) hotkey",
                 )
                 logger.info(f"Registered OCR-dependent hotkey: {current_settings.translate_hotkey}")
             else:
@@ -443,7 +449,7 @@ class QtApp(QObject, SettingsObserver):
                 self.keyboard_manager.register_hotkey(
                     current_settings.quick_translate_hotkey,
                     self._on_quick_translate_hotkey,
-                    "Quick translation hotkey (OCR capture)"
+                    "Quick translation hotkey (OCR capture)",
                 )
                 logger.info(f"Registered OCR-dependent hotkey: {current_settings.quick_translate_hotkey}")
             elif not initialize_ocr:
@@ -455,20 +461,35 @@ class QtApp(QObject, SettingsObserver):
                 self.keyboard_manager.register_hotkey(
                     current_settings.activation_hotkey,
                     self._on_activation_hotkey,
-                    "Application activation hotkey"
+                    "Application activation hotkey",
                 )
 
             # Register copy-translate hotkey
             self.keyboard_manager.register_hotkey(
                 current_settings.copy_translate_hotkey,
                 self._on_copy_translate_hotkey,
-                "Copy->Translate hotkey"
+                "Copy->Translate hotkey",
             )
 
             # Log based on flag
-            translate_status = current_settings.translate_hotkey if initialize_ocr else "SKIPPED"
-            quick_status = current_settings.quick_translate_hotkey if (initialize_ocr and current_settings.quick_translate_hotkey != current_settings.translate_hotkey) else "SKIPPED"
-            logger.info(f"Registered hotkeys (OCR flag={initialize_ocr}): translate={translate_status}, quick={quick_status}, activation={current_settings.activation_hotkey}, copy_translate={current_settings.copy_translate_hotkey}")
+            translate_status = (
+                current_settings.translate_hotkey if initialize_ocr else "SKIPPED"
+            )
+            quick_status = (
+                current_settings.quick_translate_hotkey
+                if (
+                    initialize_ocr
+                    and current_settings.quick_translate_hotkey
+                    != current_settings.translate_hotkey
+                )
+                else "SKIPPED"
+            )
+            logger.info(
+                f"Registered hotkeys (OCR flag={initialize_ocr}): "
+                f"translate={translate_status}, quick={quick_status}, "
+                f"activation={current_settings.activation_hotkey}, "
+                f"copy_translate={current_settings.copy_translate_hotkey}"
+            )
 
         except Exception as e:
             logger.error(f"Failed to register default hotkeys: {e}")
@@ -511,17 +532,14 @@ class QtApp(QObject, SettingsObserver):
         self.update_tray_status(is_loading=False)
         logger.debug("Tray status updated to normal (loading=False)")
 
-        self.show_tray_notification(
-            "WhisperBridge",
-            "OCR service is ready."
-        )
+        self.show_tray_notification("WhisperBridge", "OCR service is ready.")
         logger.info("User notification shown: OCR service ready")
 
     def _initialize_translation_service(self):
         """Initialize translation service."""
         try:
             # Initialize API manager
-            api_manager = init_api_manager()
+            init_api_manager()
             logger.info("API manager initialized successfully")
 
             # Initialize translation service
@@ -549,7 +567,12 @@ class QtApp(QObject, SettingsObserver):
     # SettingsObserver methods
     def on_settings_changed(self, key: str, old_value, new_value):
         """Called when a setting value changes."""
-        hotkey_keys = ["translate_hotkey", "quick_translate_hotkey", "activation_hotkey", "copy_translate_hotkey"]
+        hotkey_keys = [
+            "translate_hotkey",
+            "quick_translate_hotkey",
+            "activation_hotkey",
+            "copy_translate_hotkey",
+        ]
         if key in hotkey_keys:
             logger.debug(f"Hotkey setting '{key}' changed from '{old_value}' to '{new_value}'")
             try:
@@ -559,7 +582,7 @@ class QtApp(QObject, SettingsObserver):
                 if hasattr(self, "keyboard_manager") and self.keyboard_manager:
                     self.keyboard_manager.clear_all_hotkeys()
                     self._register_default_hotkeys()
-    
+
                 # Reload hotkeys in the running HotkeyService to apply new registrations.
                 if self.hotkey_service and self.hotkey_service.is_running():
                     if self.hotkey_service.reload_hotkeys():
@@ -613,20 +636,14 @@ class QtApp(QObject, SettingsObserver):
         """Show capture error notification."""
         logger.error(f"Capture error: {message}")
         try:
-            if hasattr(self, "ui_service") and self.ui_service:
-                self.ui_service.show_tray_notification("WhisperBridge", f"Capture Error: {message}")
-            else:
-                logger.error("show_tray_notification called but UIService is not available")
+            self.ui_service.show_tray_notification("WhisperBridge", f"Capture Error: {message}")
         except Exception as e:
             logger.error(f"Error showing capture notification: {e}", exc_info=True)
 
     def _show_ocr_error(self, message: str):
         """Show OCR error notification."""
         logger.error(f"OCR error: {message}")
-        if hasattr(self, "ui_service") and self.ui_service:
-            self.ui_service.show_tray_notification("WhisperBridge", f"OCR Error: {message}")
-        else:
-            logger.error("show_tray_notification called but UIService is not available")
+        self.ui_service.show_tray_notification("WhisperBridge", f"OCR Error: {message}")
 
     def _on_quick_translate_hotkey(self):
         """Handle quick translation hotkey press - triggers OCR capture."""
@@ -645,7 +662,7 @@ class QtApp(QObject, SettingsObserver):
 
     def _on_copy_translate_hotkey(self):
         """Handle copy-translate hotkey press — fallback-only simulated Ctrl+C copy.
-        
+
         Added: API key presence check and structured performance logging.
         """
         logger.info("Copy-translate hotkey pressed (fallback-only handler)")
@@ -656,12 +673,8 @@ class QtApp(QObject, SettingsObserver):
         """Slot to handle copy-translate signal in main thread — delegate to UIService."""
         try:
             auto_copy = getattr(self, "_pending_auto_copy_translated", False)
-            if hasattr(self, "ui_service") and self.ui_service:
-                # Delegate full handling to UIService
-                self.ui_service.handle_copy_translate(clipboard_text, translated_text, auto_copy=auto_copy)
-            else:
-                # Fallback to previous behavior if service not available
-                logger.error("handle_copy_translate called but UIService is not available")
+            # Delegate full handling to UIService
+            self.ui_service.handle_copy_translate(clipboard_text, translated_text, auto_copy=auto_copy)
             # Clear pending flag regardless to preserve previous semantics
             try:
                 self._pending_auto_copy_translated = False
@@ -673,29 +686,22 @@ class QtApp(QObject, SettingsObserver):
 
     @Slot()
     def _show_main_window_slot(self):
-        if hasattr(self, "ui_service") and self.ui_service:
-            self.ui_service.show_main_window()
-        if hasattr(self, "ui_service") and self.ui_service:
-            self.ui_service.show_tray_notification("WhisperBridge", "Application activated")
+        self.ui_service.show_main_window()
+        self.ui_service.show_tray_notification("WhisperBridge", "Application activated")
         logger.debug("Tray notification shown for application activation")
-    
+
     @Slot()
     def _show_settings_slot(self):
-        if hasattr(self, "ui_service") and self.ui_service:
-            self.ui_service.open_settings()
-    
+        self.ui_service.open_settings()
+
     @Slot()
     def _toggle_overlay_slot(self):
-        if hasattr(self, "ui_service") and self.ui_service:
-            self.ui_service.toggle_overlay()
+        self.ui_service.toggle_overlay()
 
     @Slot()
     def _activate_ocr_slot(self):
-        if hasattr(self, "ui_service") and self.ui_service:
-            self.ui_service.activate_ocr()
-        else:
-            logger.error("UIService not available for OCR activation")
-    
+        self.ui_service.activate_ocr()
+
     @Slot(str, str, bool)
     def _on_copy_translate_result(self, clipboard_text: str, translated_text: str, auto_copy: bool):
         """Slot to handle copy-translate service result in main thread."""
@@ -707,10 +713,7 @@ class QtApp(QObject, SettingsObserver):
 
     def activate_ocr(self):
         """Activate OCR selection overlay."""
-        if hasattr(self, "ui_service") and self.ui_service:
-            self.ui_service.activate_ocr()
-        else:
-            logger.error("UIService not available, unable to activate OCR")
+        self.ui_service.activate_ocr()
 
     def _on_selection_completed(self, rect):
         """Handle selection completion."""
@@ -762,10 +765,7 @@ class QtApp(QObject, SettingsObserver):
         """Handle selection cancellation."""
         logger.info("Selection canceled")
         try:
-            if hasattr(self, "ui_service") and self.ui_service:
-                self.ui_service.show_tray_notification("WhisperBridge", "Отменено")
-            else:
-                logger.error("show_tray_notification called but UIService is not available")
+            self.ui_service.show_tray_notification("WhisperBridge", "Отменено")
         except Exception as e:
             logger.error(f"Error showing selection canceled notification: {e}", exc_info=True)
 
@@ -796,11 +796,7 @@ class QtApp(QObject, SettingsObserver):
         """Slot to handle worker finished signal — delegate to UIService."""
         try:
             logger.info("Worker finished slot invoked in main thread (delegating to UIService)")
-            if hasattr(self, "ui_service") and self.ui_service:
-                self.ui_service.handle_worker_finished(original_text, translated_text, overlay_id)
-            else:
-                # Fallback to previous behavior if service missing
-                logger.error("handle_worker_finished called but UIService is not available")
+            self.ui_service.handle_worker_finished(original_text, translated_text, overlay_id)
         except Exception as e:
             logger.error(f"Error in _handle_worker_finished delegate: {e}", exc_info=True)
 
@@ -809,33 +805,21 @@ class QtApp(QObject, SettingsObserver):
         """Show error notification."""
         logger.error(f"Showing error: {message}")
         try:
-            if hasattr(self, "ui_service") and self.ui_service:
-                self.ui_service.show_tray_notification("WhisperBridge", f"Error: {message}")
-            else:
-                logger.error("show_tray_notification called but UIService is not available")
+            self.ui_service.show_tray_notification("WhisperBridge", f"Error: {message}")
         except Exception as e:
             logger.error(f"Error showing generic notification: {e}", exc_info=True)
 
     def show_main_window(self):
         """Show the main settings window (delegates to UIService)."""
-        if hasattr(self, "ui_service") and self.ui_service:
-            self.ui_service.show_main_window()
-        else:
-            logger.error("show_main_window called but UIService is not available")
+        self.ui_service.show_main_window()
 
     def hide_main_window_to_tray(self):
         """Hide the main window to system tray (delegate to UIService)."""
-        if hasattr(self, "ui_service") and self.ui_service:
-            self.ui_service.hide_main_window_to_tray()
-        else:
-            logger.error("hide_main_window_to_tray called but UIService is not available")
+        self.ui_service.hide_main_window_to_tray()
 
     def toggle_overlay(self):
         """Toggle overlay visibility — delegate to UIService."""
-        if hasattr(self, "ui_service") and self.ui_service:
-            self.ui_service.toggle_overlay()
-        else:
-            logger.error("toggle_overlay called but UIService is not available")
+        self.ui_service.toggle_overlay()
 
     def exit_app(self):
         """Exit the application."""
@@ -844,10 +828,7 @@ class QtApp(QObject, SettingsObserver):
 
     def open_settings(self):
         """Open settings dialog window (delegate to UIService)."""
-        if hasattr(self, "ui_service") and self.ui_service:
-            self.ui_service.open_settings()
-        else:
-            logger.error("open_settings called but UIService is not available")
+        self.ui_service.open_settings()
 
     def save_settings_async(self, settings_data: Dict[str, Any]):
         """Save settings asynchronously using a worker thread."""
@@ -874,47 +855,39 @@ class QtApp(QObject, SettingsObserver):
             logger.error(f"Failed to save settings asynchronously: {message}")
             self.show_tray_notification("WhisperBridge", f"Error: {message}")
 
-    def show_overlay_window(self, original_text: str, translated_text: str,
-                            position: Optional[tuple] = None, overlay_id: str = "main"):
+    def show_overlay_window(
+        self,
+        original_text: str,
+        translated_text: str,
+        position: Optional[tuple] = None,
+        overlay_id: str = "main",
+    ):
         """Show the overlay window with translation results (delegate to UIService)."""
-        if hasattr(self, "ui_service") and self.ui_service:
-            self.ui_service.show_overlay_window(original_text, translated_text, position=position, overlay_id=overlay_id)
-        else:
-            logger.error("show_overlay_window called but UIService is not available")
+        self.ui_service.show_overlay_window(original_text, translated_text, position=position, overlay_id=overlay_id)
 
     def hide_overlay_window(self, overlay_id: str = "main"):
         """Hide the overlay window (delegate to UIService)."""
-        if hasattr(self, "ui_service") and self.ui_service:
-            self.ui_service.hide_overlay_window(overlay_id=overlay_id)
-        else:
-            logger.error("hide_overlay_window called but UIService is not available")
+        self.ui_service.hide_overlay_window(overlay_id=overlay_id)
 
     def update_theme(self, theme: str):
         """Update application theme.
-    
+
         Args:
             theme: New theme ('dark', 'light', or 'system')
         """
-        if hasattr(self, "ui_service") and self.ui_service:
-            self.ui_service.update_theme(theme)
-        else:
-            config_service.set_setting("theme", theme)
-            logger.warning("update_theme: UIService missing — using config_service fallback")
+        self.ui_service.update_theme(theme)
         # Keep local theme state in sync with ThemeService
         self._current_theme = self.theme_service._current_theme
         logger.debug(f"Qt application theme updated to: {theme}")
 
     def update_window_opacity(self, opacity: float):
         """Update window opacity for all windows.
-    
+
         Args:
             opacity: Opacity value between 0.0 and 1.0
         """
         opacity = max(0.1, min(1.0, opacity))  # Clamp between 0.1 and 1.0
-        if hasattr(self, "ui_service") and self.ui_service:
-            self.ui_service.update_window_opacity(opacity)
-        else:
-            logger.debug("update_window_opacity: UIService not available, skipping")
+        self.ui_service.update_window_opacity(opacity)
 
     def run(self):
         """Run the application main loop."""
@@ -937,11 +910,11 @@ class QtApp(QObject, SettingsObserver):
         if self.shutdown_requested:
             return
         self.shutdown_requested = True
- 
+
         logger.info("Shutting down Qt-based WhisperBridge...")
- 
+
         self.is_running = False
- 
+
         # Shutdown hotkey service first
         if self.hotkey_service:
             try:
@@ -949,35 +922,34 @@ class QtApp(QObject, SettingsObserver):
             except Exception:
                 pass
             self.hotkey_service = None
- 
+
         # Shutdown OCR service
         try:
             from ..services.ocr_service import get_ocr_service
+
             ocr_service = get_ocr_service()
             ocr_service.shutdown()
         except Exception as e:
             logger.warning(f"Error shutting down OCR service: {e}")
- 
+
         # Shutdown translation service
         try:
             translation_service = get_translation_service()
             translation_service.shutdown()
         except Exception as e:
             logger.warning(f"Error shutting down translation service: {e}")
- 
+
         # Shutdown API manager
         try:
             from ..core.api_manager import get_api_manager
+
             api_manager = get_api_manager()
             api_manager.shutdown()
         except Exception as e:
             logger.warning(f"Error shutting down API manager: {e}")
- 
+
         # Delegate UI-specific shutdown to UIService to centralize lifecycle management
-        if hasattr(self, "ui_service") and self.ui_service:
-            self.ui_service.shutdown_ui()
-        else:
-            logger.error("shutdown UI fallback triggered because UIService is not available")
+        self.ui_service.shutdown_ui()
  
         logger.info("Qt-based WhisperBridge shutdown complete")
 
@@ -991,27 +963,18 @@ class QtApp(QObject, SettingsObserver):
 
     def show_tray_notification(self, title: str, message: str):
         """Show a notification through the system tray."""
-        if hasattr(self, "ui_service") and self.ui_service:
-            self.ui_service.show_tray_notification(title, message)
-        else:
-            logger.error("show_tray_notification called but UIService is not available")
+        self.ui_service.show_tray_notification(title, message)
 
     def update_tray_status(self, is_active: bool = False, has_error: bool = False, is_loading: bool = False):
         """Update the tray icon status."""
         try:
-            if hasattr(self, "ui_service") and self.ui_service:
-                self.ui_service.update_tray_status(is_active=is_active, has_error=has_error, is_loading=is_loading)
-            else:
-                logger.error("update_tray_status called but UIService is not available")
+            self.ui_service.update_tray_status(is_active=is_active, has_error=has_error, is_loading=is_loading)
         except Exception as e:
             logger.error(f"Error updating tray status: {e}", exc_info=True)
 
     def hide_main_window(self):
         """Hide the main window (minimize to tray)."""
-        if hasattr(self, "ui_service") and self.ui_service:
-            self.ui_service.hide_main_window()
-        else:
-            logger.error("hide_main_window called but UIService is not available")
+        self.ui_service.hide_main_window()
 
     def toggle_minimize_to_tray(self, enabled: bool):
         """Toggle minimize to tray behavior.

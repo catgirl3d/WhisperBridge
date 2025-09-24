@@ -5,15 +5,17 @@ This module provides automatic text pasting functionality using keyboard simulat
 Handles window detection, focus management, and cross-platform paste operations.
 """
 
-import time
 import threading
-from typing import Optional, Dict, Any
+import time
 from concurrent.futures import ThreadPoolExecutor
+from typing import Any, Dict, Optional
+
 from loguru import logger
 
 try:
     from pynput import keyboard
-    from pynput.keyboard import Key, Controller
+    from pynput.keyboard import Controller, Key
+
     PYNPUT_AVAILABLE = True
 except ImportError:
     logger.warning("pynput not available. Paste service will not function.")
@@ -27,6 +29,7 @@ from .clipboard_service import ClipboardService
 
 class PasteError(Exception):
     """Exception raised when paste operations fail."""
+
     pass
 
 
@@ -128,6 +131,7 @@ class PasteService:
                     # Fallback: use pyperclip directly
                     try:
                         import pyperclip
+
                         pyperclip.copy(text)
                     except Exception as e:
                         logger.error(f"Failed to copy text to clipboard: {e}")
@@ -217,6 +221,7 @@ class PasteService:
                     else:
                         try:
                             import pyperclip
+
                             pyperclip.copy(text)
                         except Exception as e:
                             logger.error(f"Failed to copy text to clipboard: {e}")
@@ -238,16 +243,16 @@ class PasteService:
     def _simulate_paste_shortcut(self):
         """Simulate the paste keyboard shortcut for current platform."""
         try:
-            if self._platform == 'darwin':
+            if self._platform == "darwin":
                 # Cmd+V on macOS
                 with self._keyboard_controller.pressed(Key.cmd):
-                    self._keyboard_controller.press('v')
-                    self._keyboard_controller.release('v')
+                    self._keyboard_controller.press("v")
+                    self._keyboard_controller.release("v")
             else:
                 # Ctrl+V on Windows/Linux
                 with self._keyboard_controller.pressed(Key.ctrl):
-                    self._keyboard_controller.press('v')
-                    self._keyboard_controller.release('v')
+                    self._keyboard_controller.press("v")
+                    self._keyboard_controller.release("v")
 
             # Small delay after paste
             time.sleep(0.1)
@@ -282,10 +287,10 @@ class PasteService:
         """
         with self._lock:
             return {
-                'running': self._running,
-                'platform': self._platform,
-                'pynput_available': PYNPUT_AVAILABLE,
-                'clipboard_service_available': self.clipboard_service is not None
+                "running": self._running,
+                "platform": self._platform,
+                "pynput_available": PYNPUT_AVAILABLE,
+                "clipboard_service_available": self.clipboard_service is not None,
             }
 
     def get_active_window_info(self) -> Optional[Dict[str, Any]]:

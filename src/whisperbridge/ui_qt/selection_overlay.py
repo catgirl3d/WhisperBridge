@@ -1,11 +1,9 @@
-import sys
-from PySide6 import QtCore, QtGui, QtWidgets
-from PySide6.QtCore import Qt, QRect, QPoint, Signal
-from PySide6.QtGui import QPainter, QPen, QBrush, QColor, QFont
-from PySide6.QtWidgets import QApplication
+from PySide6.QtCore import QPoint, QRect, Qt, Signal
+from PySide6.QtGui import QColor, QFont, QPainter, QPen
+from PySide6.QtWidgets import QApplication, QWidget
 
 
-class SelectionOverlayQt(QtWidgets.QWidget):
+class SelectionOverlayQt(QWidget):
     selectionCompleted = Signal(QRect)
     selectionCanceled = Signal()
 
@@ -95,7 +93,7 @@ class SelectionOverlayQt(QtWidgets.QWidget):
                 # Convert to virtual desktop coordinates
                 global_rect = QRect(
                     self.mapToGlobal(rect.topLeft()),
-                    self.mapToGlobal(rect.bottomRight())
+                    self.mapToGlobal(rect.bottomRight()),
                 )
                 self.selectionCompleted.emit(global_rect)
             else:

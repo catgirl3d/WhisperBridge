@@ -7,31 +7,30 @@ caching, error handling, and async processing.
 
 import asyncio
 import hashlib
-import json
 import threading
 import time
-from typing import Dict, Optional, Any, List
-from dataclasses import dataclass
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
+from typing import Any, Dict, Optional
 
 from loguru import logger
 
-from ..core.config import settings
-from ..core.api_manager import get_api_manager, APIProvider
-from ..utils.api_utils import (
-    format_translation_prompt,
-    validate_translation_response,
-    detect_language,
-    parse_gpt_response,
-    TranslationRequest,
-    TranslationResponse
-)
+from ..core.api_manager import get_api_manager
 from ..services.config_service import config_service
+from ..utils.language_utils import detect_language
+from ..utils.translation_utils import (
+    TranslationRequest,
+    TranslationResponse,
+    format_translation_prompt,
+    parse_gpt_response,
+    validate_translation_response,
+)
 
 
 @dataclass
 class TranslationCacheEntry:
     """Cache entry for translation results."""
+
     text_hash: str
     source_text: str
     translated_text: str
@@ -54,7 +53,7 @@ class TranslationCache:
     def _get_cache_key(self, text: str, source_lang: str, target_lang: str, model: str) -> str:
         """Generate cache key from translation parameters."""
         content = f"{text}|{source_lang}|{target_lang}|{model}"
-        return hashlib.md5(content.encode('utf-8')).hexdigest()
+        return hashlib.md5(content.encode("utf-8")).hexdigest()
 
     def _is_expired(self, entry: TranslationCacheEntry) -> bool:
         """Check if cache entry is expired."""
@@ -75,10 +74,7 @@ class TranslationCache:
         """Remove oldest cache entries when max size is reached."""
         if len(self._cache) >= self._max_size:
             # Sort by timestamp and remove oldest
-            sorted_entries = sorted(
-                self._cache.items(),
-                key=lambda x: x[1].timestamp
-            )
+            sorted_entries = sorted(self._cache.items(), key=lambda x: x[1].timestamp)
             to_remove = len(self._cache) - self._max_size + 1
             for key, _ in sorted_entries[:to_remove]:
                 del self._cache[key]
@@ -97,8 +93,15 @@ class TranslationCache:
 
             return None
 
-    def put(self, text: str, translated_text: str, source_lang: str,
-            target_lang: str, model: str, ttl: Optional[int] = None):
+    def put(
+        self,
+        text: str,
+        translated_text: str,
+        source_lang: str,
+        target_lang: str,
+        model: str,
+        ttl: Optional[int] = None,
+    ):
         """Store translation result in cache."""
         with self._lock:
             key = self._get_cache_key(text, source_lang, target_lang, model)
@@ -111,7 +114,7 @@ class TranslationCache:
                 target_lang=target_lang,
                 model=model,
                 timestamp=time.time(),
-                ttl=ttl or self._default_ttl
+                ttl=ttl or self._default_ttl,
             )
 
             self._cache[key] = entry
@@ -137,10 +140,12 @@ class TranslationService:
     def __init__(self):
         self._api_manager = get_api_manager()
         self._cache = TranslationCache(
-            max_size=settings.max_cache_size,
-            default_ttl=settings.cache_ttl
+            max_size=config_service.get_setting("max_cache_size"),
+            default_ttl=config_service.get_setting("cache_ttl"),
         )
-        self._executor = ThreadPoolExecutor(max_workers=settings.thread_pool_size)
+        self._executor = ThreadPoolExecutor(
+            max_workers=config_service.get_setting("thread_pool_size")
+        )
         self._lock = threading.RLock()
         self._is_initialized = False
 
@@ -153,7 +158,6 @@ class TranslationService:
                     return False
 
                 # Check if we have any API clients available
-                from ..core.api_manager import APIProvider
                 has_clients = bool(self._api_manager._clients)
 
                 if not has_clients:
@@ -178,7 +182,7 @@ class TranslationService:
         text: str,
         source_lang: Optional[str] = None,
         target_lang: Optional[str] = None,
-        use_cache: bool = True
+        use_cache: bool = True,
     ) -> TranslationResponse:
         """Translate text asynchronously using GPT API."""
         logger.info(f"Starting translation for text: '{text[:30]}...'")
@@ -201,8 +205,9 @@ class TranslationService:
                 logger.debug(f"Auto-detected source language: {source_lang}")
 
             # Check cache first
-            if use_cache and settings.cache_enabled:
-                cached_result = self._cache.get(text, source_lang, target_lang, settings.model)
+            if use_cache and config_service.get_setting("cache_enabled"):
+                model = config_service.get_setting("model")
+                cached_result = self._cache.get(text, source_lang, target_lang, model)
                 if cached_result:
                     logger.info("Translation found in cache.")
                     return TranslationResponse(
@@ -210,8 +215,8 @@ class TranslationService:
                         translated_text=cached_result,
                         source_lang=source_lang,
                         target_lang=target_lang,
-                        model=settings.model,
-                        cached=True
+                        model=model,
+                        cached=True,
                     )
                 else:
                     logger.info("Translation not found in cache.")
@@ -222,7 +227,7 @@ class TranslationService:
                 source_lang=source_lang,
                 target_lang=target_lang,
                 system_prompt=current_settings.system_prompt,
-                model=current_settings.model
+                model=current_settings.model,
             )
 
             # Make API call
@@ -236,9 +241,14 @@ class TranslationService:
                 raise ValueError("Invalid translation response format")
 
             # Cache result
-            if use_cache and settings.cache_enabled:
-                self._cache.put(text, response.translated_text, source_lang,
-                              target_lang, settings.model)
+            if use_cache and config_service.get_setting("cache_enabled"):
+                self._cache.put(
+                    text,
+                    response.translated_text,
+                    source_lang,
+                    target_lang,
+                    config_service.get_setting("model"),
+                )
 
             return response
 
@@ -248,18 +258,14 @@ class TranslationService:
                 success=False,
                 error_message=str(e),
                 source_lang=source_lang or "auto",
-                target_lang=target_lang or "en"
+                target_lang=target_lang or "en",
             )
 
     async def _detect_language_async(self, text: str) -> Optional[str]:
         """Detect language of the input text asynchronously."""
         try:
             loop = asyncio.get_event_loop()
-            return await loop.run_in_executor(
-                self._executor,
-                detect_language,
-                text
-            )
+            return await loop.run_in_executor(self._executor, detect_language, text)
         except Exception as e:
             logger.warning(f"Language detection failed: {e}")
             return None
@@ -271,6 +277,7 @@ class TranslationService:
 
         # Check if we have API clients available
         from ..core.api_manager import APIProvider
+
         if not self._api_manager._clients:
             raise RuntimeError("No API clients available. Please configure your API key in settings.")
 
@@ -278,24 +285,25 @@ class TranslationService:
             # Format messages for GPT
             messages = [
                 {"role": "system", "content": request.system_prompt},
-                {"role": "user", "content": format_translation_prompt(request)}
+                {"role": "user", "content": format_translation_prompt(request)},
             ]
 
             # Prepare API call parameters with provider-specific optimizations
             api_params = {
                 "model": request.model,
                 "messages": messages,
-                "temperature": 1,  
+                "temperature": 1,
                 "max_completion_tokens": 2048,
             }
-            
+
             # Apply OpenAI-specific optimizations only for OpenAI provider
-            if settings.api_provider == "openai":
+            api_provider_name = config_service.get_setting("api_provider")
+            if api_provider_name == "openai":
                 # Add GPT-5 specific optimizations if using GPT-5 model
                 if request.model.startswith(("gpt-5", "chatgpt")):
                     api_params["extra_body"] = {
                         "reasoning_effort": "minimal",  # Minimize latency for translation tasks
-                        "verbosity": "low"  # Concise output for translation
+                        "verbosity": "low",  # Concise output for translation
                     }
                     logger.debug(f"Using OpenAI GPT-5 optimizations: reasoning_effort=minimal, verbosity=low")
                 elif request.model.startswith("gpt-"):
@@ -308,12 +316,12 @@ class TranslationService:
                 # For other providers (Google, etc.), don't add OpenAI-specific parameters
                 logger.debug(f"Using provider {settings.api_provider} without OpenAI-specific optimizations")
 
-            logger.debug(f"Final API parameters for {settings.api_provider}: {api_params}")
+            logger.debug(f"Final API parameters for {api_provider_name}: {api_params}")
 
             # Determine the API provider to use
-            if settings.api_provider == "openai":
+            if api_provider_name == "openai":
                 api_provider = APIProvider.OPENAI
-            elif settings.api_provider == "azure_openai":
+            elif api_provider_name == "azure_openai":
                 api_provider = APIProvider.AZURE_OPENAI
             else:
                 # Default to OpenAI if provider not recognized
@@ -322,21 +330,20 @@ class TranslationService:
 
             # Make API call through manager (includes retry logic)
             response = await self._api_manager.make_request_async(
-                api_provider,
-                **api_params
+                api_provider, **api_params
             )
 
             # Extract translation from response (clean common GPT prefixes)
             raw_text = response.choices[0].message.content
             translated_text = parse_gpt_response(raw_text).strip()
-       
+
             return TranslationResponse(
                 success=True,
                 translated_text=translated_text,
                 source_lang=request.source_lang,
                 target_lang=request.target_lang,
                 model=request.model,
-                tokens_used=response.usage.total_tokens if response.usage else 0
+                tokens_used=response.usage.total_tokens if response.usage else 0,
             )
 
         except Exception as e:
@@ -348,7 +355,7 @@ class TranslationService:
         text: str,
         source_lang: Optional[str] = None,
         target_lang: Optional[str] = None,
-        use_cache: bool = True
+        use_cache: bool = True,
     ) -> TranslationResponse:
         """Synchronous wrapper for translate_text_async."""
         try:
@@ -370,7 +377,7 @@ class TranslationService:
                 success=False,
                 error_message=str(e),
                 source_lang=source_lang or "auto",
-                target_lang=target_lang or "en"
+                target_lang=target_lang or "en",
             )
 
     def clear_cache(self):
@@ -381,8 +388,8 @@ class TranslationService:
         """Get cache statistics."""
         return {
             "size": self._cache.size(),
-            "max_size": settings.max_cache_size,
-            "enabled": settings.cache_enabled
+            "max_size": config_service.get_setting("max_cache_size"),
+            "enabled": config_service.get_setting("cache_enabled"),
         }
 
     def shutdown(self):

@@ -7,14 +7,14 @@ including area selection, image capture, and processing.
 
 import threading
 import time
-from typing import Optional, Callable, Dict, Any, List
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
-from concurrent.futures import ThreadPoolExecutor
-import io
+from typing import Optional
 
 try:
     from PIL import Image, ImageGrab
+
     PIL_AVAILABLE = True
 except ImportError:
     PIL_AVAILABLE = False
@@ -22,13 +22,22 @@ except ImportError:
     ImageGrab = None
 
 from loguru import logger
-from ..utils.screen_utils import ScreenUtils, Rectangle, Point, MonitorInfo
 
+from ..utils.screen_utils import Rectangle, ScreenUtils
+
+# Minimal types and stub to avoid undefined names in non-UI context
+
+
+@dataclass
+class SelectionResult:
+    rectangle: Optional[Rectangle] = None
+    cancelled: bool = True
 
 
 @dataclass
 class CaptureResult:
     """Result of screen capture operation."""
+
     image: Optional[Image.Image]
     rectangle: Optional[Rectangle]
     success: bool
@@ -40,6 +49,7 @@ class CaptureResult:
 @dataclass
 class CaptureOptions:
     """Options for screen capture."""
+
     format: str = "PNG"
     quality: int = 95
     include_cursor: bool = False
@@ -51,6 +61,7 @@ class CaptureOptions:
 
 class ScreenCaptureError(Exception):
     """Exception raised when screen capture fails."""
+
     pass
 
 
@@ -71,166 +82,9 @@ class ScreenCaptureService:
 
         logger.info("ScreenCaptureService initialized")
 
-    def capture_full_screen(self, options: Optional[CaptureOptions] = None) -> CaptureResult:
-        """Capture the full screen.
-
-        Args:
-            options: Capture options
-
-        Returns:
-            CaptureResult: Capture result
-        """
-        with self._lock:
-            if self._capture_active:
-                return CaptureResult(None, None, False, "Capture already in progress")
-
-            self._capture_active = True
-
-        try:
-            opts = options or self.default_options
-            start_time = time.time()
-
-            # Get screen bounds
-            screen_bounds = ScreenUtils.get_virtual_screen_bounds()
-
-            # Capture screen
-            image = self._capture_screen_area(screen_bounds, opts)
-
-            capture_time = time.time() - start_time
-
-            # Save to file if requested
-            file_path = None
-            if opts.save_to_file and image:
-                file_path = self._save_image(image, opts)
-
-            result = CaptureResult(
-                image=image,
-                rectangle=screen_bounds,
-                success=image is not None,
-                capture_time=capture_time,
-                file_path=file_path
-            )
-
-            if not result.success:
-                result.error_message = "Failed to capture screen"
-
-            return result
-
-        except Exception as e:
-            logger.error(f"Full screen capture failed: {e}")
-            return CaptureResult(None, None, False, str(e))
-
-        finally:
-            with self._lock:
-                self._capture_active = False
-
-    def capture_monitor(self, monitor_index: int = 0,
-                       options: Optional[CaptureOptions] = None) -> CaptureResult:
-        """Capture a specific monitor.
-
-        Args:
-            monitor_index: Index of monitor to capture
-            options: Capture options
-
-        Returns:
-            CaptureResult: Capture result
-        """
-        with self._lock:
-            if self._capture_active:
-                return CaptureResult(None, None, False, "Capture already in progress")
-
-            self._capture_active = True
-
-        try:
-            opts = options or self.default_options
-            start_time = time.time()
-
-            # Get monitor info
-            monitors = ScreenUtils.get_monitors()
-            if monitor_index >= len(monitors):
-                return CaptureResult(None, None, False, f"Monitor {monitor_index} not found")
-
-            monitor = monitors[monitor_index]
-            monitor_rect = Rectangle(monitor.x, monitor.y, monitor.width, monitor.height)
-
-            # Capture monitor
-            image = self._capture_screen_area(monitor_rect, opts)
-
-            capture_time = time.time() - start_time
-
-            # Save to file if requested
-            file_path = None
-            if opts.save_to_file and image:
-                file_path = self._save_image(image, opts)
-
-            result = CaptureResult(
-                image=image,
-                rectangle=monitor_rect,
-                success=image is not None,
-                capture_time=capture_time,
-                file_path=file_path
-            )
-
-            if not result.success:
-                result.error_message = "Failed to capture monitor"
-
-            return result
-
-        except Exception as e:
-            logger.error(f"Monitor capture failed: {e}")
-            return CaptureResult(None, None, False, str(e))
-
-        finally:
-            with self._lock:
-                self._capture_active = False
-
-    def capture_area_interactive(self,
-                                on_capture_complete: Optional[Callable[[CaptureResult], None]] = None,
-                                options: Optional[CaptureOptions] = None) -> bool:
-        """Capture screen area with interactive selection.
-
-        Args:
-            on_capture_complete: Callback when capture is complete
-            options: Capture options
-
-        Returns:
-            bool: True if selection started successfully
-        """
-        with self._lock:
-            if self._capture_active:
-                logger.warning("Capture already in progress")
-                return False
-
-            self._capture_active = True
-
-        def on_selection_complete(result: SelectionResult):
-            try:
-                if result.cancelled or not result.rectangle:
-                    capture_result = CaptureResult(
-                        None, None, False, "Selection cancelled"
-                    )
-                else:
-                    # Capture the selected area
-                    opts = options or self.default_options
-                    capture_result = self._capture_selected_area(result.rectangle, opts)
-
-                if on_capture_complete:
-                    on_capture_complete(capture_result)
-
-            except Exception as e:
-                logger.error(f"Error in capture completion: {e}")
-                if on_capture_complete:
-                    on_capture_complete(CaptureResult(None, None, False, str(e)))
-
-            finally:
-                with self._lock:
-                    self._capture_active = False
-
-        # Start selection
-        return start_screen_selection(on_selection_complete)
-
-    def capture_area(self, rectangle: Rectangle,
-                    options: Optional[CaptureOptions] = None) -> CaptureResult:
+    def capture_area(
+        self, rectangle: Rectangle, options: Optional[CaptureOptions] = None
+    ) -> CaptureResult:
         """Capture a specific screen area.
 
         Args:
@@ -266,8 +120,9 @@ class ScreenCaptureService:
                 self._capture_active = False
                 logger.debug("Capture lock released")
 
-    def _capture_selected_area(self, rectangle: Rectangle,
-                               options: CaptureOptions) -> CaptureResult:
+    def _capture_selected_area(
+        self, rectangle: Rectangle, options: CaptureOptions
+    ) -> CaptureResult:
         """Capture a selected screen area.
 
         Args:
@@ -310,7 +165,7 @@ class ScreenCaptureService:
                 rectangle=clamped_rect,
                 success=image is not None,
                 capture_time=capture_time,
-                file_path=file_path
+                file_path=file_path,
             )
 
             logger.info(f"Capture result: success={result.success}, image_size={image.size if image else None}")
@@ -325,8 +180,9 @@ class ScreenCaptureService:
             logger.debug(f"Capture error details: {type(e).__name__}: {str(e)}", exc_info=True)
             return CaptureResult(None, None, False, str(e))
 
-    def _capture_screen_area(self, rectangle: Rectangle,
-                            options: CaptureOptions) -> Optional[Image.Image]:
+    def _capture_screen_area(
+        self, rectangle: Rectangle, options: CaptureOptions
+    ) -> Optional[Image.Image]:
         """Capture a screen area using PIL.
 
         Args:
@@ -339,13 +195,10 @@ class ScreenCaptureService:
         logger.debug(f"Starting screen capture: rectangle={rectangle}, options={options}")
         try:
             # Convert rectangle to PIL bbox format (left, top, right, bottom)
-            bbox = (
-                rectangle.x,
-                rectangle.y,
-                rectangle.right,
-                rectangle.bottom
+            bbox = (rectangle.x, rectangle.y, rectangle.right, rectangle.bottom)
+            logger.debug(
+                f"Screen capture bbox: {bbox}, area: {rectangle.width}x{rectangle.height}"
             )
-            logger.debug(f"Screen capture bbox: {bbox}, area: {rectangle.width}x{rectangle.height}")
 
             # Capture screen
             image = ImageGrab.grab(bbox=bbox, include_layered_windows=True)
@@ -383,8 +236,8 @@ class ScreenCaptureService:
         Returns:
             Optional[str]: File path if saved successfully
         """
-        logger.debug(f"Saving image: size={image.size}, mode={image.mode}, format={options.format}")
         try:
+            logger.debug(f"Saving image: size={image.size}, mode={image.mode}, format={options.format}")
             if not options.output_path:
                 # Generate default path
                 timestamp = int(time.time())
@@ -412,68 +265,6 @@ class ScreenCaptureService:
             logger.error(f"Failed to save image: {e}")
             logger.debug(f"Save error details: {type(e).__name__}: {str(e)}", exc_info=True)
             return None
-
-    def get_supported_formats(self) -> List[str]:
-        """Get supported image formats.
-
-        Returns:
-            List[str]: List of supported formats
-        """
-        return ["PNG", "JPEG", "BMP", "TIFF", "WEBP"]
-
-    def get_monitor_info(self) -> List[Dict[str, Any]]:
-        """Get information about available monitors.
-
-        Returns:
-            List[Dict[str, Any]]: Monitor information
-        """
-        monitors = ScreenUtils.get_monitors()
-        return [
-            {
-                "index": i,
-                "x": m.x,
-                "y": m.y,
-                "width": m.width,
-                "height": m.height,
-                "is_primary": m.is_primary,
-                "name": m.name,
-                "scale_factor": m.scale_factor
-            }
-            for i, m in enumerate(monitors)
-        ]
-
-    def is_capture_active(self) -> bool:
-        """Check if capture is currently active.
-
-        Returns:
-            bool: True if capture is active
-        """
-        with self._lock:
-            return self._capture_active
-
-    def cancel_capture(self):
-        """Cancel current capture operation."""
-        with self._lock:
-            self._capture_active = False
-            logger.info("Capture cancelled")
-
-    def get_capture_statistics(self) -> Dict[str, Any]:
-        """Get capture service statistics.
-
-        Returns:
-            Dict[str, Any]: Statistics
-        """
-        return {
-            "pil_available": PIL_AVAILABLE,
-            "capture_active": self.is_capture_active(),
-            "supported_formats": self.get_supported_formats(),
-            "monitor_count": len(ScreenUtils.get_monitors()),
-            "default_options": {
-                "format": self.default_options.format,
-                "quality": self.default_options.quality,
-                "scale_factor": self.default_options.scale_factor
-            }
-        }
 
     def __del__(self):
         """Cleanup resources."""
@@ -503,48 +294,9 @@ def get_capture_service() -> ScreenCaptureService:
     return _capture_service
 
 
-def capture_full_screen(options: Optional[CaptureOptions] = None) -> CaptureResult:
-    """Capture the full screen.
-
-    Args:
-        options: Capture options
-
-    Returns:
-        CaptureResult: Capture result
-    """
-    return get_capture_service().capture_full_screen(options)
-
-
-def capture_monitor(monitor_index: int = 0,
-                   options: Optional[CaptureOptions] = None) -> CaptureResult:
-    """Capture a specific monitor.
-
-    Args:
-        monitor_index: Monitor index
-        options: Capture options
-
-    Returns:
-        CaptureResult: Capture result
-    """
-    return get_capture_service().capture_monitor(monitor_index, options)
-
-
-def capture_area_interactive(on_complete: Optional[Callable[[CaptureResult], None]] = None,
-                           options: Optional[CaptureOptions] = None) -> bool:
-    """Capture screen area with interactive selection.
-
-    Args:
-        on_complete: Completion callback
-        options: Capture options
-
-    Returns:
-        bool: True if selection started
-    """
-    return get_capture_service().capture_area_interactive(on_complete, options)
-
-
-def capture_area(rectangle: Rectangle,
-                options: Optional[CaptureOptions] = None) -> CaptureResult:
+def capture_area(
+    rectangle: Rectangle, options: Optional[CaptureOptions] = None
+) -> CaptureResult:
     """Capture a specific screen area.
 
     Args:

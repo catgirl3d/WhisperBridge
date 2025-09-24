@@ -6,14 +6,14 @@ Handles background keyboard monitoring, hotkey activation, and system integratio
 """
 
 import threading
-import time
-from typing import Dict, Optional, Callable, Any, List
 from concurrent.futures import ThreadPoolExecutor
+from typing import Any, Callable, Dict, List, Optional
+
 from loguru import logger
 
 try:
     from pynput import keyboard
-    from pynput.keyboard import Key, KeyCode, HotKey
+
     PYNPUT_AVAILABLE = True
 except ImportError:
     logger.warning("pynput not available. Hotkey service will not function.")
@@ -26,6 +26,7 @@ from ..utils.keyboard_utils import KeyboardUtils
 
 class HotkeyRegistrationError(Exception):
     """Exception raised when hotkey registration fails."""
+
     pass
 
 
@@ -57,13 +58,13 @@ class HotkeyService:
 
     def _setup_platform_specifics(self):
         """Setup platform-specific configurations."""
-        if self._platform == 'windows':
+        if self._platform == "windows":
             # Windows-specific settings
             pass
-        elif self._platform == 'linux':
+        elif self._platform == "linux":
             # Linux-specific settings (may need X11 or Wayland handling)
             pass
-        elif self._platform == 'darwin':
+        elif self._platform == "darwin":
             # macOS-specific settings
             pass
 
@@ -112,7 +113,7 @@ class HotkeyService:
             if self._listener:
                 self._listener.stop()
                 self._listener = None
-            
+
             self._hotkeys.clear()
 
             # Shutdown executor
@@ -140,6 +141,7 @@ class HotkeyService:
             HotkeyRegistrationError: If registration fails
         """
         try:
+
             def on_activate():
                 self._executor.submit(self._handle_hotkey_press, combination)
 
@@ -237,11 +239,11 @@ class HotkeyService:
         """
         with self._lock:
             return {
-                'running': self._running,
-                'platform': self._platform,
-                'registered_hotkeys': len(self._hotkeys),
-                'keyboard_manager_stats': self.keyboard_manager.get_hotkey_statistics(),
-                'pynput_available': PYNPUT_AVAILABLE
+                "running": self._running,
+                "platform": self._platform,
+                "registered_hotkeys": len(self._hotkeys),
+                "keyboard_manager_stats": self.keyboard_manager.get_hotkey_statistics(),
+                "pynput_available": PYNPUT_AVAILABLE,
             }
 
     def _cleanup(self):

@@ -6,8 +6,9 @@ hotkey parsing, validation, and conversion between different formats.
 """
 
 import threading
-from typing import Dict, List, Optional, Callable, Any, Set, Tuple
 from dataclasses import dataclass
+from typing import Any, Callable, Dict, List, Set
+
 from loguru import logger
 
 from ..utils.keyboard_utils import KeyboardUtils
@@ -16,6 +17,7 @@ from ..utils.keyboard_utils import KeyboardUtils
 @dataclass
 class HotkeyInfo:
     """Information about a registered hotkey."""
+
     combination: str
     callback: Callable[[], Any]
     description: str = ""
@@ -67,7 +69,7 @@ class KeyboardManager:
                     callback=callback,
                     description=description,
                     enabled=True,
-                    registered=False
+                    registered=False,
                 )
 
                 self._hotkeys[normalized] = hotkey_info
@@ -96,7 +98,7 @@ class KeyboardManager:
 
     def get_hotkey_statistics(self) -> Dict[str, int]:
         """Get statistics about registered hotkeys.
- 
+
         Returns:
             Dict[str, int]: Statistics
         """
@@ -104,21 +106,21 @@ class KeyboardManager:
             total = len(self._hotkeys)
             enabled = sum(1 for info in self._hotkeys.values() if info.enabled)
             disabled = total - enabled
- 
+
             return {
-                'total_registered': total,
-                'enabled': enabled,
-                'disabled': disabled,
-                'active': len(self._active_hotkeys)
+                "total_registered": total,
+                "enabled": enabled,
+                "disabled": disabled,
+                "active": len(self._active_hotkeys),
             }
- 
+
     def set_hotkey_enabled(self, combination: str, enabled: bool) -> bool:
         """Enable or disable a registered hotkey.
- 
+
         Args:
             combination: Hotkey combination string
             enabled: True to enable, False to disable
- 
+
         Returns:
             bool: True if hotkey existed and was updated
         """
@@ -135,13 +137,13 @@ class KeyboardManager:
             except Exception as e:
                 logger.error(f"Failed to set enabled state for hotkey '{combination}': {e}")
                 return False
- 
+
     def unregister_hotkey(self, combination: str) -> bool:
         """Unregister/remove a previously registered hotkey.
- 
+
         Args:
             combination: Hotkey combination string
- 
+
         Returns:
             bool: True if removed, False if not found
         """

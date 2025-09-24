@@ -5,23 +5,27 @@ This module manages multiple OCR engines, handles automatic switching
 between engines, monitors performance, and provides configuration management.
 """
 
-import time
 import asyncio
-from typing import Dict, List, Optional, Tuple, Any
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from enum import Enum
-import threading
-from concurrent.futures import ThreadPoolExecutor
+from typing import Any, Dict, List, Optional, Tuple
+
 from loguru import logger
+
 
 class OCREngine(Enum):
     """Supported OCR engines."""
+
     EASYOCR = "easyocr"
 
 
 @dataclass
 class OCRResult:
     """OCR processing result."""
+
     text: str
     confidence: float
     engine: OCREngine
@@ -33,6 +37,7 @@ class OCRResult:
 @dataclass
 class EngineStats:
     """OCR engine performance statistics."""
+
     total_calls: int = 0
     successful_calls: int = 0
     failed_calls: int = 0
@@ -59,9 +64,9 @@ class OCREngineManager:
         # Initialize stats for EasyOCR engine
         self.stats[OCREngine.EASYOCR] = EngineStats()
 
-    def initialize_engine(self, engine: OCREngine,
-                          languages: List[str] = None,
-                          **kwargs) -> bool:
+    def initialize_engine(
+        self, engine: OCREngine, languages: List[str] = None, **kwargs
+    ) -> bool:
         """Initialize specific OCR engine.
 
         Args:
@@ -78,7 +83,7 @@ class OCREngineManager:
 
         try:
             if languages is None:
-                languages = ['en']
+                languages = ["en"]
 
             with self.lock:
                 if engine == OCREngine.EASYOCR:
@@ -126,9 +131,9 @@ class OCREngineManager:
             logger.error("OCR engines initialization failed")
         return success
 
-    def process_image(self, image_path: str,
-                       languages: List[str] = None,
-                       timeout: float = 10.0) -> OCRResult:
+    def process_image(
+        self, image_path: str, languages: List[str] = None, timeout: float = 10.0
+    ) -> OCRResult:
         """Process image with EasyOCR engine.
 
         Args:
@@ -158,7 +163,7 @@ class OCREngineManager:
                         engine=engine,
                         processing_time=processing_time,
                         error_message=f"Engine {engine.value} not initialized",
-                        success=False
+                        success=False,
                     )
 
                 logger.info(f"OCR engine {engine.value} is available, starting processing")
@@ -182,7 +187,7 @@ class OCREngineManager:
                     confidence=confidence,
                     engine=engine,
                     processing_time=processing_time,
-                    success=has_text
+                    success=has_text,
                 )
 
         except Exception as e:
@@ -199,12 +204,12 @@ class OCREngineManager:
                 engine=engine,
                 processing_time=processing_time,
                 error_message=str(e),
-                success=False
+                success=False,
             )
 
-    def process_image_array(self, image_array: Any,
-                            languages: List[str] = None,
-                            timeout: float = 10.0) -> OCRResult:
+    def process_image_array(
+        self, image_array: Any, languages: List[str] = None, timeout: float = 10.0
+    ) -> OCRResult:
         """Process image array with EasyOCR engine.
 
         Args:
@@ -241,7 +246,7 @@ class OCREngineManager:
                         engine=engine,
                         processing_time=processing_time,
                         error_message=f"Engine {engine.value} not initialized",
-                        success=False
+                        success=False,
                     )
 
                 logger.info(f"OCR engine {engine.value} is available, starting processing")
@@ -265,7 +270,7 @@ class OCREngineManager:
                     confidence=confidence,
                     engine=engine,
                     processing_time=processing_time,
-                    success=has_text
+                    success=has_text,
                 )
 
         except Exception as e:
@@ -282,11 +287,12 @@ class OCREngineManager:
                 engine=engine,
                 processing_time=processing_time,
                 error_message=str(e),
-                success=False
+                success=False,
             )
 
-    def _process_easyocr(self, image_path: str,
-                           languages: List[str] = None) -> Tuple[str, float]:
+    def _process_easyocr(
+        self, image_path: str, languages: List[str] = None
+    ) -> Tuple[str, float]:
         """Process image with EasyOCR.
 
         Args:
@@ -302,6 +308,7 @@ class OCREngineManager:
         # Get image info if possible
         try:
             from PIL import Image
+
             with Image.open(image_path) as img:
                 logger.debug(f"Image dimensions: {img.size}, mode: {img.mode}, format: {img.format}")
         except Exception as e:
@@ -334,8 +341,9 @@ class OCREngineManager:
 
         return combined_text, avg_confidence
 
-    def _process_easyocr_array(self, image_array: Any,
-                               languages: List[str] = None) -> Tuple[str, float]:
+    def _process_easyocr_array(
+        self, image_array: Any, languages: List[str] = None
+    ) -> Tuple[str, float]:
         """Process image array with EasyOCR.
 
         Args:
@@ -375,9 +383,13 @@ class OCREngineManager:
 
         return combined_text, avg_confidence
 
-
-    def _update_stats(self, engine: OCREngine, confidence: float,
-                     processing_time: float, success: bool):
+    def _update_stats(
+        self,
+        engine: OCREngine,
+        confidence: float,
+        processing_time: float,
+        success: bool,
+    ):
         """Update engine statistics.
 
         Args:
@@ -457,16 +469,12 @@ class OCREngineManager:
         """
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(
-            self.executor,
-            self.process_image,
-            image_path,
-            languages,
-            timeout
+            self.executor, self.process_image, image_path, languages, timeout
         )
 
-    async def process_image_array_async(self, image_array: Any,
-                                       languages: List[str] = None,
-                                       timeout: float = 10.0) -> OCRResult:
+    async def process_image_array_async(
+        self, image_array: Any, languages: List[str] = None, timeout: float = 10.0
+    ) -> OCRResult:
         """Asynchronously process image array with EasyOCR engine.
 
         Args:
@@ -479,11 +487,7 @@ class OCREngineManager:
         """
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(
-            self.executor,
-            self.process_image_array,
-            image_array,
-            languages,
-            timeout
+            self.executor, self.process_image_array, image_array, languages, timeout
         )
 
     def shutdown(self):
@@ -493,7 +497,7 @@ class OCREngineManager:
         with self.lock:
             self.engines.clear()
 
-        if hasattr(self, 'executor'):
+        if hasattr(self, "executor"):
             self.executor.shutdown(wait=False)
 
         logger.info("OCR Engine Manager shutdown complete")

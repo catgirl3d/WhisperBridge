@@ -6,11 +6,13 @@ Handles window detection, focus management, and input field identification.
 """
 
 import time
-from typing import Optional, Dict, Any, Tuple
+from typing import Any, Dict, Optional
+
 from loguru import logger
 
 try:
     import pygetwindow as gw
+
     PYGETWINDOW_AVAILABLE = True
 except ImportError:
     logger.warning("pygetwindow not available. Window utilities will be limited.")
@@ -19,34 +21,87 @@ except ImportError:
 
 # Common application classes that typically have input fields
 INPUT_FIELD_CLASSES = {
-    'windows': [
-        'edit', 'richedit', 'text', 'combobox', 'listbox',
-        'chrome', 'firefox', 'edge', 'opera',  # Browsers
-        'notepad', 'wordpad', 'winword', 'excel',  # Office apps
-        'discord', 'telegram', 'skype', 'teams',  # Messengers
-        'slack', 'whatsapp', 'outlook'  # Communication
+    "windows": [
+        "edit",
+        "richedit",
+        "text",
+        "combobox",
+        "listbox",
+        "chrome",
+        "firefox",
+        "edge",
+        "opera",  # Browsers
+        "notepad",
+        "wordpad",
+        "winword",
+        "excel",  # Office apps
+        "discord",
+        "telegram",
+        "skype",
+        "teams",  # Messengers
+        "slack",
+        "whatsapp",
+        "outlook",  # Communication
     ],
-    'linux': [
-        'gtkentry', 'gtktextview', 'qlineedit', 'qtextedit', 'qplaintextedit',
-        'chromium', 'firefox', 'opera', 'vivaldi',  # Browsers
-        'gedit', 'libreoffice', 'soffice',  # Office
-        'discord', 'telegram', 'skype', 'teams',  # Messengers
-        'slack', 'thunderbird'  # Communication
+    "linux": [
+        "gtkentry",
+        "gtktextview",
+        "qlineedit",
+        "qtextedit",
+        "qplaintextedit",
+        "chromium",
+        "firefox",
+        "opera",
+        "vivaldi",  # Browsers
+        "gedit",
+        "libreoffice",
+        "soffice",  # Office
+        "discord",
+        "telegram",
+        "skype",
+        "teams",  # Messengers
+        "slack",
+        "thunderbird",  # Communication
     ],
-    'darwin': [
-        'nstextfield', 'nstextview', 'nsscrollview',
-        'safari', 'firefox', 'chrome', 'opera',  # Browsers
-        'textedit', 'pages', 'numbers', 'keynote',  # Office
-        'messages', 'discord', 'telegram', 'skype', 'teams',  # Messengers
-        'slack', 'mail'  # Communication
-    ]
+    "darwin": [
+        "nstextfield",
+        "nstextview",
+        "nsscrollview",
+        "safari",
+        "firefox",
+        "chrome",
+        "opera",  # Browsers
+        "textedit",
+        "pages",
+        "numbers",
+        "keynote",  # Office
+        "messages",
+        "discord",
+        "telegram",
+        "skype",
+        "teams",  # Messengers
+        "slack",
+        "mail",  # Communication
+    ],
 }
 
 # Window titles that indicate input fields
 INPUT_FIELD_TITLES = [
-    'new message', 'compose', 'reply', 'comment', 'search', 'find',
-    'type here', 'enter text', 'input', 'chat', 'message',
-    'browser', 'editor', 'document', 'spreadsheet'
+    "new message",
+    "compose",
+    "reply",
+    "comment",
+    "search",
+    "find",
+    "type here",
+    "enter text",
+    "input",
+    "chat",
+    "message",
+    "browser",
+    "editor",
+    "document",
+    "spreadsheet",
 ]
 
 
@@ -57,15 +112,16 @@ class WindowUtils:
     def get_platform() -> str:
         """Get the current platform."""
         import platform
+
         system = platform.system().lower()
-        if system == 'windows':
-            return 'windows'
-        elif system == 'linux':
-            return 'linux'
-        elif system == 'darwin':
-            return 'darwin'
+        if system == "windows":
+            return "windows"
+        elif system == "linux":
+            return "linux"
+        elif system == "darwin":
+            return "darwin"
         else:
-            return 'unknown'
+            return "unknown"
 
     @staticmethod
     def get_active_window() -> Optional[Any]:
@@ -103,45 +159,45 @@ class WindowUtils:
 
             # Get title
             try:
-                info['title'] = window.title
+                info["title"] = window.title
             except AttributeError:
-                info['title'] = None
+                info["title"] = None
 
             # Get class
             try:
-                info['class'] = getattr(window, '_class', None)
+                info["class"] = getattr(window, "_class", None)
             except AttributeError:
-                info['class'] = None
+                info["class"] = None
 
             # Get size
             try:
-                info['size'] = window.size
+                info["size"] = window.size
             except AttributeError:
-                info['size'] = None
+                info["size"] = None
 
             # Get position
             try:
-                info['position'] = window.position
+                info["position"] = window.position
             except AttributeError:
-                info['position'] = None
+                info["position"] = None
 
             # Get active state
             try:
-                info['is_active'] = window.isActive
+                info["is_active"] = window.isActive
             except AttributeError:
-                info['is_active'] = None
+                info["is_active"] = None
 
             # Get minimized state
             try:
-                info['is_minimized'] = window.isMinimized
+                info["is_minimized"] = window.isMinimized
             except AttributeError:
-                info['is_minimized'] = None
+                info["is_minimized"] = None
 
             # Get maximized state
             try:
-                info['is_maximized'] = window.isMaximized
+                info["is_maximized"] = window.isMaximized
             except AttributeError:
-                info['is_maximized'] = None
+                info["is_maximized"] = None
 
             return info
         except Exception as e:
@@ -186,7 +242,11 @@ class WindowUtils:
 
         try:
             title = window.title.lower() if window.title else ""
-            window_class = getattr(window, '_class', '').lower() if hasattr(window, '_class') else ""
+            window_class = (
+                getattr(window, "_class", "").lower()
+                if hasattr(window, "_class")
+                else ""
+            )
 
             platform = WindowUtils.get_platform()
             platform_classes = INPUT_FIELD_CLASSES.get(platform, [])
@@ -244,7 +304,7 @@ class WindowUtils:
             return None
 
         try:
-            return getattr(window, '_class', None)
+            return getattr(window, "_class", None)
         except Exception as e:
             logger.error(f"Failed to get window class: {e}")
             return None

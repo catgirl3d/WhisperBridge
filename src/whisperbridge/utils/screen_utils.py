@@ -7,18 +7,13 @@ monitor information, DPI scaling, and coordinate system conversions.
 
 import platform
 import threading
-from typing import List, Dict, Tuple, Optional, NamedTuple
 from dataclasses import dataclass
-import math
+from typing import List, Optional, Tuple
 
-try:
-    from PIL import ImageGrab
-    PIL_AVAILABLE = True
-except ImportError:
-    PIL_AVAILABLE = False
 
 try:
     from PySide6.QtGui import QCursor, QGuiApplication
+
     PYSIDE_AVAILABLE = True
 except Exception:
     PYSIDE_AVAILABLE = False
@@ -29,6 +24,7 @@ from loguru import logger
 @dataclass
 class MonitorInfo:
     """Information about a monitor."""
+
     x: int
     y: int
     width: int
@@ -41,6 +37,7 @@ class MonitorInfo:
 @dataclass
 class Point:
     """2D point coordinates."""
+
     x: int
     y: int
 
@@ -48,6 +45,7 @@ class Point:
 @dataclass
 class Rectangle:
     """Rectangle coordinates."""
+
     x: int
     y: int
     width: int
@@ -79,17 +77,18 @@ class Rectangle:
 
     def contains_point(self, point: Point) -> bool:
         """Check if point is inside rectangle."""
-        return (self.left <= point.x < self.right and
-                self.top <= point.y < self.bottom)
+        return self.left <= point.x < self.right and self.top <= point.y < self.bottom
 
-    def intersects(self, other: 'Rectangle') -> bool:
+    def intersects(self, other: "Rectangle") -> bool:
         """Check if rectangles intersect."""
-        return not (self.right <= other.left or
-                   self.left >= other.right or
-                   self.bottom <= other.top or
-                   self.top >= other.bottom)
+        return not (
+            self.right <= other.left
+            or self.left >= other.right
+            or self.bottom <= other.top
+            or self.top >= other.bottom
+        )
 
-    def clip_to_bounds(self, bounds: 'Rectangle') -> 'Rectangle':
+    def clip_to_bounds(self, bounds: "Rectangle") -> "Rectangle":
         """Clip rectangle to fit within bounds."""
         x = max(self.x, bounds.x)
         y = max(self.y, bounds.y)
@@ -119,11 +118,15 @@ class ScreenUtils:
         """
         with ScreenUtils._lock:
             import time
+
             current_time = time.time()
 
             # Return cached data if still valid
-            if (ScreenUtils._monitors_cache is not None and
-                current_time - ScreenUtils._cache_timestamp < ScreenUtils._cache_timeout):
+            if (
+                ScreenUtils._monitors_cache is not None
+                and current_time - ScreenUtils._cache_timestamp
+                < ScreenUtils._cache_timeout
+            ):
                 return ScreenUtils._monitors_cache.copy()
 
             monitors = []
@@ -161,10 +164,10 @@ class ScreenUtils:
 
             class MONITORINFO(ctypes.Structure):
                 _fields_ = [
-                    ('cbSize', wintypes.DWORD),
-                    ('rcMonitor', wintypes.RECT),
-                    ('rcWork', wintypes.RECT),
-                    ('dwFlags', wintypes.DWORD)
+                    ("cbSize", wintypes.DWORD),
+                    ("rcMonitor", wintypes.RECT),
+                    ("rcWork", wintypes.RECT),
+                    ("dwFlags", wintypes.DWORD),
                 ]
 
             def monitor_enum_proc(hmonitor, hdc, lprect, lparam):
@@ -180,7 +183,7 @@ class ScreenUtils:
                     width=info.rcMonitor.right - info.rcMonitor.left,
                     height=info.rcMonitor.bottom - info.rcMonitor.top,
                     is_primary=is_primary,
-                    scale_factor=ScreenUtils._get_scale_factor_windows(hmonitor)
+                    scale_factor=ScreenUtils._get_scale_factor_windows(hmonitor),
                 )
                 monitors.append(monitor)
                 return True
@@ -190,7 +193,7 @@ class ScreenUtils:
                 wintypes.HMONITOR,
                 wintypes.HDC,
                 ctypes.POINTER(wintypes.RECT),
-                wintypes.LPARAM
+                wintypes.LPARAM,
             )
 
             ctypes.windll.user32.EnumDisplayMonitors(
@@ -210,34 +213,39 @@ class ScreenUtils:
         try:
             # Try X11 first
             import subprocess
-            result = subprocess.run(['xrandr'], capture_output=True, text=True)
+
+            result = subprocess.run(["xrandr"], capture_output=True, text=True)
 
             if result.returncode == 0:
-                lines = result.stdout.split('\n')
-                current_monitor = None
+                lines = result.stdout.split("\n")
 
                 for line in lines:
-                    if ' connected ' in line:
+                    if " connected " in line:
                         parts = line.split()
                         if len(parts) >= 3:
                             name = parts[0]
                             resolution_part = parts[2] if '+' in parts[2] else parts[3] if len(parts) > 3 else None
 
-                            if resolution_part and 'x' in resolution_part:
-                                res_parts = resolution_part.split('x')
+                            if resolution_part and "x" in resolution_part:
+                                res_parts = resolution_part.split("x")
                                 if len(res_parts) >= 2:
                                     width = int(res_parts[0])
-                                    height = int(res_parts[1].split('+')[0])
+                                    height = int(res_parts[1].split("+")[0])
 
                                     # Get position
-                                    pos_part = resolution_part.split('+')
+                                    pos_part = resolution_part.split("+")
                                     x = int(pos_part[1]) if len(pos_part) > 1 else 0
                                     y = int(pos_part[2]) if len(pos_part) > 2 else 0
 
                                     monitor = MonitorInfo(
-                                        x=x, y=y, width=width, height=height,
-                                        is_primary=(len(monitors) == 0),  # First monitor is primary
-                                        name=name
+                                        x=x,
+                                        y=y,
+                                        width=width,
+                                        height=height,
+                                        is_primary=(
+                                            len(monitors) == 0
+                                        ),  # First monitor is primary
+                                        name=name,
                                     )
                                     monitors.append(monitor)
 
@@ -253,24 +261,30 @@ class ScreenUtils:
 
         try:
             import subprocess
-            result = subprocess.run(['system_profiler', 'SPDisplaysDataType'],
-                                  capture_output=True, text=True)
+
+            result = subprocess.run(
+                ["system_profiler", "SPDisplaysDataType"],
+                capture_output=True,
+                text=True,
+            )
 
             if result.returncode == 0:
-                lines = result.stdout.split('\n')
-                current_monitor = None
+                lines = result.stdout.split("\n")
 
                 for line in lines:
-                    if 'Resolution:' in line:
-                        parts = line.split(':')[1].strip().split(' ')
+                    if "Resolution:" in line:
+                        parts = line.split(":")[1].strip().split(" ")
                         if len(parts) >= 3:
                             width = int(parts[0])
                             height = int(parts[2])
 
                             monitor = MonitorInfo(
-                                x=0, y=0, width=width, height=height,
+                                x=0,
+                                y=0,
+                                width=width,
+                                height=height,
                                 is_primary=(len(monitors) == 0),
-                                name=f"Display {len(monitors) + 1}"
+                                name=f"Display {len(monitors) + 1}",
                             )
                             monitors.append(monitor)
 
@@ -289,10 +303,11 @@ class ScreenUtils:
         """Get DPI scale factor on Windows."""
         try:
             import ctypes
+
             dpi = ctypes.c_uint()
             ctypes.windll.shcore.GetDpiForMonitor(hmonitor, 0, ctypes.byref(dpi), None)
             return dpi.value / 96.0  # 96 is the default DPI
-        except:
+        except Exception:
             return 1.0
 
     @staticmethod
@@ -430,10 +445,7 @@ class ScreenUtils:
             monitor = ScreenUtils.get_primary_monitor()
 
         return Rectangle(
-            rect.x + monitor.x,
-            rect.y + monitor.y,
-            rect.width,
-            rect.height
+            rect.x + monitor.x, rect.y + monitor.y, rect.width, rect.height
         )
 
     @staticmethod
@@ -454,10 +466,7 @@ class ScreenUtils:
                 monitor = ScreenUtils.get_primary_monitor()
 
         return Rectangle(
-            rect.x - monitor.x,
-            rect.y - monitor.y,
-            rect.width,
-            rect.height
+            rect.x - monitor.x, rect.y - monitor.y, rect.width, rect.height
         )
 
     @staticmethod

@@ -9,8 +9,7 @@ import os
 import re
 import platform
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
-from urllib.parse import urlparse
+from typing import Any, Dict, List, Tuple
 
 from loguru import logger
 
@@ -65,7 +64,7 @@ def validate_openai_api_key(api_key: str) -> bool:
         return False
 
     # OpenAI API keys start with 'sk-' and are followed by characters
-    pattern = r'^sk-[a-zA-Z0-9]{48,}$'
+    pattern = r"^sk-[a-zA-Z0-9]{48,}$"
     return bool(re.match(pattern, api_key))
 
 
@@ -75,9 +74,9 @@ def validate_api_key_format(api_key: str, provider: str) -> bool:
         return False
 
     patterns = {
-        'openai': r'^sk-[a-zA-Z0-9]{48,}$',
-        'anthropic': r'^sk-ant-[a-zA-Z0-9_-]{95,}$',
-        'google': r'^AIza[0-9A-Za-z_-]{35}$',
+        "openai": r"^sk-[a-zA-Z0-9]{48,}$",
+        "anthropic": r"^sk-ant-[a-zA-Z0-9_-]{95,}$",
+        "google": r"^AIza[0-9A-Za-z_-]{35}$",
     }
 
     pattern = patterns.get(provider.lower())
@@ -97,26 +96,26 @@ def mask_api_key(api_key: str, visible_chars: int = 4) -> str:
 
 # Language Utilities
 LANGUAGE_NAMES = {
-    'auto': 'Auto-detect',
-    'en': 'English',
-    'ru': 'Russian',
-    'es': 'Spanish',
-    'fr': 'French',
-    'de': 'German',
-    'it': 'Italian',
-    'pt': 'Portuguese',
-    'ja': 'Japanese',
-    'ko': 'Korean',
-    'zh': 'Chinese',
-    'ar': 'Arabic',
-    'hi': 'Hindi',
-    'tr': 'Turkish',
-    'pl': 'Polish',
-    'nl': 'Dutch',
-    'sv': 'Swedish',
-    'da': 'Danish',
-    'no': 'Norwegian',
-    'fi': 'Finnish',
+    "auto": "Auto-detect",
+    "en": "English",
+    "ru": "Russian",
+    "es": "Spanish",
+    "fr": "French",
+    "de": "German",
+    "it": "Italian",
+    "pt": "Portuguese",
+    "ja": "Japanese",
+    "ko": "Korean",
+    "zh": "Chinese",
+    "ar": "Arabic",
+    "hi": "Hindi",
+    "tr": "Turkish",
+    "pl": "Polish",
+    "nl": "Dutch",
+    "sv": "Swedish",
+    "da": "Danish",
+    "no": "Norwegian",
+    "fi": "Finnish",
 }
 
 
@@ -141,27 +140,27 @@ def detect_language_from_text(text: str) -> str:
     text = text.strip()
 
     # Cyrillic characters (Russian, etc.)
-    if re.search(r'[а-яё]', text.lower()):
-        return 'ru'
+    if re.search(r"[а-яё]", text.lower()):
+        return "ru"
 
     # Japanese characters
-    if re.search(r'[\u3040-\u309f\u30a0-\u30ff\u4e00-\u9faf]', text):
-        return 'ja'
+    if re.search(r"[\u3040-\u309f\u30a0-\u30ff\u4e00-\u9faf]", text):
+        return "ja"
 
     # Korean characters
-    if re.search(r'[\uac00-\ud7af\u1100-\u11ff\u3130-\u318f]', text):
-        return 'ko'
+    if re.search(r"[\uac00-\ud7af\u1100-\u11ff\u3130-\u318f]", text):
+        return "ko"
 
     # Chinese characters
-    if re.search(r'[\u4e00-\u9fff]', text):
-        return 'zh'
+    if re.search(r"[\u4e00-\u9fff]", text):
+        return "zh"
 
     # Arabic characters
-    if re.search(r'[\u0600-\u06ff]', text):
-        return 'ar'
+    if re.search(r"[\u0600-\u06ff]", text):
+        return "ar"
 
     # Default to English
-    return 'en'
+    return "en"
 
 
 # Hotkey Utilities
@@ -170,13 +169,13 @@ def parse_hotkey(hotkey_str: str) -> List[str]:
     if not hotkey_str:
         return []
 
-    parts = [part.strip().lower() for part in hotkey_str.split('+')]
+    parts = [part.strip().lower() for part in hotkey_str.split("+")]
     return parts
 
 
 def format_hotkey(parts: List[str]) -> str:
     """Format hotkey parts into a string."""
-    return '+'.join(part.capitalize() for part in parts)
+    return "+".join(part.capitalize() for part in parts)
 
 
 def validate_hotkey(hotkey_str: str) -> bool:
@@ -188,11 +187,35 @@ def validate_hotkey(hotkey_str: str) -> bool:
     if len(parts) < 1:
         return False
 
-    valid_modifiers = {'ctrl', 'alt', 'shift', 'cmd', 'win', 'super'}
-    valid_keys = set('abcdefghijklmnopqrstuvwxyz0123456789') | {
-        'f1', 'f2', 'f3', 'f4', 'f5', 'f6', 'f7', 'f8', 'f9', 'f10', 'f11', 'f12',
-        'space', 'enter', 'tab', 'escape', 'backspace', 'delete', 'insert',
-        'home', 'end', 'pageup', 'pagedown', 'up', 'down', 'left', 'right'
+    valid_modifiers = {"ctrl", "alt", "shift", "cmd", "win", "super"}
+    valid_keys = set("abcdefghijklmnopqrstuvwxyz0123456789") | {
+        "f1",
+        "f2",
+        "f3",
+        "f4",
+        "f5",
+        "f6",
+        "f7",
+        "f8",
+        "f9",
+        "f10",
+        "f11",
+        "f12",
+        "space",
+        "enter",
+        "tab",
+        "escape",
+        "backspace",
+        "delete",
+        "insert",
+        "home",
+        "end",
+        "pageup",
+        "pagedown",
+        "up",
+        "down",
+        "left",
+        "right",
     }
 
     # Check modifiers
@@ -216,7 +239,7 @@ def normalize_hotkey(hotkey_str: str) -> str:
 # Theme Utilities
 def get_available_themes() -> List[str]:
     """Get list of available UI themes."""
-    return ['light', 'dark', 'system']
+    return ["light", "dark", "system"]
 
 
 def validate_theme(theme: str) -> bool:
@@ -227,7 +250,7 @@ def validate_theme(theme: str) -> bool:
 # OCR Engine Utilities
 def get_available_ocr_engines() -> List[str]:
     """Get list of available OCR engines."""
-    return ['easyocr', 'paddleocr']
+    return ["easyocr", "paddleocr"]
 
 
 def validate_ocr_engine(engine: str) -> bool:
@@ -240,14 +263,14 @@ def sanitize_filename(filename: str) -> str:
     """Sanitize a filename by removing invalid characters."""
     # Remove invalid characters for Windows, macOS, and Linux
     invalid_chars = '<>:"/\\|?*'
-    sanitized = ''.join(c for c in filename if c not in invalid_chars)
+    sanitized = "".join(c for c in filename if c not in invalid_chars)
 
     # Remove leading/trailing whitespace and dots
-    sanitized = sanitized.strip(' .')
+    sanitized = sanitized.strip(" .")
 
     # Ensure it's not empty
     if not sanitized:
-        sanitized = 'untitled'
+        sanitized = "untitled"
 
     return sanitized
 
@@ -293,19 +316,22 @@ def validate_config_file(config_path: Path) -> Tuple[bool, List[str]]:
 
     try:
         import json
-        with open(config_path, 'r', encoding='utf-8') as f:
+
+        with open(config_path, "r", encoding="utf-8") as f:
             data = json.load(f)
 
         # Validate required fields
-        required_fields = ['version']
+        required_fields = ["version"]
         for field in required_fields:
             if field not in data:
                 errors.append(f"Missing required field: {field}")
 
         # Validate version format
-        if 'version' in data:
-            version = data['version']
-            if not isinstance(version, str) or not re.match(r'^\d+\.\d+\.\d+$', version):
+        if "version" in data:
+            version = data["version"]
+            if not isinstance(version, str) or not re.match(
+                r"^\d+\.\d+\.\d+$", version
+            ):
                 errors.append(f"Invalid version format: {version}")
 
     except json.JSONDecodeError as e:
@@ -320,12 +346,12 @@ def validate_config_file(config_path: Path) -> Tuple[bool, List[str]]:
 def get_system_info() -> Dict[str, str]:
     """Get system information for logging/debugging."""
     return {
-        'platform': platform.system(),
-        'platform_version': platform.version(),
-        'architecture': platform.machine(),
-        'python_version': platform.python_version(),
-        'config_dir': str(get_config_dir()),
-        'app_data_dir': str(get_app_data_dir()),
+        "platform": platform.system(),
+        "platform_version": platform.version(),
+        "architecture": platform.machine(),
+        "python_version": platform.python_version(),
+        "config_dir": str(get_config_dir()),
+        "app_data_dir": str(get_app_data_dir()),
     }
 
 

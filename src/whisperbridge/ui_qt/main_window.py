@@ -2,12 +2,12 @@
 Main window implementation for Qt-based UI.
 """
 
-from PySide6.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QLabel, QPushButton
-from PySide6.QtCore import Qt, Signal, QRect
-from PySide6.QtGui import QFont
-
-from ..core.settings_manager import settings_manager
 from loguru import logger
+from PySide6.QtCore import QRect, Qt, Signal
+from PySide6.QtGui import QFont
+from PySide6.QtWidgets import QLabel, QMainWindow, QPushButton, QVBoxLayout, QWidget
+
+from ..services.config_service import config_service
 
 
 class MainWindow(QMainWindow):
@@ -73,7 +73,7 @@ class MainWindow(QMainWindow):
     def restore_geometry(self):
         """Restore window geometry from settings."""
         try:
-            settings = settings_manager.get_settings()
+            settings = config_service.get_settings()
             if settings.window_geometry and len(settings.window_geometry) == 4:
                 geometry = QRect(*settings.window_geometry)
                 self.setGeometry(geometry)
@@ -91,14 +91,14 @@ class MainWindow(QMainWindow):
     
             # Update settings only if geometry changed to avoid unnecessary full writes
             try:
-                current = settings_manager.get_settings()
+                current = config_service.get_settings()
                 current_geometry = getattr(current, "window_geometry", None)
             except Exception:
                 current_geometry = None
-    
+
             if current_geometry != geometry_data:
                 # Use update_settings to change a single field (validates and saves safely)
-                settings_manager.update_settings({"window_geometry": geometry_data})
+                config_service.update_settings({"window_geometry": geometry_data})
                 logger.debug(f"Window geometry captured and saved: {geometry_data}")
             else:
                 logger.debug("Window geometry unchanged; skipping save.")

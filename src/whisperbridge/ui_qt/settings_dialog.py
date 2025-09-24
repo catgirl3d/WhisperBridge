@@ -5,21 +5,33 @@ Provides a comprehensive settings interface with tabs for different configuratio
 """
 
 from PySide6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QTabWidget, QWidget, QLabel,
-    QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox, QCheckBox, QPushButton,
-    QFormLayout, QGroupBox, QMessageBox, QTextEdit
+    QDialog,
+    QVBoxLayout,
+    QHBoxLayout,
+    QTabWidget,
+    QWidget,
+    QLabel,
+    QLineEdit,
+    QComboBox,
+    QSpinBox,
+    QDoubleSpinBox,
+    QCheckBox,
+    QPushButton,
+    QFormLayout,
+    QGroupBox,
+    QMessageBox,
+    QTextEdit,
 )
-from PySide6.QtCore import Qt, QThread, Signal, QObject
+from PySide6.QtCore import QThread, Signal, QObject
 
-from ..core.settings_manager import settings_manager
 from ..services.config_service import config_service, SettingsObserver
-from ..core.config import Settings
 from ..core.api_manager import get_api_manager, APIProvider
 from loguru import logger
 
 
 class ApiTestWorker(QObject):
     """Worker for testing API key asynchronously."""
+
     finished = Signal(bool, str)  # success, error_message
 
     def __init__(self, provider: str, api_key: str, model: str):
@@ -52,10 +64,10 @@ class ApiTestWorker(QObject):
             client = openai.OpenAI(api_key=self.api_key, timeout=10)
 
             # Make a simple test request
-            response = client.chat.completions.create(
+            client.chat.completions.create(
                 model=self.model,
                 messages=[{"role": "user", "content": "Hello"}],
-                max_completion_tokens=5
+                max_completion_tokens=5,
             )
 
             # If we get here, the API key is valid
@@ -81,10 +93,10 @@ class ApiTestWorker(QObject):
             client = anthropic.Anthropic(api_key=self.api_key, timeout=10)
 
             # Make a simple test request
-            response = client.messages.create(
+            client.messages.create(
                 model=self.model,
                 max_completion_tokens=5,
-                messages=[{"role": "user", "content": "Hello"}]
+                messages=[{"role": "user", "content": "Hello"}],
             )
 
             # If we get here, the API key is valid
@@ -110,7 +122,7 @@ class ApiTestWorker(QObject):
             model = genai.GenerativeModel(self.model)
 
             # Make a simple test request
-            response = model.generate_content("Hello", generation_config={"max_output_tokens": 5})
+            model.generate_content("Hello", generation_config={"max_output_tokens": 5})
 
             # If we get here, the API key is valid
             self.finished.emit(True, "")
@@ -171,7 +183,6 @@ class SettingsDialog(QDialog, SettingsObserver):
 
     def _apply_proper_colors(self):
         """Apply proper color scheme to ensure text visibility."""
-        from PySide6.QtWidgets import QApplication
         from PySide6.QtGui import QPalette, QColor
         from PySide6.QtCore import Qt
 
@@ -268,11 +279,10 @@ class SettingsDialog(QDialog, SettingsObserver):
         tab = QWidget()
         layout = QVBoxLayout(tab)
 
-        # Language settings removed - now handled by overlay window
-
         # Translation options: OCR auto-swap and System Prompt
         # OCR auto-swap checkbox (EN <-> RU)
         from PySide6.QtWidgets import QCheckBox
+
         self.ocr_auto_swap_checkbox = QCheckBox("OCR Auto-swap EN ↔ RU")
         self.ocr_auto_swap_checkbox.setToolTip("If enabled, OCR translations will auto-swap: English→Russian, Russian→English")
         layout.addWidget(self.ocr_auto_swap_checkbox)
@@ -293,70 +303,70 @@ class SettingsDialog(QDialog, SettingsObserver):
         """Create OCR settings tab."""
         tab = QWidget()
         layout = QVBoxLayout(tab)
- 
+
         # OCR settings
         ocr_group = QGroupBox("OCR Configuration")
         ocr_layout = QFormLayout(ocr_group)
- 
+
         # Initialize OCR on startup (enable/disable OCR features)
         self.initialize_ocr_check = QCheckBox("Initialize OCR service on startup")
         self.initialize_ocr_check.setToolTip("If enabled, the OCR service will be initialized and OCR actions (menu/hotkeys) will be available.")
         ocr_layout.addRow(self.initialize_ocr_check)
- 
+
         # OCR Languages
         self.ocr_languages_edit = QLineEdit()
         self.ocr_languages_edit.setPlaceholderText("e.g., en,ru,es")
         ocr_layout.addRow("OCR Languages:", self.ocr_languages_edit)
- 
+
         # Confidence threshold
         self.ocr_confidence_spin = QDoubleSpinBox()
         self.ocr_confidence_spin.setRange(0.0, 1.0)
         self.ocr_confidence_spin.setSingleStep(0.05)
         self.ocr_confidence_spin.setValue(0.7)
         ocr_layout.addRow("Confidence Threshold:", self.ocr_confidence_spin)
- 
+
         layout.addWidget(ocr_group)
         layout.addStretch()
- 
+
         self.tab_widget.addTab(tab, "OCR")
 
     def _create_hotkeys_tab(self):
         """Create hotkeys settings tab."""
         tab = QWidget()
         layout = QVBoxLayout(tab)
-    
+
         # Hotkey settings group
         hotkey_group = QGroupBox("Hotkey Configuration")
         hotkey_layout = QFormLayout(hotkey_group)
-    
+
         self.translate_hotkey_edit = QLineEdit()
         hotkey_layout.addRow("Translate Hotkey:", self.translate_hotkey_edit)
-    
+
         self.quick_translate_hotkey_edit = QLineEdit()
         hotkey_layout.addRow("Quick Translate Hotkey:", self.quick_translate_hotkey_edit)
     
         self.activation_hotkey_edit = QLineEdit()
         hotkey_layout.addRow("Activation Hotkey:", self.activation_hotkey_edit)
-    
+
         self.copy_translate_hotkey_edit = QLineEdit()
         hotkey_layout.addRow("Copy→Translate Hotkey:", self.copy_translate_hotkey_edit)
-    
+
         layout.addWidget(hotkey_group)
 
         # Help text
         help_label = QLabel("Use format like 'ctrl+shift+t' or 'alt+f1'")
         help_label.setStyleSheet("color: gray; font-style: italic;")
         layout.addWidget(help_label)
-    
+
         # Copy-translate options in a separate group box
         copy_group = QGroupBox("Copy-Translate Options")
         copy_layout = QFormLayout(copy_group)
-    
+
         # Automatically copy translated text to clipboard
         self.auto_copy_translated_check = QCheckBox("Automatically copy translated text to clipboard")
         self.auto_copy_translated_check.setToolTip("If enabled, translated text will be copied to the clipboard automatically after translation.")
         copy_layout.addRow(self.auto_copy_translated_check)
-    
+
         # Clipboard polling timeout (ms)
         self.clipboard_poll_timeout_spin = QSpinBox()
         self.clipboard_poll_timeout_spin.setRange(500, 10000)
@@ -366,9 +376,8 @@ class SettingsDialog(QDialog, SettingsObserver):
     
         layout.addWidget(copy_group)
 
-    
         layout.addStretch()
-    
+
         self.tab_widget.addTab(tab, "Hotkeys")
 
     def _create_general_tab(self):
@@ -426,7 +435,7 @@ class SettingsDialog(QDialog, SettingsObserver):
         # Don't set model here - it will be set after loading models
         self.api_timeout_spin.setValue(settings.api_timeout)
 
-        # Translation tab 
+        # Translation tab
         # OCR auto-swap checkbox (EN <-> RU)
         try:
             self.ocr_auto_swap_checkbox.setChecked(bool(getattr(settings, "ocr_auto_swap_en_ru", False)))
@@ -449,7 +458,7 @@ class SettingsDialog(QDialog, SettingsObserver):
         self.quick_translate_hotkey_edit.setText(settings.quick_translate_hotkey)
         self.activation_hotkey_edit.setText(settings.activation_hotkey)
         self.copy_translate_hotkey_edit.setText(settings.copy_translate_hotkey)
-    
+
         # Copy-translate enhancements - load safely with defaults
         try:
             self.auto_copy_translated_check.setChecked(bool(getattr(settings, "auto_copy_translated", False)))
@@ -460,7 +469,7 @@ class SettingsDialog(QDialog, SettingsObserver):
         except Exception:
             logger.debug("Failed to set clipboard_poll_timeout_ms from settings; defaulting to 2000")
             self.clipboard_poll_timeout_spin.setValue(2000)
-    
+
         # General tab
         self.theme_combo.setCurrentText(settings.theme)
         # Load and set log level into UI safely
@@ -530,7 +539,7 @@ class SettingsDialog(QDialog, SettingsObserver):
             QMessageBox.critical(
                 self,
                 "Save Error",
-                f"An error occurred while saving settings:\n\n{str(e)}"
+                f"An error occurred while saving settings:\n\n{str(e)}",
             )
 
     def _on_test_api(self):
@@ -582,16 +591,10 @@ class SettingsDialog(QDialog, SettingsObserver):
         # Show result
         if success:
             QMessageBox.information(
-                self,
-                "Test Successful",
-                "API key is working correctly!"
+                self, "Test Successful", "API key is working correctly!"
             )
         else:
-            QMessageBox.warning(
-                self,
-                "Test Failed",
-                f"API test failed: {error_msg}"
-            )
+            QMessageBox.warning(self, "Test Failed", f"API test failed: {error_msg}")
 
     def _load_models_synchronously(self):
         """Load available models synchronously for immediate display."""
@@ -600,9 +603,9 @@ class SettingsDialog(QDialog, SettingsObserver):
         settings = config_service.get_settings()
         current_model = settings.model
 
-        logger.debug(f"=== _load_models_synchronously called ===")
-        logger.debug(f"Loading models for provider: {provider_name}")
-        logger.debug(f"Current model from settings: '{current_model}'")
+        logger.debug("=== _load_models_synchronously called ===")
+        logger.debug("Loading models for provider: %s", provider_name)
+        logger.debug("Current model from settings: '%s'", current_model)
 
         # Clear current models
         self.model_combo.clear()
@@ -614,22 +617,19 @@ class SettingsDialog(QDialog, SettingsObserver):
             if provider_name == "openai":
                 # Load models from API synchronously
                 logger.debug("Fetching models from OpenAI API synchronously")
-                models = api_manager.get_available_models_sync(APIProvider.OPENAI)
-                logger.debug(f"Loaded {len(models)} models from API: {models[:5]}...")  # Log first 5 models
+                models, source = api_manager.get_available_models_sync(APIProvider.OPENAI)
+                logger.debug(f"Loaded {len(models)} models from {source}: {models[:5]}...")  # Log first 5 models
             else:
-                # For other providers, use fallback list
-                logger.debug("Using fallback models for non-OpenAI provider")
-                models = [
-                    "gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-4", "gpt-3.5-turbo"
-                ]
+                # For other providers, no fallback - models will be empty
+                logger.debug("No models available for non-OpenAI provider without API")
+                models, source = [], "none"
 
-            self._apply_models_to_ui(models, current_model)
+            self._apply_models_to_ui(models, current_model, source)
 
         except Exception as e:
             logger.error(f"Failed to load models synchronously: {e}")
-            # Fallback to basic list
-            fallback_models = ["gpt-4o", "gpt-4o-mini", "gpt-3.5-turbo"]
-            self._apply_models_to_ui(fallback_models, current_model)
+            # No fallback - models will be empty
+            self._apply_models_to_ui([], current_model, "error")
 
     def _load_models_for_provider(self):
         """Load available models for the current provider asynchronously."""
@@ -658,15 +658,14 @@ class SettingsDialog(QDialog, SettingsObserver):
                 # For other providers, use fallback list
                 logger.debug("Using fallback models for non-OpenAI provider")
                 models = [
-                    "gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-4", "gpt-3.5-turbo"
+                    "gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-4"
                 ]
-                self._apply_models_to_ui(models, current_model)
+                self._apply_models_to_ui(models, current_model, "fallback")
 
         except Exception as e:
             logger.error(f"Failed to load models: {e}")
-            # Fallback to basic GPT list
-            fallback_models = ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-4", "gpt-3.5-turbo"]
-            self._apply_models_to_ui(fallback_models, current_model)
+            # No fallback - models will be empty
+            self._apply_models_to_ui([], current_model, "error")
 
     def _start_model_fetch_thread(self, provider: APIProvider, current_model: str):
         """Start a thread to fetch models asynchronously."""
@@ -678,7 +677,7 @@ class SettingsDialog(QDialog, SettingsObserver):
             return
 
         class ModelFetchWorker(QObject):
-            finished = Signal(list, str)  # models, current_model
+            finished = Signal(list, str, str)  # models, current_model, source
 
             def __init__(self, provider, current_model):
                 super().__init__()
@@ -688,17 +687,17 @@ class SettingsDialog(QDialog, SettingsObserver):
             def run(self):
                 try:
                     from ..core.api_manager import get_api_manager
+
                     api_manager = get_api_manager()
-                    models = api_manager.get_available_models_sync(self.provider)
-                    self.finished.emit(models, self.current_model)
+                    models, source = api_manager.get_available_models_sync(self.provider)
+                    self.finished.emit(models, self.current_model, source)
                 except Exception as e:
                     logger.error(f"Model fetch thread failed: {e}")
-                    # Emit fallback models (GPT models only)
-                    fallback_models = ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-4", "gpt-3.5-turbo"]
-                    self.finished.emit(fallback_models, self.current_model)
+                    # No fallback - emit empty models list
+                    self.finished.emit([], self.current_model, "error")
 
         # Clean up any existing thread first
-        if hasattr(self, 'model_thread') and self.model_thread.isRunning():
+        if hasattr(self, "model_thread") and self.model_thread.isRunning():
             logger.debug("Waiting for existing model fetch thread to finish...")
             self.model_thread.quit()
             if not self.model_thread.wait(2000):  # Wait up to 2 seconds
@@ -719,16 +718,17 @@ class SettingsDialog(QDialog, SettingsObserver):
 
         self.model_thread.start()
 
-    def _on_models_fetched(self, models: list, current_model: str):
+    def _on_models_fetched(self, models: list, current_model: str, source: str):
         """Handle fetched models from thread."""
-        logger.debug(f"Received {len(models)} models from thread: {models}")
+        logger.debug(f"Received {len(models)} models from thread ({source}): {models}")
         logger.debug(f"Current model before applying: '{current_model}'")
 
         # Ensure UI update happens on main thread
         from PySide6.QtCore import QTimer
-        QTimer.singleShot(0, lambda: self._apply_models_to_ui(models, current_model))
 
-    def _apply_models_to_ui(self, models: list, current_model: str):
+        QTimer.singleShot(0, lambda: self._apply_models_to_ui(models, current_model, source))
+
+    def _apply_models_to_ui(self, models: list, current_model: str, source: str = "unknown"):
         """Apply models to the UI combo box."""
         logger.debug(f"Applying {len(models)} models to UI: {models}")
         logger.debug(f"Combo box current count before clear: {self.model_combo.count()}")
@@ -739,6 +739,7 @@ class SettingsDialog(QDialog, SettingsObserver):
         # Add new models
         self.model_combo.addItems(models)
         logger.debug(f"Added {len(models)} models to combo box, new count: {self.model_combo.count()}")
+        logger.info(f"Successfully loaded {len(models)} models from {source.upper()} for the model selection dropdown: {', '.join(models)}")
 
         # Force UI update
         self.model_combo.update()
@@ -805,7 +806,7 @@ class SettingsDialog(QDialog, SettingsObserver):
     def closeEvent(self, event):
         """Handle dialog close event - clean up threads."""
         # Clean up model fetch thread if it's running
-        if hasattr(self, 'model_thread') and self.model_thread.isRunning():
+        if hasattr(self, "model_thread") and self.model_thread.isRunning():
             logger.debug("Cleaning up model fetch thread on dialog close...")
             self.model_thread.quit()
             if not self.model_thread.wait(2000):  # Wait up to 2 seconds

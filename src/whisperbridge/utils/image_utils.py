@@ -9,7 +9,7 @@ scaling, and format conversion.
 import cv2
 import numpy as np
 from PIL import Image, ImageFilter, ImageEnhance
-from typing import Tuple, Optional, Union
+from typing import Optional
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 import hashlib
@@ -28,11 +28,14 @@ class ImageProcessor:
         """
         self.executor = ThreadPoolExecutor(max_workers=max_workers)
 
-    def preprocess_image(self, image: Image.Image,
-                        enhance_contrast: bool = True,
-                        reduce_noise: bool = True,
-                        sharpen: bool = False,
-                        scale_factor: float = 1.0) -> Image.Image:
+    def preprocess_image(
+        self,
+        image: Image.Image,
+        enhance_contrast: bool = True,
+        reduce_noise: bool = True,
+        sharpen: bool = False,
+        scale_factor: float = 1.0,
+    ) -> Image.Image:
         """Apply comprehensive preprocessing to image for OCR.
 
         Args:
@@ -47,8 +50,8 @@ class ImageProcessor:
         """
         try:
             # Convert to grayscale if not already
-            if image.mode != 'L':
-                image = image.convert('L')
+            if image.mode != "L":
+                image = image.convert("L")
 
             # Enhance contrast
             if enhance_contrast:
@@ -65,7 +68,10 @@ class ImageProcessor:
 
             # Scale image
             if scale_factor != 1.0:
-                new_size = (int(image.width * scale_factor), int(image.height * scale_factor))
+                new_size = (
+                    int(image.width * scale_factor),
+                    int(image.height * scale_factor),
+                )
                 image = image.resize(new_size, Image.Resampling.LANCZOS)
 
             return image
@@ -89,21 +95,27 @@ class ImageProcessor:
         """
         try:
             # Convert to RGB if needed
-            if image.mode not in ['RGB', 'L']:
-                image = image.convert('RGB')
+            if image.mode not in ["RGB", "L"]:
+                image = image.convert("RGB")
 
             # Calculate scaling factor based on DPI
             current_width = image.width
             if current_width < min_width:
                 scale_factor = min_width / current_width
-                new_size = (int(image.width * scale_factor), int(image.height * scale_factor))
+                new_size = (
+                    int(image.width * scale_factor),
+                    int(image.height * scale_factor),
+                )
                 image = image.resize(new_size, Image.Resampling.LANCZOS)
 
             # Ensure minimum dimensions
             min_height = 100
             if image.height < min_height:
                 scale_factor = min_height / image.height
-                new_size = (int(image.width * scale_factor), int(image.height * scale_factor))
+                new_size = (
+                    int(image.width * scale_factor),
+                    int(image.height * scale_factor),
+                )
                 image = image.resize(new_size, Image.Resampling.LANCZOS)
 
             return image
@@ -123,13 +135,13 @@ class ImageProcessor:
         """
         try:
             # Convert PIL to numpy array
-            if image.mode == 'RGB':
+            if image.mode == "RGB":
                 cv_image = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
-            elif image.mode == 'L':
+            elif image.mode == "L":
                 cv_image = np.array(image)
             else:
                 # Convert to RGB first
-                rgb_image = image.convert('RGB')
+                rgb_image = image.convert("RGB")
                 cv_image = cv2.cvtColor(np.array(rgb_image), cv2.COLOR_RGB2BGR)
 
             return cv_image
@@ -138,7 +150,7 @@ class ImageProcessor:
             logger.error(f"Error converting to OpenCV format: {e}")
             return np.array(image)
 
-    def convert_from_cv2(self, cv_image: np.ndarray, mode: str = 'RGB') -> Image.Image:
+    def convert_from_cv2(self, cv_image: np.ndarray, mode: str = "RGB") -> Image.Image:
         """Convert OpenCV image to PIL format.
 
         Args:
@@ -176,7 +188,7 @@ class ImageProcessor:
             Rotated PIL image
         """
         try:
-            return image.rotate(angle, expand=True, fillcolor='white')
+            return image.rotate(angle, expand=True, fillcolor="white")
         except Exception as e:
             logger.error(f"Error rotating image: {e}")
             return image
@@ -252,14 +264,15 @@ class ImageProcessor:
                 gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2
             )
 
-            return self.convert_from_cv2(binary, 'L')
+            return self.convert_from_cv2(binary, "L")
 
         except Exception as e:
             logger.error(f"Error enhancing text contrast: {e}")
             return image
 
-    def save_intermediate_image(self, image: Image.Image, step_name: str,
-                               output_dir: Optional[Path] = None) -> Optional[Path]:
+    def save_intermediate_image(
+        self, image: Image.Image, step_name: str, output_dir: Optional[Path] = None
+    ) -> Optional[Path]:
         """Save intermediate image for debugging purposes.
 
         Args:
@@ -280,7 +293,7 @@ class ImageProcessor:
             filename = f"{step_name}_{image_hash}.png"
             filepath = output_dir / filename
 
-            image.save(filepath, 'PNG')
+            image.save(filepath, "PNG")
             logger.debug(f"Saved intermediate image: {filepath}")
             return filepath
 
@@ -300,15 +313,12 @@ class ImageProcessor:
         """
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(
-            self.executor,
-            self.preprocess_image,
-            image,
-            **kwargs
+            self.executor, self.preprocess_image, image, **kwargs
         )
 
     def __del__(self):
         """Cleanup executor on destruction."""
-        if hasattr(self, 'executor'):
+        if hasattr(self, "executor"):
             self.executor.shutdown(wait=False)
 
 
@@ -328,10 +338,12 @@ def get_image_processor() -> ImageProcessor:
     return _image_processor
 
 
-def preprocess_for_ocr(image: Image.Image,
-                      enhance_contrast: bool = True,
-                      reduce_noise: bool = True,
-                      deskew: bool = True) -> Image.Image:
+def preprocess_for_ocr(
+    image: Image.Image,
+    enhance_contrast: bool = True,
+    reduce_noise: bool = True,
+    deskew: bool = True,
+) -> Image.Image:
     """Convenience function for OCR preprocessing.
 
     Args:
@@ -350,10 +362,7 @@ def preprocess_for_ocr(image: Image.Image,
 
     # Apply preprocessing
     processed = processor.preprocess_image(
-        image,
-        enhance_contrast=True,
-        reduce_noise=False,
-        scale_factor=scale_factor
+        image, enhance_contrast=True, reduce_noise=False, scale_factor=scale_factor
     )
 
     return processed

@@ -7,25 +7,24 @@ handles image preprocessing, caching, and provides a unified interface for text 
 
 import asyncio
 import hashlib
-import time
-import tempfile
-from pathlib import Path
-from typing import Optional, List, Dict, Any, Tuple
-from dataclasses import dataclass
-from PIL import Image
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
-from loguru import logger
+from dataclasses import dataclass
+from typing import Any, Dict, List, Optional, Tuple
 
-from ..core.ocr_manager import get_ocr_manager, OCREngine, OCRResult
-from ..utils.image_utils import get_image_processor, preprocess_for_ocr
-from ..core.config import settings
+from loguru import logger
+from PIL import Image
+
+from ..core.ocr_manager import OCREngine, OCRResult, get_ocr_manager
 from ..services.config_service import config_service
+from ..utils.image_utils import get_image_processor, preprocess_for_ocr
 
 
 @dataclass
 class OCRRequest:
     """OCR processing request."""
+
     image: Image.Image
     languages: Optional[List[str]] = None
     preprocess: bool = True
@@ -36,6 +35,7 @@ class OCRRequest:
 @dataclass
 class OCRResponse:
     """OCR processing response."""
+
     text: str
     confidence: float
     engine_used: OCREngine
@@ -114,8 +114,7 @@ class OCRCache:
         with self.lock:
             # Remove oldest entries if cache is full
             if len(self.cache) >= self.max_size:
-                oldest_key = min(self.cache.keys(),
-                               key=lambda k: self.cache[k][1])
+                oldest_key = min(self.cache.keys(), key=lambda k: self.cache[k][1])
                 del self.cache[oldest_key]
 
             # Store new entry
@@ -150,8 +149,7 @@ class OCRService:
         thread_pool_size = config_service.get_setting("thread_pool_size", use_cache=False)
 
         self.cache = OCRCache(
-            max_size=cache_enabled and max_cache_size or 0,
-            ttl=cache_ttl
+            max_size=cache_enabled and max_cache_size or 0, ttl=cache_ttl
         )
         self.executor = ThreadPoolExecutor(max_workers=thread_pool_size)
         self.is_initializing = False
@@ -215,7 +213,7 @@ class OCRService:
                 target=self._background_init_task,
                 args=(on_complete,),
                 daemon=True,
-                name="OCREngineInitializer"
+                name="OCREngineInitializer",
             )
             init_thread.start()
 
@@ -264,7 +262,7 @@ class OCRService:
                 engine_used=OCREngine.EASYOCR,
                 processing_time=time.time() - start_time,
                 success=False,
-                error_message=error_msg
+                error_message=error_msg,
             )
 
         try:
@@ -284,15 +282,13 @@ class OCRService:
             if request.preprocess:
                 logger.debug("Applying image preprocessing")
                 processed_image = preprocess_for_ocr(
-                    request.image,
-                    enhance_contrast=True,
-                    reduce_noise=True,
-                    deskew=True
+                    request.image, enhance_contrast=True, reduce_noise=True, deskew=True
                 )
                 logger.debug(f"Preprocessed image size: {processed_image.size}")
 
             # Convert PIL image to numpy array for EasyOCR
             import numpy as np
+
             image_array = np.array(processed_image)
             logger.debug(f"Converted to numpy array: shape={image_array.shape}, dtype={image_array.dtype}")
 
@@ -305,7 +301,7 @@ class OCRService:
             result = self._process_with_numpy_array(
                 image_array,
                 request.languages or ocr_languages,
-                request.timeout or ocr_timeout
+                request.timeout or ocr_timeout,
             )
 
             # Determine if result is actually successful
@@ -324,11 +320,16 @@ class OCRService:
                 engine_used=result.engine,
                 processing_time=processing_time,
                 success=final_success,
-                error_message=result.error_message if not final_success else None
+                error_message=result.error_message if not final_success else None,
             )
 
             # Cache successful results with valid text
-            if response.success and response.text.strip() and request.use_cache and cache_enabled:
+            if (
+                response.success
+                and response.text.strip()
+                and request.use_cache
+                and cache_enabled
+            ):
                 self.cache.put(request.image, request.languages or [], response)
                 logger.debug("OCR result cached")
 
@@ -344,11 +345,12 @@ class OCRService:
                 engine_used=OCREngine.EASYOCR,  # Default
                 processing_time=processing_time,
                 success=False,
-                error_message=str(e)
+                error_message=str(e),
             )
 
-    def _process_with_numpy_array(self, image_array: Any,
-                                  languages: List[str], timeout: float) -> OCRResult:
+    def _process_with_numpy_array(
+        self, image_array: Any, languages: List[str], timeout: float
+    ) -> OCRResult:
         """Process image with EasyOCR engine using numpy array.
 
         Args:
@@ -371,14 +373,12 @@ class OCRService:
                     engine=OCREngine.EASYOCR,
                     processing_time=0.0,
                     error_message="EasyOCR engine not available",
-                    success=False
+                    success=False,
                 )
 
             logger.debug("EasyOCR engine is available, starting processing")
             # Process with EasyOCR engine
-            result = self.manager.process_image_array(
-                image_array, languages, timeout
-            )
+            result = self.manager.process_image_array(image_array, languages, timeout)
 
             logger.debug(f"EasyOCR processing result: success={result.success}, confidence={result.confidence:.3f}, text_length={len(result.text)}")
             return result
@@ -392,7 +392,7 @@ class OCRService:
                 engine=OCREngine.EASYOCR,
                 processing_time=0.0,
                 error_message=str(e),
-                success=False
+                success=False,
             )
 
     async def process_image_async(self, request: OCRRequest) -> OCRResponse:
@@ -405,16 +405,15 @@ class OCRService:
             OCR processing response
         """
         loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(
-            self.executor,
-            self.process_image,
-            request
-        )
+        return await loop.run_in_executor(self.executor, self.process_image, request)
 
-    async def process_image_array_async(self, image_array: Any,
-                                       languages: List[str] = None,
-                                       preprocess: bool = True,
-                                       use_cache: bool = True) -> OCRResponse:
+    async def process_image_array_async(
+        self,
+        image_array: Any,
+        languages: List[str] = None,
+        preprocess: bool = True,
+        use_cache: bool = True,
+    ) -> OCRResponse:
         """Asynchronously process image array with OCR.
 
         Args:
@@ -428,7 +427,6 @@ class OCRService:
         """
         # Create a mock PIL image for caching purposes
         # This is a simplified approach - in production you might want to hash the array
-        import numpy as np
         from PIL import Image
 
         # Convert numpy array back to PIL for caching compatibility
@@ -438,7 +436,7 @@ class OCRService:
             image=pil_image,
             languages=languages,
             preprocess=preprocess,
-            use_cache=use_cache
+            use_cache=use_cache,
         )
 
         return await self.process_image_async(request)
@@ -454,7 +452,7 @@ class OCRService:
         return {
             "size": self.cache.size(),
             "max_size": self.cache.max_size,
-            "enabled": cache_enabled
+            "enabled": cache_enabled,
         }
 
     def get_engine_stats(self) -> Dict[str, Any]:
@@ -473,7 +471,7 @@ class OCRService:
                 "average_processing_time": engine_stats.average_processing_time,
                 "average_confidence": engine_stats.average_confidence,
                 "consecutive_failures": engine_stats.consecutive_failures,
-                "available": self.manager.is_engine_available(engine)
+                "available": self.manager.is_engine_available(engine),
             }
         }
 
@@ -503,7 +501,7 @@ class OCRService:
         self.manager.shutdown()
 
         # Shutdown executor
-        if hasattr(self, 'executor'):
+        if hasattr(self, "executor"):
             self.executor.shutdown(wait=True)
 
         self.is_initialized = False
@@ -531,10 +529,12 @@ def get_ocr_service() -> OCRService:
     return _ocr_service
 
 
-async def recognize_text(image: Image.Image,
-                         languages: Optional[List[str]] = None,
-                         preprocess: bool = True,
-                         use_cache: bool = True) -> OCRResponse:
+async def recognize_text(
+    image: Image.Image,
+    languages: Optional[List[str]] = None,
+    preprocess: bool = True,
+    use_cache: bool = True,
+) -> OCRResponse:
     """Convenience function for text recognition.
 
     Args:
@@ -549,19 +549,18 @@ async def recognize_text(image: Image.Image,
     service = get_ocr_service()
 
     request = OCRRequest(
-        image=image,
-        languages=languages,
-        preprocess=preprocess,
-        use_cache=use_cache
+        image=image, languages=languages, preprocess=preprocess, use_cache=use_cache
     )
 
     return await service.process_image_async(request)
 
 
-def recognize_text_sync(image: Image.Image,
-                       languages: Optional[List[str]] = None,
-                       preprocess: bool = True,
-                       use_cache: bool = True) -> OCRResponse:
+def recognize_text_sync(
+    image: Image.Image,
+    languages: Optional[List[str]] = None,
+    preprocess: bool = True,
+    use_cache: bool = True,
+) -> OCRResponse:
     """Synchronous convenience function for text recognition.
 
     Args:
@@ -576,10 +575,7 @@ def recognize_text_sync(image: Image.Image,
     service = get_ocr_service()
 
     request = OCRRequest(
-        image=image,
-        languages=languages,
-        preprocess=preprocess,
-        use_cache=use_cache
+        image=image, languages=languages, preprocess=preprocess, use_cache=use_cache
     )
 
     return service.process_image(request)

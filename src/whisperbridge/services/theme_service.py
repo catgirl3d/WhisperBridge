@@ -4,16 +4,21 @@ ThemeService extracted from QtApp._get_theme_from_settings/_apply_theme/_apply_d
 
 from typing import Optional
 
-from PySide6.QtWidgets import QApplication
-from PySide6.QtGui import QPalette, QColor
-from PySide6.QtCore import Qt
-
-from ..services.config_service import config_service as default_config_service, SettingsObserver
 from loguru import logger as default_logger
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QColor, QPalette
+from PySide6.QtWidgets import QApplication
+
+from ..services.config_service import (
+    SettingsObserver,
+)
+from ..services.config_service import config_service as default_config_service
 
 
 class ThemeService(SettingsObserver):
-    def __init__(self, qt_app: Optional[QApplication] = None, config_service=None, logger=None):
+    def __init__(
+        self, qt_app: Optional[QApplication] = None, config_service=None, logger=None
+    ):
         super().__init__()
         self.qt_app = qt_app or QApplication.instance()
         self.config_service = config_service or default_config_service
@@ -26,13 +31,13 @@ class ThemeService(SettingsObserver):
         """Get theme from settings."""
         # Get theme from config service to ensure we have the latest saved value
         current_theme = self.config_service.get_setting("theme", use_cache=False)
-        self.logger.debug(f"Retrieved theme from config service: '{current_theme}' (type: {type(current_theme)})")
-        theme_map = {
-            "dark": "dark",
-            "light": "light",
-            "auto": "system"
-        }
-        mapped_theme = theme_map.get(current_theme.lower() if current_theme else None, "light")
+        self.logger.debug(
+            f"Retrieved theme from config service: '{current_theme}' (type: {type(current_theme)})"
+        )
+        theme_map = {"dark": "dark", "light": "light", "auto": "system"}
+        mapped_theme = theme_map.get(
+            current_theme.lower() if current_theme else None, "light"
+        )
         self.logger.debug(f"Mapped theme: '{mapped_theme}'")
         return mapped_theme
 
