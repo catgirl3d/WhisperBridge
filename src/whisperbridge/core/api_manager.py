@@ -13,6 +13,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import Enum
+from functools import wraps
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
@@ -30,6 +31,24 @@ from .config import (
     ensure_config_dir,
     validate_api_key_format,
 )
+
+
+def requires_initialization(func):
+    """Decorator to ensure API manager is initialized before method execution."""
+    if asyncio.iscoroutinefunction(func):
+        @wraps(func)
+        async def async_wrapper(self, *args, **kwargs):
+            if not self.is_initialized():
+                raise RuntimeError("API manager not initialized")
+            return await func(self, *args, **kwargs)
+        return async_wrapper
+    else:
+        @wraps(func)
+        def sync_wrapper(self, *args, **kwargs):
+            if not self.is_initialized():
+                raise RuntimeError("API manager not initialized")
+            return func(self, *args, **kwargs)
+        return sync_wrapper
 
 
 class APIProvider(Enum):
@@ -84,6 +103,7 @@ class APIManager:
 
     # Default GPT models list to avoid duplication
     DEFAULT_GPT_MODELS = ["gpt-5", "gpt-5-mini", "gpt-5-nano", "gpt-4.1-mini", "gpt-4.1-nano", "gpt-4o-mini"]
+    
     def __init__(self, config_service: ConfigService):
         """
         Initialize the APIManager.
@@ -107,39 +127,33 @@ class APIManager:
 
     def _load_model_cache_from_disk(self):
         """Load persistent model cache into memory if present."""
-        try:
-            path = self._get_model_cache_path()
-            if not path.exists():
-                return
-            with path.open("r", encoding="utf-8") as f:
-                raw = json.load(f)
-            with self._lock:
-                # raw expected as {provider_value: {"models": [...], "timestamp": ts}}
-                for prov_str, entry in raw.items():
-                    try:
-                        prov = APIProvider(prov_str)
-                    except Exception:
-                        continue
-                    models = entry.get("models", [])
-                    ts = entry.get("timestamp", 0)
-                    self._model_cache[prov] = (models, ts)
-                logger.info("Loaded model cache from disk")
-        except Exception as e:
-            logger.warning(f"Failed to load model cache from disk: {e}")
+        path = self._get_model_cache_path()
+        if not path.exists():
+            return
+        with path.open("r", encoding="utf-8") as f:
+            raw = json.load(f)
+        with self._lock:
+            # raw expected as {provider_value: {"models": [...], "timestamp": ts}}
+            for prov_str, entry in raw.items():
+                try:
+                    prov = APIProvider(prov_str)
+                except Exception:
+                    continue
+                models = entry.get("models", [])
+                ts = entry.get("timestamp", 0)
+                self._model_cache[prov] = (models, ts)
+            logger.info("Loaded model cache from disk")
 
     def _save_model_cache_to_disk(self):
         """Persist in-memory model cache to disk."""
-        try:
-            path = self._get_model_cache_path()
-            data = {}
-            with self._lock:
-                for prov, (models, ts) in self._model_cache.items():
-                    data[prov.value] = {"models": models, "timestamp": ts}
-            with path.open("w", encoding="utf-8") as f:
-                json.dump(data, f, ensure_ascii=False, indent=2)
-            logger.debug("Saved model cache to disk")
-        except Exception as e:
-            logger.warning(f"Failed to save model cache to disk: {e}")
+        path = self._get_model_cache_path()
+        data = {}
+        with self._lock:
+            for prov, (models, ts) in self._model_cache.items():
+                data[prov.value] = {"models": models, "timestamp": ts}
+        with path.open("w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        logger.debug("Saved model cache to disk")
 
     def _cleanup_old_cache_files(self):
         """Remove cache files older than TTL."""
@@ -153,64 +167,129 @@ class APIManager:
         except Exception as e:
             logger.debug(f"Failed to cleanup old cache files: {e}")
 
+    def _handle_cache_operation(self, operation: str, operation_func: Callable):
+        """Universal cache operation handler with error logging."""
+        try:
+            return operation_func()
+        except Exception as e:
+            logger.warning(f"Failed to {operation} model cache: {e}")
+            return None
+
+    def _cache_models_and_persist(self, provider: APIProvider, models: List[str]) -> None:
+        """Cache models and persist to disk in one operation."""
+        with self._lock:
+            self._model_cache[provider] = (models, time.time())
+        self._handle_cache_operation("persist", self._save_model_cache_to_disk)
+
+    def _initialize_cache_safely(self):
+        """Safely initialize model cache with error handling."""
+        def load_cache():
+            self._load_model_cache_from_disk()
+            self._cleanup_old_cache_files()
+
+        self._handle_cache_operation("load cache during initialization", load_cache)
+
+    def _validate_model_list(self, models: List[str]) -> bool:
+        """Validate that model list is not empty and contains valid strings."""
+        if not models:
+            return False
+        return all(isinstance(model, str) and model.strip() for model in models)
+
+    def _get_default_models(self) -> List[str]:
+        """Get default model list with optional configuration override."""
+        try:
+            # Check for custom models in configuration
+            custom_models = self.config_service.get_setting("default_models", None)
+            if custom_models and isinstance(custom_models, list) and self._validate_model_list(custom_models):
+                logger.debug(f"Using custom default models from config: {custom_models}")
+                return custom_models.copy()
+        except Exception as e:
+            logger.warning(f"Failed to get custom default models from config: {e}")
+        
+        # Fallback to built-in default models
+        logger.debug(f"Using built-in default models: {self.DEFAULT_GPT_MODELS}")
+        return self.DEFAULT_GPT_MODELS.copy()
+
+    def _initialize_providers(self):
+        """Initialize configured API providers. Returns True for any successful initialization."""
+        provider = self.config_service.get_setting("api_provider")
+        if provider == "openai":
+            self._init_openai_provider()
+        elif provider == "azure_openai":
+            self._init_azure_provider()
+        else:
+            logger.warning(f"Unknown API provider: {provider}")
+
+    def _init_openai_provider(self):
+        """Initialize OpenAI provider with graceful degradation."""
+        api_key = self.config_service.get_setting("openai_api_key")
+        if not api_key:
+            logger.warning("OpenAI API key not configured. Translation features will be disabled.")
+            logger.info("To enable translation, set your OpenAI API key in the settings.")
+            # Don't fail initialization - allow the app to run without API
+            return
+
+        # Validate API key format
+        if not validate_api_key_format(api_key):
+            logger.error("Invalid OpenAI API key format")
+            logger.info("Please check your OpenAI API key format (should start with 'sk-')")
+            # Don't fail initialization - allow the app to run without API
+            return
+
+        # Create client only if key exists and is valid
+        self._clients[APIProvider.OPENAI] = openai.AsyncOpenAI(
+            api_key=api_key,
+            timeout=self.config_service.get_setting("api_timeout"),
+        )
+        self._usage[APIProvider.OPENAI] = APIUsage()
+        logger.info("OpenAI client initialized")
+
+    def _init_azure_provider(self):
+        """Initialize Azure OpenAI provider."""
+        # Azure configuration would go here
+        logger.warning("Azure OpenAI not yet implemented")
+        # Don't fail initialization - allow the app to run without API
+
+    def _finalize_initialization(self):
+        """Finalize initialization with consistent status setting and cache loading."""
+        # Allow initialization even without API clients
+        # The app can still run OCR and other features
+        self._is_initialized = True
+        
+        # Load any persistent model cache from disk so first-run UI can use it
+        self._initialize_cache_safely()
+
+        if self._clients:
+            logger.info("API manager initialized successfully with clients")
+        else:
+            logger.info("API manager initialized (no API clients - translation features disabled)")
+
+    def _log_initialization_status(self):
+        """Log current initialization status for debugging."""
+        provider = self.config_service.get_setting("api_provider")
+        logger.debug(f"API Manager status - Provider: {provider}, Initialized: {self._is_initialized}")
+        logger.debug(f"Cache status - Entries: {len(self._model_cache)}")
+
+    def _get_fallback_models(self, provider: APIProvider) -> tuple[List[str], str]:
+        """Get fallback models with caching."""
+        fallback_models = self._get_default_models()
+        self._cache_models_and_persist(provider, fallback_models)
+        return fallback_models, "fallback"
+
     def initialize(self) -> bool:
         """Initialize API manager with configured providers."""
         with self._lock:
             try:
-                # Initialize OpenAI client
-                if self.config_service.get_setting("api_provider") == "openai":
-                    openai_api_key = self.config_service.get_setting("openai_api_key")
-                    if not openai_api_key:
-                        logger.warning("OpenAI API key not configured. Translation features will be disabled.")
-                        logger.info("To enable translation, set your OpenAI API key in the settings.")
-                        # Don't return False here - allow the app to run without API
-                    elif not validate_api_key_format(openai_api_key):
-                        logger.error("Invalid OpenAI API key format")
-                        logger.info("Please check your OpenAI API key format (should start with 'sk-')")
-                        # Don't return False here - allow the app to run without API
-                    else:
-                        self._clients[APIProvider.OPENAI] = openai.AsyncOpenAI(
-                            api_key=openai_api_key,
-                            timeout=self.config_service.get_setting("api_timeout"),
-                        )
-                        self._usage[APIProvider.OPENAI] = APIUsage()
-                        logger.info("OpenAI client initialized")
-
-                # Initialize Azure OpenAI client if configured
-                elif self.config_service.get_setting("api_provider") == "azure_openai":
-                    # Azure configuration would go here
-                    logger.warning("Azure OpenAI not yet implemented")
-                    # Don't return False here - allow the app to run without API
-
-                # Allow initialization even without API clients
-                # The app can still run OCR and other features
-                self._is_initialized = True
-
-                # Load any persistent model cache from disk so first-run UI can use it
-                try:
-                    self._load_model_cache_from_disk()
-                    self._cleanup_old_cache_files()
-                except Exception as e:
-                    logger.debug(f"Model cache load skipped/failed during initialize: {e}")
-
-                if self._clients:
-                    logger.info("API manager initialized successfully with clients")
-                else:
-                    logger.info("API manager initialized (no API clients - translation features disabled)")
-
+                self._initialize_providers()
+                self._finalize_initialization()
                 return True
-
             except Exception as e:
                 logger.error(f"Failed to initialize API manager: {e}")
                 # Still allow initialization even if there are errors
                 self._is_initialized = True
                 logger.info("API manager initialized with errors (limited functionality)")
                 # Try loading cache even on errors to provide offline model list
-                try:
-                    self._load_model_cache_from_disk()
-                    self._cleanup_old_cache_files()
-                except Exception:
-                    pass
+                self._initialize_cache_safely()
                 return True
 
     def is_initialized(self) -> bool:
@@ -218,18 +297,53 @@ class APIManager:
         return self._is_initialized
 
     def _run_async_in_sync(self, coro, timeout: float = 30.0) -> Any:
-        """Run async coroutine in sync context using a new thread."""
-        def run_in_thread():
-            return asyncio.run(coro)
-        
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-            future = executor.submit(run_in_thread)
-            return future.result(timeout=timeout)
+        """Run async coroutine in synchronous context with improved error handling."""
+        def _run_in_thread():
+            try:
+                # Save current event loop state
+                current_loop = None
+                try:
+                    current_loop = asyncio.get_event_loop()
+                except RuntimeError:
+                    pass
+                
+                # Create and use new event loop to avoid conflicts
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    return loop.run_until_complete(coro)
+                finally:
+                    loop.close()
+                    # Restore previous event loop state
+                    asyncio.set_event_loop(current_loop)
+            except Exception as e:
+                logger.debug(f"Error in async coroutine: {e}")
+                raise
 
-    def _ensure_initialized(self):
-        """Ensure the API manager is initialized, raise error if not."""
-        if not self.is_initialized():
-            raise RuntimeError("API manager not initialized")
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            try:
+                future = executor.submit(_run_in_thread)
+                return future.result(timeout=timeout)
+            except concurrent.futures.TimeoutError:
+                logger.error(f"Operation timed out after {timeout} seconds")
+                raise TimeoutError(f"Operation timed out after {timeout} seconds")
+            except Exception as e:
+                logger.debug(f"Thread execution failed: {e}")
+                raise
+
+    def _sync_wrapper(self, async_func, operation_name: str, *args, **kwargs) -> Any:
+        """Universal synchronous wrapper for async operations."""
+        try:
+            # Extract sync_timeout without modifying original kwargs
+            timeout = kwargs.pop('sync_timeout', self.config_service.get_setting("api_timeout", 30.0))
+            return self._run_async_in_sync(
+                async_func(*args, **kwargs),
+                timeout=timeout
+            )
+        except Exception as e:
+            logger.error(f"Synchronous {operation_name} failed: {e}")
+            raise
+
 
 
     def _notify_error_handlers(self, error: APIError):
@@ -277,6 +391,7 @@ class APIManager:
         # Unknown error
         return APIError(APIErrorType.UNKNOWN, str(error))
 
+    @requires_initialization
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=4, max=60),
@@ -284,7 +399,6 @@ class APIManager:
     )
     async def make_request_async(self, provider: APIProvider, **kwargs) -> Any:
         """Make API request with retry logic."""
-        self._ensure_initialized()
 
         client = self._clients.get(provider)
         if not client:
@@ -328,17 +442,12 @@ class APIManager:
             # Re-raise for retry mechanism
             raise
 
+    @requires_initialization
     def make_request_sync(self, provider: APIProvider, **kwargs) -> Any:
         """Synchronous wrapper for make_request_async."""
-        try:
-            return self._run_async_in_sync(
-                self.make_request_async(provider, **kwargs),
-                timeout=self.config_service.get_setting("api_timeout", 30.0)
-            )
-        except Exception as e:
-            logger.error(f"Synchronous API request failed: {e}")
-            raise
+        return self._sync_wrapper(self.make_request_async, "API request", provider, **kwargs)
 
+    @requires_initialization
     def get_usage_stats(self, provider: Optional[APIProvider] = None) -> Dict[str, Any]:
         """Get API usage statistics."""
         with self._lock:
@@ -362,6 +471,7 @@ class APIManager:
                 return stats
 
 
+    @requires_initialization
     def is_rate_limited(self, provider: APIProvider) -> bool:
         """Check if provider is currently rate limited."""
         usage = self._usage.get(provider, APIUsage())
@@ -379,6 +489,7 @@ class APIManager:
 
         return False
 
+    @requires_initialization
     def get_provider_status(self, provider: APIProvider) -> Dict[str, Any]:
         """Get status information for a provider."""
         if provider not in self._clients:
@@ -393,9 +504,9 @@ class APIManager:
             "success_rate": (usage.successful_requests / usage.requests_count * 100) if usage.requests_count > 0 else 100.0
         }
 
+    @requires_initialization
     async def get_available_models_async(self, provider: APIProvider) -> tuple[List[str], str]:
         """Get list of available models from API provider."""
-        self._ensure_initialized()
 
         # Check cache first
         with self._lock:
@@ -460,48 +571,34 @@ class APIManager:
                 source = "api"
 
             else:
-                # For other providers, return default list
+                # For other providers, return fallback models with caching
                 logger.warning(f"Model listing not implemented for {provider.value}")
-                models = self.DEFAULT_GPT_MODELS
-                source = "fallback"
+                return self._get_fallback_models(provider)
 
-            # Cache the result
-            with self._lock:
-                self._model_cache[provider] = (models, time.time())
-            # Persist model cache to disk so next app start can use it
-            try:
-                self._save_model_cache_to_disk()
-            except Exception as e:
-                logger.debug(f"Failed to persist model cache: {e}")
+            # Cache the result for successful API calls
+            self._cache_models_and_persist(provider, models)
 
             return models, source
 
         except Exception as e:
             logger.error(f"Failed to fetch models from {provider.value}: {e}")
             # Return fallback list on error
-            fallback_models = self.DEFAULT_GPT_MODELS
+            return self._get_fallback_models(provider)
 
-            # Cache fallback as well to avoid repeated API calls on error
-            with self._lock:
-                self._model_cache[provider] = (fallback_models, time.time())
-            try:
-                self._save_model_cache_to_disk()
-            except Exception as e:
-                logger.debug(f"Failed to persist fallback model cache: {e}")
-
-            return fallback_models, "fallback"
-
+    @requires_initialization
     def get_available_models_sync(self, provider: APIProvider) -> tuple[List[str], str]:
         """Synchronous wrapper for get_available_models_async."""
         try:
-            return self._run_async_in_sync(
-                self.get_available_models_async(provider),
-                timeout=30.0
-            )
+            return self._sync_wrapper(self.get_available_models_async, "model fetch", provider, sync_timeout=30.0)
         except Exception as e:
-            logger.error(f"Synchronous model fetch failed: {e}")
-            # Return fallback list
-            return self.DEFAULT_GPT_MODELS, "fallback"
+            logger.debug(f"Model fetch failed, using fallback: {e}")
+            # Fallback in case of error
+            try:
+                return self._get_fallback_models(provider)
+            except Exception as fallback_error:
+                logger.error(f"Fallback model fetch also failed: {fallback_error}")
+                # Return empty list as last resort
+                return [], "error"
 
     def shutdown(self):
         """Shutdown API manager and cleanup resources."""

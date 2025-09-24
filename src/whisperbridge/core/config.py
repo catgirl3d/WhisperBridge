@@ -26,6 +26,9 @@ class Settings(BaseSettings):
     api_provider: str = Field(default="openai", description="API provider")
     model: str = Field(default="gpt-5-nano", description="GPT model")
     api_timeout: int = Field(default=30, description="API request timeout in seconds")
+    default_models: Optional[List[str]] = Field(
+        default=None, description="Custom default models list (overrides built-in default)"
+    )
 
     # Language Settings (legacy - now handled by UI overlay)
     supported_languages: List[str] = Field(
