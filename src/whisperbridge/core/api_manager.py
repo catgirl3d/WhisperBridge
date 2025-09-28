@@ -63,6 +63,17 @@ class APIErrorType(Enum):
     UNKNOWN = "unknown"
 
 
+class ModelSource(Enum):
+    """Sources for model listings."""
+
+    CACHE = "cache"
+    API = "api"
+    API_TEMP_KEY = "api_temp_key"
+    UNCONFIGURED = "unconfigured"
+    FALLBACK = "fallback"
+    ERROR = "error"
+
+
 
 @dataclass
 class APIUsage:
@@ -306,7 +317,7 @@ class APIManager:
         else:
             fallback_models = self._get_default_models()
         self._cache_models_and_persist(provider, fallback_models)
-        return fallback_models, "fallback"
+        return fallback_models, ModelSource.FALLBACK.value
 
     def initialize(self) -> bool:
         """Initialize API manager with configured providers."""
@@ -486,11 +497,11 @@ class APIManager:
                     models, timestamp = self._model_cache[provider]
                     if time.time() - timestamp < self._model_cache_ttl:
                         logger.debug(f"Using cached models for {provider.value}")
-                        return models, "cache"
+                        return models, ModelSource.CACHE.value
 
         # 2. Determine which client to use (temporary or configured)
         client = None
-        source = "api"
+        source = ModelSource.API
         if temp_api_key:
             try:
                 logger.debug(f"Creating temporary client for {provider.value} using provided key.")
@@ -498,17 +509,17 @@ class APIManager:
                     client = openai.OpenAI(api_key=temp_api_key, timeout=10)
                 elif provider == APIProvider.GOOGLE:
                     client = GoogleChatClientAdapter(api_key=temp_api_key, timeout=10)
-                source = "api_temp_key"
+                source = ModelSource.API_TEMP_KEY
             except Exception as e:
                 logger.error(f"Failed to create temporary client: {e}")
-                return [], "error"
+                return [], ModelSource.ERROR.value
         else:
             client = self._clients.get(provider)
 
         # 3. If no client could be determined, exit
         if not client:
             logger.debug(f"Provider {provider.value} not configured and no valid temp key provided.")
-            return [], "unconfigured"
+            return [], ModelSource.UNCONFIGURED.value
 
         # 4. Now, fetch models using the determined client
         try:
@@ -552,15 +563,16 @@ class APIManager:
                 logger.debug(f"Filtered Gemini chat models: {gemini_models}")
                 models = gemini_models
             else:
-                return [], "error"
+                return [], ModelSource.ERROR.value
 
-            # Cache the result for successful API calls
-            self._cache_models_and_persist(provider, models)
-            return models, source
+            # Cache the result for successful API calls (except temp API key usage)
+            if source != ModelSource.API_TEMP_KEY:
+                self._cache_models_and_persist(provider, models)
+            return models, source.value
 
         except Exception as e:
             logger.error(f"Failed to fetch models from {provider.value}: {e}")
-            return [], "error"
+            return [], ModelSource.ERROR.value
 
     def shutdown(self):
         """Shutdown API manager and cleanup resources."""
