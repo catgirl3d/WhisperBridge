@@ -270,6 +270,8 @@ class QtApp(QObject, SettingsObserver):
         self.qt_app.setApplicationName("WhisperBridge")
         self.qt_app.setApplicationVersion("1.0.0")
         self.qt_app.setOrganizationName("WhisperBridge")
+        # Prevent app from quitting when all windows are closed (tray keeps it running)
+        self.qt_app.setQuitOnLastWindowClosed(False)
 
         # Window instances
         self.main_window: Optional[MainWindow] = None

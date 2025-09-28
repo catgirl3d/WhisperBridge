@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QSpacerItem,
     QSizePolicy,
     QCheckBox,
+    QDialog,
 )
 from PySide6.QtCore import (
     Qt,
@@ -37,12 +38,39 @@ from ..utils.language_utils import get_language_name, detect_language
 from .minibar_overlay import MiniBarOverlay
 
 
+class TranslatorSettingsDialog(QDialog):
+    """Dialog for translator-specific settings (placeholder implementation)."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Translator Settings")
+        self.setObjectName("TranslatorSettingsDialog")
+        self.setModal(False)
+        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, False)
+        self.setMinimumWidth(320)
+
+        layout = QVBoxLayout(self)
+
+        info_label = QLabel(
+            "Translator-specific settings will be available here in a future update."
+        )
+        info_label.setWordWrap(True)
+        layout.addWidget(info_label)
+
+        close_button = QPushButton("Close")
+        close_button.setFixedHeight(26)
+        close_button.clicked.connect(self.close)
+        layout.addWidget(close_button, alignment=Qt.AlignmentFlag.AlignRight)
+
+
 class OverlayWindow(QWidget):
     """Overlay window for displaying translation results."""
 
     def __init__(self):
         """Initialize the overlay window."""
         super().__init__()
+
+        self._translator_settings_dialog = None
 
         # Configure window properties — frameless window with resize capability
         self.setWindowFlags(
@@ -409,6 +437,18 @@ class OverlayWindow(QWidget):
         self.collapse_btn_top.setIconSize(QSize(20, 16))
         self.collapse_btn_top.clicked.connect(self.collapse_to_minibar)
 
+        # Settings button (to left of collapse)
+        self.settings_btn_top = QPushButton(self)
+        self.settings_btn_top.setObjectName("settingsBtnTop")
+        self.settings_btn_top.setFixedSize(22, 22)
+        try:
+            self.settings_btn_top.setIcon(qta.icon("fa5s.cog", color="black"))
+        except Exception:
+            self.settings_btn_top.setText("⚙")
+        self.settings_btn_top.setIconSize(QSize(18, 16))
+        self.settings_btn_top.setToolTip("Translator settings")
+        self.settings_btn_top.clicked.connect(self._open_translator_settings)
+
         # Position buttons initially
         self._position_top_buttons()
 
@@ -469,6 +509,16 @@ class OverlayWindow(QWidget):
                 background-color: #fff;
             }
             QPushButton#collapseBtnTop:hover {
+                background-color: #e8e8e8;
+            }
+            QPushButton#settingsBtnTop {
+                color: #111111;
+                padding: 3px 6px;
+                border: none;
+                border-radius: 3px;
+                background-color: #fff;
+            }
+            QPushButton#settingsBtnTop:hover {
                 background-color: #e8e8e8;
             }
 
@@ -691,22 +741,47 @@ class OverlayWindow(QWidget):
 
     def _position_top_buttons(self):
         """Position the top-right control buttons (collapse + close) with padding."""
-        padding = getattr(self, "_top_button_padding", {"top": 0, "right": 0, "bottom": 0, "left": 0})
-        
-        close_x_pos = self.width()
+        padding = getattr(
+            self, "_top_button_padding", {"top": 0, "right": 0, "bottom": 0, "left": 0}
+        )
 
-        if hasattr(self, "close_btn_top"):
-            close_size = self.close_btn_top.size()
-            close_x_pos = self.width() - close_size.width() - padding["right"]
-            close_y_pos = padding["top"]
-            self.close_btn_top.move(close_x_pos, close_y_pos)
+        buttons = [
+            getattr(self, "close_btn_top", None),
+            getattr(self, "collapse_btn_top", None),
+            getattr(self, "settings_btn_top", None),
+        ]
 
-        if hasattr(self, "collapse_btn_top"):
-            collapse_size = self.collapse_btn_top.size()
-            # 'left' padding acts as spacing between buttons
-            collapse_x_pos = close_x_pos - collapse_size.width() - padding.get('left', 0)
-            collapse_y_pos = padding['top']
-            self.collapse_btn_top.move(collapse_x_pos, collapse_y_pos)
+        top_offset = padding.get("top", 0)
+        right_offset = padding.get("right", 0)
+        spacing = padding.get("left", 2)
+
+        current_x = self.width() - right_offset
+
+        for button in buttons:
+            if not button:
+                continue
+            size = button.size()
+            current_x -= size.width()
+            button.move(max(0, current_x), top_offset)
+            current_x -= spacing
+
+    def _open_translator_settings(self):
+        """Show the translator-specific settings dialog."""
+        try:
+            if self._translator_settings_dialog is None:
+                dialog = TranslatorSettingsDialog(self)
+                dialog.destroyed.connect(
+                    lambda: setattr(self, "_translator_settings_dialog", None)
+                )
+                self._translator_settings_dialog = dialog
+
+            dialog = self._translator_settings_dialog
+            if dialog.isHidden():
+                dialog.show()
+            dialog.raise_()
+            dialog.activateWindow()
+        except Exception as e:
+            logger.error(f"Failed to open translator settings dialog: {e}")
 
     def _hit_test_resize(self, pos: QPoint):
         """Return resize mode string given a position in widget coords, or None if not on edge."""
@@ -1287,6 +1362,13 @@ class OverlayWindow(QWidget):
     def hide_overlay(self):
         """Hide the overlay window."""
         logger.info("Hiding overlay window")
+        # Close minibar if present to avoid orphan window
+        try:
+            if hasattr(self, "_minibar") and self._minibar:
+                self._minibar.close()
+                self._minibar = None
+        except Exception:
+            pass
         self.hide()
         logger.debug("Overlay window hidden")
 

@@ -73,7 +73,7 @@ class MiniBarOverlay(QWidget):
             self.close_btn.setIcon(qta.icon("fa5s.times", color="black"))
         except Exception:
             self.close_btn.setText("X")
-        self.close_btn.clicked.connect(self.close)
+        self.close_btn.clicked.connect(self._handle_close_clicked)
         layout.addWidget(self.close_btn)
 
         # Styling consistent with overlay (light background, subtle border)
@@ -137,6 +137,15 @@ class MiniBarOverlay(QWidget):
         try:
             if callable(self._on_expand):
                 self._on_expand()
+        except Exception:
+            pass
+
+    def _handle_close_clicked(self):
+        """Handle close button click: close minibar and hide overlay."""
+        try:
+            self.close()
+            if self._owner_ref():
+                self._owner_ref().hide_overlay()
         except Exception:
             pass
 
