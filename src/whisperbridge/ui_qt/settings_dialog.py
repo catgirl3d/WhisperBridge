@@ -26,6 +26,7 @@ from PySide6.QtCore import QThread, Signal, QObject
 
 from ..services.config_service import config_service, SettingsObserver
 from ..core.api_manager import get_api_manager, APIProvider
+from ..core.config import delete_api_key, validate_api_key_format
 from loguru import logger
 
 
@@ -45,8 +46,6 @@ class ApiTestWorker(QObject):
         try:
             if self.provider == "openai":
                 self._test_openai()
-            elif self.provider == "anthropic":
-                self._test_anthropic()
             elif self.provider == "google":
                 self._test_google()
             else:
@@ -56,21 +55,17 @@ class ApiTestWorker(QObject):
             self.finished.emit(False, f"Ошибка подключения: {str(e)}")
 
     def _test_openai(self):
-        """Test OpenAI API."""
+        """Test OpenAI API by fetching available models."""
         try:
             import openai
 
             # Create a temporary client for testing
             client = openai.OpenAI(api_key=self.api_key, timeout=10)
 
-            # Make a simple test request
-            client.chat.completions.create(
-                model=self.model,
-                messages=[{"role": "user", "content": "Hello"}],
-                max_completion_tokens=5,
-            )
+            # Test API by fetching models list
+            models_response = client.models.list()
 
-            # If we get here, the API key is valid
+            # If we get here, the API key is valid and we have models
             self.finished.emit(True, "")
 
         except openai.AuthenticationError:
@@ -84,56 +79,45 @@ class ApiTestWorker(QObject):
         except Exception as e:
             self.finished.emit(False, f"Ошибка OpenAI: {str(e)}")
 
-    def _test_anthropic(self):
-        """Test Anthropic API."""
-        try:
-            import anthropic
-
-            # Create a temporary client for testing
-            client = anthropic.Anthropic(api_key=self.api_key, timeout=10)
-
-            # Make a simple test request
-            client.messages.create(
-                model=self.model,
-                max_completion_tokens=5,
-                messages=[{"role": "user", "content": "Hello"}],
-            )
-
-            # If we get here, the API key is valid
-            self.finished.emit(True, "")
-
-        except Exception as e:
-            if "authentication" in str(e).lower() or "api key" in str(e).lower():
-                self.finished.emit(False, "Неверный API ключ")
-            elif "rate" in str(e).lower():
-                self.finished.emit(False, "Превышен лимит запросов")
-            else:
-                self.finished.emit(False, f"Ошибка Anthropic: {str(e)}")
 
     def _test_google(self):
-        """Test Google API."""
+        """Test Google API by fetching available models."""
         try:
             import google.generativeai as genai
+            from google.api_core.exceptions import (
+                Unauthenticated,
+                ResourceExhausted,
+                NotFound,
+                PermissionDenied,
+                InvalidArgument,
+                FailedPrecondition,
+            )
 
             # Configure the API
             genai.configure(api_key=self.api_key)
 
-            # Create a model instance
-            model = genai.GenerativeModel(self.model)
+            # Test API by fetching models list
+            models_response = genai.list_models()
 
-            # Make a simple test request
-            model.generate_content("Hello", generation_config={"max_output_tokens": 5})
-
-            # If we get here, the API key is valid
+            # If we get here, the API key is valid and we have models
             self.finished.emit(True, "")
 
+        except Unauthenticated:
+            self.finished.emit(False, "Неверный API ключ")
+        except PermissionDenied:
+            self.finished.emit(False, "Недостаточно прав доступа")
+        except ResourceExhausted:
+            self.finished.emit(False, "Превышен лимит запросов")
+        except InvalidArgument as e:
+            self.finished.emit(False, f"Неверные параметры запроса: {str(e)}")
+        except FailedPrecondition as e:
+            self.finished.emit(False, f"API не готово к использованию: {str(e)}")
+        except NotFound as e:
+            self.finished.emit(False, f"Ресурс не найден: {str(e)}")
+        except ImportError:
+            self.finished.emit(False, "Библиотека google-generativeai не установлена")
         except Exception as e:
-            if "api_key" in str(e).lower() or "authentication" in str(e).lower():
-                self.finished.emit(False, "Неверный API ключ")
-            elif "quota" in str(e).lower() or "rate" in str(e).lower():
-                self.finished.emit(False, "Превышен лимит запросов")
-            else:
-                self.finished.emit(False, f"Ошибка Google: {str(e)}")
+            self.finished.emit(False, f"Неизвестная ошибка Google API: {str(e)}")
 
 
 class SettingsDialog(QDialog, SettingsObserver):
@@ -227,16 +211,34 @@ class SettingsDialog(QDialog, SettingsObserver):
         # API Provider
         provider_group = QGroupBox("API Provider")
         provider_layout = QFormLayout(provider_group)
+        self._provider_form_layout = provider_layout  # keep reference for label visibility
 
         self.api_provider_combo = QComboBox()
-        self.api_provider_combo.addItems(["openai", "anthropic", "google"])
+        self.api_provider_combo.addItems(["openai", "google"])
         self.api_provider_combo.currentTextChanged.connect(self._on_provider_changed)
         provider_layout.addRow("Provider:", self.api_provider_combo)
 
-        # API Key
+        # API Key (dynamic based on provider)
+        self.api_key_label = QLabel()  # Label will be updated dynamically
         self.api_key_edit = QLineEdit()
         self.api_key_edit.setEchoMode(QLineEdit.EchoMode.Password)
-        provider_layout.addRow("API Key:", self.api_key_edit)
+
+        self.delete_api_key_button = QPushButton("Delete")
+        self.delete_api_key_button.clicked.connect(self._on_delete_api_key)
+
+        self.test_api_button = QPushButton("Test API")
+        self.test_api_button.clicked.connect(self._on_test_api)
+
+        key_layout = QHBoxLayout()
+        key_layout.setContentsMargins(0, 0, 0, 0)
+        key_layout.addWidget(self.api_key_edit)
+        key_layout.addWidget(self.delete_api_key_button)
+        
+        self.api_key_widget = QWidget()
+        self.api_key_widget.setLayout(key_layout)
+
+        provider_layout.addRow(self.api_key_label, self.api_key_widget)
+        provider_layout.addRow(self.test_api_button)
 
         layout.addWidget(provider_group)
 
@@ -261,18 +263,21 @@ class SettingsDialog(QDialog, SettingsObserver):
 
         layout.addWidget(model_group)
 
-        # Test API button
-        test_layout = QHBoxLayout()
-        test_layout.addStretch()
-
-        self.test_api_button = QPushButton("Test API")
-        self.test_api_button.clicked.connect(self._on_test_api)
-        test_layout.addWidget(self.test_api_button)
-
-        layout.addLayout(test_layout)
         layout.addStretch()
 
         self.tab_widget.addTab(tab, "API")
+
+    def _update_api_key_field(self):
+        """Update the API key field label and content for the selected provider."""
+        provider = self.api_provider_combo.currentText().strip().lower()
+        settings = config_service.get_settings()
+
+        if provider == "openai":
+            self.api_key_label.setText("OpenAI API Key:")
+            self.api_key_edit.setText(getattr(settings, "openai_api_key", "") or "")
+        elif provider == "google":
+            self.api_key_label.setText("Google API Key:")
+            self.api_key_edit.setText(getattr(settings, "google_api_key", "") or "")
 
     def _create_translation_tab(self):
         """Create translation settings tab."""
@@ -430,9 +435,8 @@ class SettingsDialog(QDialog, SettingsObserver):
 
         # API tab
         self.api_provider_combo.setCurrentText(settings.api_provider)
-        if settings.openai_api_key:
-            self.api_key_edit.setText(settings.openai_api_key)
-        # Don't set model here - it will be set after loading models
+        # This call will now correctly populate the unified API key field
+        self._update_api_key_field()
         self.api_timeout_spin.setValue(settings.api_timeout)
 
         # Translation tab
@@ -492,10 +496,34 @@ class SettingsDialog(QDialog, SettingsObserver):
 
             # Update from UI
             current["api_provider"] = self.api_provider_combo.currentText()
-            current["openai_api_key"] = self.api_key_edit.text().strip() or None
-            current["model"] = self.model_combo.currentText().strip()
+            # Handle API keys based on provider
+            provider = current["api_provider"].lower()
+            api_key_text = self.api_key_edit.text().strip() or None
+
+            if provider == "openai":
+                current["openai_api_key"] = api_key_text
+                # Ensure the other key is not lost if it was loaded
+                if "google_api_key" not in current or current["google_api_key"] is None:
+                    current["google_api_key"] = getattr(current_settings, "google_api_key", None)
+            elif provider == "google":
+                current["google_api_key"] = api_key_text
+                if "openai_api_key" not in current or current["openai_api_key"] is None:
+                    current["openai_api_key"] = getattr(current_settings, "openai_api_key", None)
+            
+            # Save the model based on the provider
+            model_text = self.model_combo.currentText().strip()
+            if provider == "openai":
+                current["openai_model"] = model_text
+                # Preserve Google model if it exists
+                if "google_model" not in current or not current["google_model"]:
+                    current["google_model"] = getattr(current_settings, "google_model", "gemini-1.5-flash")
+            elif provider == "google":
+                current["google_model"] = model_text
+                # Preserve OpenAI model if it exists
+                if "openai_model" not in current or not current["openai_model"]:
+                    current["openai_model"] = getattr(current_settings, "openai_model", "gpt-5-nano")
+
             current["api_timeout"] = self.api_timeout_spin.value()
-            # Language settings removed - now handled by overlay window
             current["system_prompt"] = self.system_prompt_edit.toPlainText().strip()
             # OCR auto-swap flag
             current["ocr_auto_swap_en_ru"] = bool(self.ocr_auto_swap_checkbox.isChecked())
@@ -542,33 +570,87 @@ class SettingsDialog(QDialog, SettingsObserver):
                 f"An error occurred while saving settings:\n\n{str(e)}",
             )
 
+    def _on_delete_api_key(self):
+        """Handle delete API key button click."""
+        provider = self.api_provider_combo.currentText().strip()
+
+        reply = QMessageBox.question(
+            self,
+            "Confirm Deletion",
+            f"Are you sure you want to permanently delete the API key for {provider.capitalize()}?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+
+        if reply == QMessageBox.StandardButton.Yes:
+            try:
+                if delete_api_key(provider):
+                    self.api_key_edit.setText("")  # Clear the unified input field
+                    QMessageBox.information(
+                        self,
+                        "Success",
+                        f"API key for {provider.capitalize()} has been deleted.",
+                    )
+                    # Force all services to re-read the configuration from its source
+                    try:
+                        # 1. Force config service to reload settings from disk/keyring
+                        config_service.load_settings()
+                        logger.info("Config service reloaded to reflect key deletion.")
+
+                        # 2. Reinitialize the API manager with the now-updated config
+                        get_api_manager().reinitialize()
+                        logger.info(f"API manager reinitialized after deleting {provider} key.")
+
+                        # 3. Reload models to update the UI, which will now show the unconfigured state
+                        self._load_models_for_provider()
+                    except Exception as e:
+                        logger.error(f"Failed to update state after key deletion: {e}")
+                else:
+                    QMessageBox.warning(
+                        self,
+                        "Deletion Failed",
+                        f"Failed to delete the API key for {provider.capitalize()}.",
+                    )
+            except Exception as e:
+                logger.error(f"Error deleting API key for {provider}: {e}")
+                QMessageBox.critical(
+                    self,
+                    "Error",
+                    f"An unexpected error occurred while deleting the key: {e}",
+                )
+
     def _on_test_api(self):
         """Handle test API button click."""
         # Get values from UI
         provider = self.api_provider_combo.currentText().strip()
         api_key = self.api_key_edit.text().strip()
-        model = self.model_combo.currentText().strip()
 
         # Validate input
         if not api_key:
             QMessageBox.warning(self, "Validation Error", "Please enter an API key.")
             return
 
-        # Provider-specific validation
-        if provider == "openai" and not api_key.startswith("sk-"):
-            QMessageBox.warning(self, "Validation Error", "OpenAI API key should start with 'sk-'.")
-            return
-
-        if not model:
-            QMessageBox.warning(self, "Validation Error", "Please select a model.")
+        # Delegate provider-specific validation to core to avoid duplication
+        try:
+            if not validate_api_key_format(api_key, provider):
+                msg = "Invalid API key format."
+                if provider == "openai":
+                    msg = "Invalid API key format (expected OpenAI key with 'sk-' prefix and valid structure)."
+                elif provider == "google":
+                    msg = "Invalid API key format (expected Google key with 'AIza' prefix and valid structure)."
+                QMessageBox.warning(self, "Validation Error", msg)
+                return
+        except Exception as e:
+            logger.warning(f"API key validation failed: {e}")
+            QMessageBox.warning(self, "Validation Error", "Invalid API key format.")
             return
 
         # Disable button and show testing state
         self.test_api_button.setEnabled(False)
         self.test_api_button.setText("Testing...")
 
-        # Create and start worker thread
-        self.test_worker = ApiTestWorker(provider, api_key, model)
+        # Create and start worker thread (model parameter no longer needed)
+        self.test_worker = ApiTestWorker(provider, api_key, "")
         self.test_thread = QThread()
 
         self.test_worker.moveToThread(self.test_thread)
@@ -593,140 +675,182 @@ class SettingsDialog(QDialog, SettingsObserver):
             QMessageBox.information(
                 self, "Test Successful", "API key is working correctly!"
             )
+            # After a successful test, load models immediately using the tested key
+            try:
+                provider_name = self.api_provider_combo.currentText()
+                api_key = self.api_key_edit.text().strip()
+                provider_enum = APIProvider(provider_name)
+                
+                api_manager = get_api_manager()
+                logger.info(f"Fetching models for {provider_name} with temporary key after successful test.")
+                
+                # Use the modified method to get models with the temporary key
+                models, source = api_manager.get_available_models_sync(
+                    provider=provider_enum, temp_api_key=api_key
+                )
+
+                if source == "error":
+                    raise RuntimeError("Failed to fetch models with temporary key.")
+
+                # Apply models to the UI
+                current_model = self.model_combo.currentText().strip()
+                self._apply_models_to_ui(models, current_model, source)
+                logger.info(f"Successfully loaded {len(models)} models after API test.")
+
+            except Exception as e:
+                logger.error(f"Failed to load models after successful API test: {e}")
+                QMessageBox.warning(self, "Model Load Failed", f"API key is valid, but could not fetch models: {e}")
         else:
             QMessageBox.warning(self, "Test Failed", f"API test failed: {error_msg}")
 
     def _load_models_synchronously(self):
         """Load available models synchronously for immediate display."""
         provider_name = self.api_provider_combo.currentText()
-        # Get the model from settings, not from current combo box (which might be empty)
+        # Get the model from settings based on the provider
         settings = config_service.get_settings()
-        current_model = settings.model
+        provider_name = self.api_provider_combo.currentText()
+        
+        if provider_name.lower() == "openai":
+            current_model = settings.openai_model
+        elif provider_name.lower() == "google":
+            current_model = settings.google_model
+        else:
+            current_model = "gpt-5-nano" # Fallback
 
         logger.debug("=== _load_models_synchronously called ===")
         logger.debug("Loading models for provider: %s", provider_name)
         logger.debug("Current model from settings: '%s'", current_model)
 
+        # Check if API key is configured for the current provider
+        api_key_configured = self._is_api_key_configured(provider_name)
+
+        if not api_key_configured:
+            logger.debug("No API key configured for provider, showing empty model list")
+            self.model_combo.clear()
+            self.model_combo.addItem("No API key configured")
+            return
+
         # Clear current models
         self.model_combo.clear()
 
         try:
-            api_manager = get_api_manager()
+            from ..core.api_manager import init_api_manager
+            api_manager = init_api_manager()  # Ensure API manager is initialized
             logger.debug(f"API manager initialized: {api_manager.is_initialized()}")
 
-            if provider_name == "openai":
-                # Load models from API synchronously
-                logger.debug("Fetching models from OpenAI API synchronously")
-                models, source = api_manager.get_available_models_sync(APIProvider.OPENAI)
-                logger.debug(f"Loaded {len(models)} models from {source}: {models[:5]}...")  # Log first 5 models
-            else:
-                # For other providers, no fallback - models will be empty
-                logger.debug("No models available for non-OpenAI provider without API")
-                models, source = [], "none"
+            # Load models for all providers using centralized API manager
+            logger.debug("Fetching models using centralized API manager")
+            provider_enum = APIProvider(provider_name)
+            models, source = api_manager.get_available_models_sync(provider_enum)
+            logger.debug(f"Loaded {len(models)} models from {source}: {models[:5] if models else []}")  # Log first 5 models
 
-            self._apply_models_to_ui(models, current_model, source)
+            if source == "unconfigured":
+                logger.debug(f"Provider {provider_enum.value} not configured, cannot load models")
+                self.model_combo.clear()
+                self.model_combo.addItem("No API key configured")
+                return
+
+            if models:
+                self._apply_models_to_ui(models, current_model, source)
+            else:
+                self._apply_models_to_ui([], current_model, "error")
 
         except Exception as e:
             logger.error(f"Failed to load models synchronously: {e}")
-            # No fallback - models will be empty
+            # Show empty model list when API fails - no fallback models
             self._apply_models_to_ui([], current_model, "error")
 
-    def _load_models_for_provider(self):
+    def _is_api_key_configured(self, provider_name: str) -> bool:
+        """Check if API key is configured for the given provider."""
+        # Check both current input field and saved settings
+        current_input = bool(self.api_key_edit.text().strip())
+
+        # Also check if the key is saved in settings
+        settings = config_service.get_settings()
+        if provider_name.lower() == "openai":
+            saved_key = bool(getattr(settings, "openai_api_key", None))
+        elif provider_name.lower() == "google":
+            saved_key = bool(getattr(settings, "google_api_key", None))
+        else:
+            saved_key = False
+
+        return current_input or saved_key
+
+    def _load_models_for_provider(self, model_to_restore: str = None):
         """Load available models for the current provider asynchronously."""
         provider_name = self.api_provider_combo.currentText()
-        current_model = self.model_combo.currentText()
 
         logger.debug(f"=== _load_models_for_provider called (async) ===")
         logger.debug(f"Loading models for provider: {provider_name}")
-        logger.debug(f"Current model in combo: '{current_model}'")
+        logger.debug(f"Model to restore: '{model_to_restore}'")
         logger.debug(f"Combo box is visible: {self.model_combo.isVisible()}")
         logger.debug(f"Dialog is visible: {self.isVisible()}")
+
+        # Check if API key is configured for the current provider
+        api_key_configured = self._is_api_key_configured(provider_name)
+
+        if not api_key_configured:
+            logger.debug("No API key configured for provider, showing empty model list")
+            self.model_combo.clear()
+            self.model_combo.addItem("No API key configured")
+            return
 
         # Clear current models
         self.model_combo.clear()
 
         try:
-            api_manager = get_api_manager()
+            from ..core.api_manager import init_api_manager
+            api_manager = init_api_manager()  # Ensure API manager is initialized
             logger.debug(f"API manager initialized: {api_manager.is_initialized()}")
 
-            if provider_name == "openai":
-                # Load models asynchronously using QThread
-                logger.debug("Starting async model fetch from OpenAI API")
-                self._start_model_fetch_thread(APIProvider.OPENAI, current_model)
-                return  # Exit early, models will be loaded in thread
+            # Unified synchronous fetch for all providers (simplified, with caching/fallback in APIManager)
+            logger.debug("Fetching models synchronously via centralized API manager")
+            provider_enum = APIProvider(provider_name)
+            models, source = api_manager.get_available_models_sync(provider_enum)
+
+            logger.debug(f"Loaded {len(models)} models from {source} for provider {provider_name}")
+
+            if source == "unconfigured":
+                logger.debug(f"Provider {provider_enum.value} not configured, cannot load models")
+                self.model_combo.clear()
+                self.model_combo.addItem("No API key configured")
+                return
+
+            if models:
+                self._apply_models_to_ui(models, model_to_restore, source)
             else:
-                # For other providers, use fallback list
-                logger.debug("Using fallback models for non-OpenAI provider")
-                models = [
-                    "gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-4"
-                ]
-                self._apply_models_to_ui(models, current_model, "fallback")
+                logger.debug(f"No models returned from API manager for {provider_name}")
+                # If no models from API but we have a model to restore, try to restore from cache
+                if model_to_restore:
+                    logger.debug(f"Attempting to restore model '{model_to_restore}' from cache")
+                    # Try to get cached models for this provider
+                    try:
+                        # Check if API manager is properly initialized and has cache
+                        if (api_manager.is_initialized() and
+                            hasattr(api_manager, '_model_cache') and
+                            hasattr(api_manager, '_lock')):
+                            with api_manager._lock:
+                                cached_models, _ = api_manager._model_cache.get(provider_enum, ([], 0))
+                            if cached_models and model_to_restore in cached_models:
+                                logger.debug(f"Found model '{model_to_restore}' in cache")
+                                self._apply_models_to_ui(cached_models, model_to_restore, "cache")
+                            else:
+                                logger.debug(f"Model '{model_to_restore}' not found in cache")
+                                self._apply_models_to_ui([], model_to_restore, "error")
+                        else:
+                            logger.debug("API manager not properly initialized or missing cache attributes")
+                            self._apply_models_to_ui([], model_to_restore, "error")
+                    except Exception as e:
+                        logger.error(f"Failed to access model cache: {e}")
+                        self._apply_models_to_ui([], model_to_restore, "error")
+                else:
+                    self._apply_models_to_ui([], model_to_restore, "error")
 
         except Exception as e:
             logger.error(f"Failed to load models: {e}")
-            # No fallback - models will be empty
-            self._apply_models_to_ui([], current_model, "error")
+            # Show empty model list when API fails - no fallback models
+            self._apply_models_to_ui([], model_to_restore, "error")
 
-    def _start_model_fetch_thread(self, provider: APIProvider, current_model: str):
-        """Start a thread to fetch models asynchronously."""
-        from PySide6.QtCore import QThread, Signal, QObject
-
-        # Don't start thread if dialog is being closed
-        if not self.isVisible():
-            logger.debug("Dialog is not visible, skipping model fetch thread")
-            return
-
-        class ModelFetchWorker(QObject):
-            finished = Signal(list, str, str)  # models, current_model, source
-
-            def __init__(self, provider, current_model):
-                super().__init__()
-                self.provider = provider
-                self.current_model = current_model
-
-            def run(self):
-                try:
-                    from ..core.api_manager import get_api_manager
-
-                    api_manager = get_api_manager()
-                    models, source = api_manager.get_available_models_sync(self.provider)
-                    self.finished.emit(models, self.current_model, source)
-                except Exception as e:
-                    logger.error(f"Model fetch thread failed: {e}")
-                    # No fallback - emit empty models list
-                    self.finished.emit([], self.current_model, "error")
-
-        # Clean up any existing thread first
-        if hasattr(self, "model_thread") and self.model_thread.isRunning():
-            logger.debug("Waiting for existing model fetch thread to finish...")
-            self.model_thread.quit()
-            if not self.model_thread.wait(2000):  # Wait up to 2 seconds
-                logger.warning("Existing thread did not finish gracefully")
-
-        # Create and start worker thread
-        self.model_worker = ModelFetchWorker(provider, current_model)
-        self.model_thread = QThread()
-
-        self.model_worker.moveToThread(self.model_thread)
-        self.model_worker.finished.connect(self._on_models_fetched)
-        self.model_thread.started.connect(self.model_worker.run)
-
-        # Clean up thread when done
-        self.model_worker.finished.connect(self.model_thread.quit)
-        self.model_worker.finished.connect(self.model_worker.deleteLater)
-        self.model_thread.finished.connect(self.model_thread.deleteLater)
-
-        self.model_thread.start()
-
-    def _on_models_fetched(self, models: list, current_model: str, source: str):
-        """Handle fetched models from thread."""
-        logger.debug(f"Received {len(models)} models from thread ({source}): {models}")
-        logger.debug(f"Current model before applying: '{current_model}'")
-
-        # Ensure UI update happens on main thread
-        from PySide6.QtCore import QTimer
-
-        QTimer.singleShot(0, lambda: self._apply_models_to_ui(models, current_model, source))
 
     def _apply_models_to_ui(self, models: list, current_model: str, source: str = "unknown"):
         """Apply models to the UI combo box."""
@@ -746,21 +870,35 @@ class SettingsDialog(QDialog, SettingsObserver):
         self.model_combo.repaint()
 
         # Restore previously selected model if it exists in the new list
-        if current_model and current_model in models:
-            self.model_combo.setCurrentText(current_model)
-            logger.debug(f"Restored current model: {current_model}")
+        logger.debug(f"Attempting to restore model: '{current_model}'")
+        logger.debug(f"Available models: {models}")
+
+        # Find the best match for the current model
+        # This handles cases where a model is saved (e.g. "gpt-4") but a more specific version is available ("gpt-4-turbo")
+        best_match = None
+        if current_model:
+            # Exact match first
+            if current_model in models:
+                best_match = current_model
+            else:
+                # Partial match (e.g., "gpt-4" should match "gpt-4-turbo")
+                for model in models:
+                    if model.startswith(current_model):
+                        best_match = model
+                        break
+        
+        if best_match:
+            self.model_combo.setCurrentText(best_match)
+            logger.debug(f"✅ Restored current model: {best_match}")
         elif models:
             # Select first model as default
             self.model_combo.setCurrentText(models[0])
-            logger.debug(f"Selected default model: {models[0]}")
-            # Also update the settings to reflect the new default
-            try:
-                current_settings = config_service.get_settings()
-                current_settings.model = models[0]
-                config_service.save_settings(current_settings)
-                logger.debug(f"Updated settings with default model: {models[0]}")
-            except Exception as e:
-                logger.error(f"Failed to update settings with default model: {e}")
+            logger.debug(f"✅ Selected default model: {models[0]}")
+        else:
+            # If no models are available, show a placeholder
+            self.model_combo.clear()
+            self.model_combo.addItem("No models available")
+            logger.debug("❌ No models available to select")
 
         logger.debug(f"Final combo box current text: '{self.model_combo.currentText()}'")
 
@@ -769,11 +907,25 @@ class SettingsDialog(QDialog, SettingsObserver):
         self.repaint()
 
     def _on_provider_changed(self):
-        """Handle provider change - reload models."""
-        # Only reload if dialog is still open
+        """Handle provider change - update API key field and reload models."""
         if not self.isVisible():
             return
-        self._load_models_for_provider()
+
+        new_provider_name = self.api_provider_combo.currentText().strip().lower()
+        settings = config_service.get_settings()
+
+        # Get the model that was saved for the new provider
+        if new_provider_name == "openai":
+            model_to_restore = settings.openai_model
+        elif new_provider_name == "google":
+            model_to_restore = settings.google_model
+        else:
+            model_to_restore = None
+
+        logger.debug(f"🔄 Provider changed to {new_provider_name}, attempting to restore model: '{model_to_restore}'")
+
+        self._update_api_key_field()
+        self._load_models_for_provider(model_to_restore)
 
     # SettingsObserver methods
     def on_settings_changed(self, key: str, old_value, new_value):
@@ -799,18 +951,31 @@ class SettingsDialog(QDialog, SettingsObserver):
     def on_settings_saved(self, settings):
         """Called when settings are saved."""
         logger.debug("Settings saved")
+
+        # Reinitialize API manager if API keys or provider changed.
+        # This must be done BEFORE self.current_settings is updated.
+        try:
+            old_settings = self.current_settings
+            api_keys_changed = (
+                (getattr(settings, 'openai_api_key', None) or "") != (getattr(old_settings, 'openai_api_key', None) or "") or
+                (getattr(settings, 'google_api_key', None) or "") != (getattr(old_settings, 'google_api_key', None) or "") or
+                settings.api_provider != old_settings.api_provider
+            )
+
+            if api_keys_changed:
+                api_manager = get_api_manager()
+                api_manager.reinitialize()
+                logger.info("API manager reinitialized after settings save due to key/provider change.")
+            else:
+                logger.debug("API keys/provider unchanged, skipping reinitialization.")
+        except Exception as e:
+            logger.error(f"Failed to reinitialize API manager after settings save: {e}")
+
+        # Now, update the dialog's state with the new settings
         self.current_settings = settings
         # Reapply colors in case theme changed
         self._apply_proper_colors()
 
     def closeEvent(self, event):
-        """Handle dialog close event - clean up threads."""
-        # Clean up model fetch thread if it's running
-        if hasattr(self, "model_thread") and self.model_thread.isRunning():
-            logger.debug("Cleaning up model fetch thread on dialog close...")
-            self.model_thread.quit()
-            if not self.model_thread.wait(2000):  # Wait up to 2 seconds
-                logger.warning("Model fetch thread did not finish gracefully")
-                self.model_thread.terminate()
-
+        """Handle dialog close event."""
         super().closeEvent(event)

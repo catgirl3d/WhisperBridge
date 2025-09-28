@@ -206,7 +206,12 @@ class TranslationService:
 
             # Check cache first
             if use_cache and config_service.get_setting("cache_enabled"):
-                model = config_service.get_setting("model")
+                provider = config_service.get_setting("api_provider")
+                if provider == "openai":
+                    model = config_service.get_setting("openai_model")
+                else:
+                    model = config_service.get_setting("google_model")
+                
                 cached_result = self._cache.get(text, source_lang, target_lang, model)
                 if cached_result:
                     logger.info("Translation found in cache.")
@@ -222,15 +227,19 @@ class TranslationService:
                     logger.info("Translation not found in cache.")
 
             # Prepare translation request
+            provider = config_service.get_setting("api_provider")
+            if provider == "openai":
+                model = current_settings.openai_model
+            else:
+                model = current_settings.google_model
+
             request = TranslationRequest(
                 text=text,
                 source_lang=source_lang,
                 target_lang=target_lang,
                 system_prompt=current_settings.system_prompt,
-                model=current_settings.model,
+                model=model,
             )
-
-            # Make API call
             logger.debug(f"Preparing to call GPT API with request: {request}")
             response = await self._call_gpt_api_async(request)
             logger.debug(f"Received response from API call: {response}")
@@ -242,12 +251,18 @@ class TranslationService:
 
             # Cache result
             if use_cache and config_service.get_setting("cache_enabled"):
+                provider = config_service.get_setting("api_provider")
+                if provider == "openai":
+                    model = config_service.get_setting("openai_model")
+                else:
+                    model = config_service.get_setting("google_model")
+
                 self._cache.put(
                     text,
                     response.translated_text,
                     source_lang,
                     target_lang,
-                    config_service.get_setting("model"),
+                    model,
                 )
 
             return response
@@ -271,7 +286,7 @@ class TranslationService:
             return None
 
     async def _call_gpt_api_async(self, request: TranslationRequest) -> TranslationResponse:
-        """Make actual GPT API call."""
+        """Make actual GPT API call with automatic provider/model fallback."""
         if not self._api_manager.is_initialized():
             raise RuntimeError("API manager not initialized")
 
@@ -279,7 +294,14 @@ class TranslationService:
         from ..core.api_manager import APIProvider
 
         if not self._api_manager._clients:
-            raise RuntimeError("No API clients available. Please configure your API key in settings.")
+            logger.info("No API clients configured; returning empty translation")
+            return TranslationResponse(
+                success=True,
+                translated_text="",
+                source_lang=request.source_lang,
+                target_lang=request.target_lang,
+                model=(request.model or ""),
+            )
 
         try:
             # Format messages for GPT
@@ -288,50 +310,85 @@ class TranslationService:
                 {"role": "user", "content": format_translation_prompt(request)},
             ]
 
-            # Prepare API call parameters with provider-specific optimizations
+            # Resolve provider with fallback if requested one isn't configured
+            requested_provider_name = (config_service.get_setting("api_provider") or "openai").strip().lower()
+            available = set(self._api_manager._clients.keys())
+
+            def _name_to_enum(name: str) -> APIProvider:
+                return APIProvider.OPENAI if name == "openai" else APIProvider.GOOGLE
+
+            # Pick provider: prefer requested if configured, else fallback to the other if available
+            if requested_provider_name == "openai":
+                if APIProvider.OPENAI in available:
+                    selected_provider = APIProvider.OPENAI
+                elif APIProvider.GOOGLE in available:
+                    logger.warning("Requested OpenAI provider not configured; falling back to Google")
+                    requested_provider_name = "google"
+                    selected_provider = APIProvider.GOOGLE
+                else:
+                    raise RuntimeError("No configured API provider available. Set OpenAI or Google API key in Settings.")
+            elif requested_provider_name == "google":
+                if APIProvider.GOOGLE in available:
+                    selected_provider = APIProvider.GOOGLE
+                elif APIProvider.OPENAI in available:
+                    logger.warning("Requested Google provider not configured; falling back to OpenAI")
+                    requested_provider_name = "openai"
+                    selected_provider = APIProvider.OPENAI
+                else:
+                    raise RuntimeError("No configured API provider available. Set OpenAI or Google API key in Settings.")
+            else:
+                # Unknown setting; prefer any available provider (OpenAI first)
+                selected_provider = APIProvider.OPENAI if APIProvider.OPENAI in available else (
+                    APIProvider.GOOGLE if APIProvider.GOOGLE in available else None
+                )
+                if not selected_provider:
+                    raise RuntimeError("No configured API provider available. Set OpenAI or Google API key in Settings.")
+                requested_provider_name = selected_provider.value
+                logger.warning(f"Unknown provider '{requested_provider_name}', using {selected_provider.value}")
+
+            # Adjust model if it doesn't fit the selected provider
+            final_model = (request.model or "").strip()
+            try:
+                if selected_provider == APIProvider.GOOGLE:
+                    if not final_model.lower().startswith("gemini-"):
+                        models, _ = self._api_manager.get_available_models_sync(APIProvider.GOOGLE)
+                        final_model = (models[0] if models else "gemini-1.5-flash-8b")
+                        logger.debug(f"Switched to GOOGLE-compatible model: {final_model}")
+                elif selected_provider == APIProvider.OPENAI:
+                    lm = final_model.lower()
+                    if (not lm) or lm.startswith("gemini-"):
+                        models, _ = self._api_manager.get_available_models_sync(APIProvider.OPENAI)
+                        final_model = (models[0] if models else "gpt-4.1-mini")
+                        logger.debug(f"Switched to OPENAI-compatible model: {final_model}")
+            except Exception as e:
+                logger.debug(f"Model compatibility adjustment failed, using original model '{final_model}': {e}")
+
+            # Prepare API call parameters (baseline)
             api_params = {
-                "model": request.model,
+                "model": final_model,
                 "messages": messages,
                 "temperature": 1,
                 "max_completion_tokens": 2048,
             }
 
-            # Apply OpenAI-specific optimizations only for OpenAI provider
-            api_provider_name = config_service.get_setting("api_provider")
-            if api_provider_name == "openai":
-                # Add GPT-5 specific optimizations if using GPT-5 model
-                if request.model.startswith(("gpt-5", "chatgpt")):
+            # Apply OpenAI-specific optimizations only for OpenAI-selected provider
+            if selected_provider == APIProvider.OPENAI:
+                if final_model.startswith(("gpt-5", "chatgpt")):
                     api_params["extra_body"] = {
-                        "reasoning_effort": "minimal",  # Minimize latency for translation tasks
-                        "verbosity": "low",  # Concise output for translation
+                        "reasoning_effort": "minimal",
+                        "verbosity": "low",
                     }
-                    logger.debug(f"Using OpenAI GPT-5 optimizations: reasoning_effort=minimal, verbosity=low")
-                elif request.model.startswith("gpt-"):
-                    # For older GPT models, just use reasoning_effort if supported
+                    logger.debug("Using OpenAI GPT-5 optimizations: reasoning_effort=minimal, verbosity=low")
+                elif final_model.startswith("gpt-"):
                     api_params["extra_body"] = {"reasoning_effort": "minimal"}
-                    logger.debug(f"Using OpenAI GPT optimizations: reasoning_effort=minimal")
-                else:
-                    logger.debug(f"Using OpenAI without special optimizations")
+                    logger.debug("Using OpenAI GPT optimizations: reasoning_effort=minimal")
             else:
-                # For other providers (Google, etc.), don't add OpenAI-specific parameters
-                logger.debug(f"Using provider {settings.api_provider} without OpenAI-specific optimizations")
+                logger.debug(f"Using provider {requested_provider_name} without OpenAI-specific optimizations")
 
-            logger.debug(f"Final API parameters for {api_provider_name}: {api_params}")
-
-            # Determine the API provider to use
-            if api_provider_name == "openai":
-                api_provider = APIProvider.OPENAI
-            elif api_provider_name == "azure_openai":
-                api_provider = APIProvider.AZURE_OPENAI
-            else:
-                # Default to OpenAI if provider not recognized
-                api_provider = APIProvider.OPENAI
-                logger.warning(f"Unknown API provider: {settings.api_provider}, defaulting to OpenAI")
+            logger.debug(f"Final API parameters for {requested_provider_name}: {api_params}")
 
             # Make API call through manager (includes retry logic)
-            response = await self._api_manager.make_request_async(
-                api_provider, **api_params
-            )
+            response = self._api_manager.make_request_sync(selected_provider, **api_params)
 
             # Extract translation from response (clean common GPT prefixes)
             raw_text = response.choices[0].message.content
@@ -342,7 +399,7 @@ class TranslationService:
                 translated_text=translated_text,
                 source_lang=request.source_lang,
                 target_lang=request.target_lang,
-                model=request.model,
+                model=final_model,
                 tokens_used=response.usage.total_tokens if response.usage else 0,
             )
 

@@ -23,9 +23,16 @@ class Settings(BaseSettings):
     openai_api_key: Optional[str] = Field(
         default=None, description="OpenAI API key (stored securely)"
     )
+    google_api_key: Optional[str] = Field(
+        default=None, description="Google Generative AI API key (stored securely)"
+    )
     api_provider: str = Field(default="openai", description="API provider")
-    model: str = Field(default="gpt-5-nano", description="GPT model")
+    openai_model: str = Field(default="gpt-5-nano", description="Default OpenAI model")
+    google_model: str = Field(default="gemini-1.5-flash", description="Default Google model")
     api_timeout: int = Field(default=30, description="API request timeout in seconds")
+    default_models: Optional[List[str]] = Field(
+        default=None, description="Custom default models list (overrides built-in default)"
+    )
 
     # Language Settings (legacy - now handled by UI overlay)
     supported_languages: List[str] = Field(
@@ -71,7 +78,7 @@ class Settings(BaseSettings):
     )
 
     # OCR Settings
-    ocr_languages: List[str] = Field(default=["en", "ru", "ua"], description="OCR languages")
+    ocr_languages: List[str] = Field(default=["en", "ru"], description="OCR languages")
     ocr_confidence_threshold: float = Field(default=0.7, description="OCR confidence threshold")
     ocr_timeout: int = Field(default=10, description="OCR timeout in seconds")
     # OCR initialization flag (default: disabled)
@@ -126,7 +133,7 @@ class Settings(BaseSettings):
     @classmethod
     def validate_api_provider(cls, v: str) -> str:
         """Validate API provider."""
-        valid_providers = ["openai", "anthropic", "google"]
+        valid_providers = ["openai", "google"]
         if v not in valid_providers:
             raise ValueError(f'Invalid API provider: {v}. Must be one of {valid_providers}')
         return v
@@ -167,45 +174,67 @@ def ensure_config_dir() -> Path:
     return config_path
 
 
-def load_api_key() -> Optional[str]:
-    """Load API key from keyring."""
+def load_api_key(provider: str = "openai") -> Optional[str]:
+    """Load API key for the given provider from keyring."""
     try:
+        if provider.lower() == "google":
+            return keyring.get_password("whisperbridge", "google_api_key")
+        # default to openai for backward compatibility
         return keyring.get_password("whisperbridge", "openai_api_key")
     except Exception as e:
-        logger.warning(f"Failed to load API key from keyring: {e}")
+        logger.warning(f"Failed to load {provider} API key from keyring: {e}")
         return None
 
 
-def save_api_key(api_key: str) -> bool:
-    """Save API key to keyring."""
+def save_api_key(api_key: str, provider: str = "openai") -> bool:
+    """Save API key for the given provider to keyring."""
     try:
-        keyring.set_password("whisperbridge", "openai_api_key", api_key)
-        logger.info("API key saved to keyring")
+        if provider.lower() == "google":
+            keyring.set_password("whisperbridge", "google_api_key", api_key)
+        else:
+            keyring.set_password("whisperbridge", "openai_api_key", api_key)
+        logger.info(f"{provider.capitalize()} API key saved to keyring")
         return True
     except Exception as e:
-        logger.error(f"Failed to save API key to keyring: {e}")
+        logger.error(f"Failed to save {provider} API key to keyring: {e}")
         return False
 
 
-def validate_api_key_format(api_key: str) -> bool:
-    """Validate OpenAI API key format.
+def delete_api_key(provider: str = "openai") -> bool:
+    """Delete API key for the given provider from keyring."""
+    try:
+        if provider.lower() == "google":
+            keyring.delete_password("whisperbridge", "google_api_key")
+        else:
+            keyring.delete_password("whisperbridge", "openai_api_key")
+        logger.info(f"{provider.capitalize()} API key deleted from keyring")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to delete {provider} API key from keyring: {e}")
+        return False
 
-    Moved here from utils to centralize API key handling alongside
-    keyring load/save helpers.
+
+def validate_api_key_format(api_key: str, provider: Optional[str] = "openai") -> bool:
+    """Validate API key format for supported providers.
+
+    Supported providers:
+      - openai: keys start with 'sk-' and contain 20+ characters (letters, digits, '-', or '_') after the prefix
+      - google: keys start with 'AIza' followed by 35+ URL-safe characters (letters, digits, '_' or '-')
     """
     if not api_key or not isinstance(api_key, str):
         return False
 
-    # OpenAI API keys start with 'sk-'
-    if not api_key.startswith("sk-"):
-        return False
+    prov = (provider or "openai").lower()
 
-    # Should be reasonably long
-    if len(api_key) < 20:
+    try:
+        if prov == "openai":
+            # Align with utils.config_utils.validate_api_key_format
+            pattern = r"^sk-[A-Za-z0-9_-]{20,}$"
+            return bool(re.match(pattern, api_key))
+        if prov == "google":
+            pattern = r"^AIza[0-9A-Za-z_-]{35,}$"
+            return bool(re.match(pattern, api_key))
+        # Generic fallback for unknown providers
+        return len(api_key) >= 16
+    except Exception:
         return False
-
-    # Should contain only valid characters
-    if not re.match(r"^sk-[a-zA-Z0-9\-_]+$", api_key):
-        return False
-
-    return True

@@ -59,29 +59,43 @@ def get_app_data_dir() -> Path:
 
 # API Key Validation
 def validate_openai_api_key(api_key: str) -> bool:
-    """Validate OpenAI API key format."""
+    """Validate OpenAI API key format (delegates to core.config)."""
+    try:
+        from ..core.config import validate_api_key_format as _core_validate
+    except Exception:
+        _core_validate = None
+
+    if _core_validate:
+        return _core_validate(api_key, "openai")
+
+    # Fallback to local pattern if core import fails
     if not api_key or not isinstance(api_key, str):
         return False
 
-    # OpenAI API keys start with 'sk-' and are followed by characters
-    pattern = r"^sk-[a-zA-Z0-9]{48,}$"
+    pattern = r"^sk-[A-Za-z0-9_-]{20,}$"
     return bool(re.match(pattern, api_key))
 
 
 def validate_api_key_format(api_key: str, provider: str) -> bool:
-    """Validate API key format for different providers."""
+    """Validate API key format for different providers (delegates to core.config)."""
+    try:
+        from ..core.config import validate_api_key_format as _core_validate
+        return _core_validate(api_key, provider)
+    except Exception:
+        pass
+
+    # Fallback to local validation if core import fails
     if not api_key:
         return False
 
     patterns = {
-        "openai": r"^sk-[a-zA-Z0-9]{48,}$",
-        "anthropic": r"^sk-ant-[a-zA-Z0-9_-]{95,}$",
-        "google": r"^AIza[0-9A-Za-z_-]{35}$",
+        "openai": r"^sk-[A-Za-z0-9_-]{20,}$",
+        "google": r"^AIza[0-9A-Za-z_-]{35,}$",
     }
 
-    pattern = patterns.get(provider.lower())
+    pattern = patterns.get((provider or "").lower())
     if not pattern:
-        return len(api_key) > 10  # Generic validation
+        return len(api_key) >= 16  # Generic validation
 
     return bool(re.match(pattern, api_key))
 

@@ -75,20 +75,37 @@ class SettingsManager:
         return get_config_path() / "settings.json"
 
     def _load_api_key(self) -> Optional[str]:
-        """Load API key from keyring."""
+        """Load OpenAI API key from keyring."""
         try:
             return keyring.get_password("whisperbridge", "openai_api_key")
         except Exception as e:
-            logger.warning(f"Failed to load API key from keyring: {e}")
+            logger.warning(f"Failed to load OpenAI API key from keyring: {e}")
             return None
 
     def _save_api_key(self, api_key: str) -> bool:
-        """Save API key to keyring."""
+        """Save OpenAI API key to keyring."""
         try:
             keyring.set_password("whisperbridge", "openai_api_key", api_key)
             return True
         except Exception as e:
-            logger.error(f"Failed to save API key to keyring: {e}")
+            logger.error(f"Failed to save OpenAI API key to keyring: {e}")
+            return False
+
+    def _load_google_api_key(self) -> Optional[str]:
+        """Load Google API key from keyring."""
+        try:
+            return keyring.get_password("whisperbridge", "google_api_key")
+        except Exception as e:
+            logger.warning(f"Failed to load Google API key from keyring: {e}")
+            return None
+
+    def _save_google_api_key(self, api_key: str) -> bool:
+        """Save Google API key to keyring."""
+        try:
+            keyring.set_password("whisperbridge", "google_api_key", api_key)
+            return True
+        except Exception as e:
+            logger.error(f"Failed to save Google API key to keyring: {e}")
             return False
 
     def _migrate_settings(self, data: Dict[str, Any]) -> Dict[str, Any]:
@@ -138,10 +155,13 @@ class SettingsManager:
                 else:
                     data = {}
 
-                # Load API key
-                api_key = self._load_api_key()
-                if api_key:
-                    data["openai_api_key"] = api_key
+                # Load API keys from keyring
+                openai_key = self._load_api_key()
+                if openai_key:
+                    data["openai_api_key"] = openai_key
+                google_key = self._load_google_api_key()
+                if google_key:
+                    data["google_api_key"] = google_key
 
                 # Create and validate settings
                 self._settings = Settings(**data)
@@ -182,8 +202,9 @@ class SettingsManager:
                 logger.debug(f"Data to save - theme='{data.get('theme', 'NOT_FOUND')}'")
                 logger.debug(f"Full data keys: {list(data.keys())}")
 
-                # Remove API key from JSON (stored in keyring)
-                api_key = data.pop("openai_api_key", None)
+                # Remove API keys from JSON (stored in keyring)
+                openai_key = data.pop("openai_api_key", None)
+                google_key = data.pop("google_api_key", None)
 
                 # Save to JSON
                 with open(settings_file, "w", encoding="utf-8") as f:
@@ -191,9 +212,11 @@ class SettingsManager:
 
                 logger.debug(f"Settings saved to file: {settings_file}")
 
-                # Save API key separately
-                if api_key:
-                    self._save_api_key(api_key)
+                # Save API keys separately
+                if openai_key:
+                    self._save_api_key(openai_key)
+                if google_key:
+                    self._save_google_api_key(google_key)
 
                 self._settings = settings
                 logger.info("Settings saved successfully")
@@ -204,10 +227,30 @@ class SettingsManager:
                 return False
 
     def save_single_setting(self, key: str, value: Any) -> bool:
-        """Save a single setting to the file without overwriting others."""
+        """Save a single setting to the file without overwriting others.
+
+        API keys are stored securely in keyring rather than in JSON.
+        """
         with self._lock:
             try:
                 settings_file = self._get_settings_file()
+
+                # Special handling for API keys (secure storage)
+                if key in ("openai_api_key", "google_api_key"):
+                    ok = False
+                    if key == "openai_api_key":
+                        # Save to keyring
+                        ok = self._save_api_key(value) if value is not None else self._save_api_key("")
+                    else:
+                        ok = self._save_google_api_key(value) if value is not None else self._save_google_api_key("")
+                    if not ok:
+                        return False
+
+                    # Update in-memory settings
+                    if self._settings:
+                        setattr(self._settings, key, value)
+                    logger.info(f"Successfully saved secure setting: {key}=****")
+                    return True
 
                 # Load existing data
                 if settings_file.exists():
@@ -275,11 +318,17 @@ class SettingsManager:
                 return False
 
     def export_settings(self, export_path: Path) -> bool:
-        """Export settings to a file."""
+        """Export settings to a file (without API keys)."""
         with self._lock:
             try:
                 settings = self.get_settings()
                 data = settings.model_dump()
+
+                # SECURITY: never export secrets
+                if "openai_api_key" in data or "google_api_key" in data:
+                    logger.debug("Redacting API keys from exported settings")
+                data.pop("openai_api_key", None)
+                data.pop("google_api_key", None)
 
                 with open(export_path, "w", encoding="utf-8") as f:
                     json.dump(data, f, indent=2, ensure_ascii=False)
@@ -292,16 +341,27 @@ class SettingsManager:
                 return False
 
     def import_settings(self, import_path: Path) -> bool:
-        """Import settings from a file."""
+        """Import settings from a file (ignore any API keys present)."""
         with self._lock:
             try:
                 with open(import_path, "r", encoding="utf-8") as f:
                     data = json.load(f)
 
+                # SECURITY: never accept secrets from import files
+                dropped = []
+                if "openai_api_key" in data:
+                    data.pop("openai_api_key", None)
+                    dropped.append("openai_api_key")
+                if "google_api_key" in data:
+                    data.pop("google_api_key", None)
+                    dropped.append("google_api_key")
+                if dropped:
+                    logger.warning(f"Ignored secret fields on import: {', '.join(dropped)}")
+
                 # Validate imported settings
                 imported_settings = Settings(**data)
 
-                # Save imported settings
+                # Save imported settings (keys will NOT be written to keyring since we dropped them)
                 return self.save_settings(imported_settings)
 
             except Exception as e:

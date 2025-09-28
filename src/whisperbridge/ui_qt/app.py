@@ -13,6 +13,7 @@ from PySide6.QtWidgets import QApplication
 
 from ..core.api_manager import init_api_manager
 from ..core.keyboard_manager import KeyboardManager
+from ..core.config import validate_api_key_format
 
 # Clipboard singleton accessor (used to obtain a shared ClipboardService)
 from ..services.clipboard_service import get_clipboard_service
@@ -132,8 +133,25 @@ class CaptureOcrTranslateWorker(QObject):
             # Translation
             translated_text = ""
             try:
-                api_key = config_service.get_setting("openai_api_key", use_cache=False)
-                if api_key:
+                # Check presence of API key depending on selected provider (with legacy compatibility)
+                provider = (config_service.get_setting("api_provider", use_cache=False) or "openai").strip().lower()
+                openai_key = config_service.get_setting("openai_api_key", use_cache=False)
+                google_key = config_service.get_setting("google_api_key", use_cache=False)
+
+                def _has_valid_key(p: str) -> bool:
+                    """
+                    Validate API key presence and format using centralized core validation only.
+                    """
+                    provider = (p or "").strip().lower()
+                    if provider == "google":
+                        key = google_key
+                    elif provider == "openai":
+                        key = openai_key
+                    else:
+                        return False
+                    return bool(key and validate_api_key_format(key, provider))
+
+                if _has_valid_key(provider):
                     translation_service = get_translation_service()
                     # Guard against uninitialized translation service to reduce exceptions
                     if hasattr(translation_service, "is_initialized") and not translation_service.is_initialized():
@@ -180,7 +198,7 @@ class CaptureOcrTranslateWorker(QObject):
                             error_msg = getattr(response, "error_message", "") if response else "Unknown error"
                             logger.warning(f"Translation failed or returned empty result: {error_msg}")
                 else:
-                    logger.debug("No API key, skipping translation")
+                    logger.debug("No valid API key for selected provider, skipping translation")
             except Exception as e:
                 logger.warning(f"Translation failed, using empty: {e}")
 

@@ -226,9 +226,13 @@ class CopyTranslateService(QObject):
                 return
 
             # Check for API key presence before attempting translation
-            api_key = self.config_service.get_setting("openai_api_key", use_cache=False)
-            if not api_key:
-                log.info("No API key configured, showing original text only")
+            provider = (self.config_service.get_setting("api_provider", use_cache=False) or "openai").strip().lower()
+            openai_key = self.config_service.get_setting("openai_api_key", use_cache=False)
+            google_key = self.config_service.get_setting("google_api_key", use_cache=False)
+            # Backward compatibility: if provider is google but dedicated key is missing, allow fallback to openai key
+            has_api_key = bool(openai_key) if provider == "openai" else bool(google_key or openai_key)
+            if not has_api_key:
+                log.info("No API key configured for the selected provider, showing original text only")
                 # Emit overlay with original text only (no translation attempt)
                 # Performance summary: compute clipboard time, translation=0
                 clipboard_ms = ((t_after_poll_success - (t_after_sim or t_start)) * 1000) if t_after_poll_success and t_after_sim else 0

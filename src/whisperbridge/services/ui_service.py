@@ -51,7 +51,7 @@ class UIService:
         self.main_window = main_window
         self.tray_manager = tray_manager
         self.selection_overlay = selection_overlay
-        self.settings_dialog = settings_dialog
+        self.settings_dialog = None
         # Use provided dict or initialize empty dict
         self.overlay_windows: Dict[str, OverlayWindow] = overlay_windows if overlay_windows is not None else {}
         # Clipboard service may be None; fallback to get_clipboard_service() inside methods
@@ -193,7 +193,7 @@ class UIService:
         self.logger.info("UIService: open_settings() called")
         try:
             # Create dialog if it doesn't exist or was closed
-            if self.settings_dialog is None or not getattr(self.settings_dialog, "isVisible", lambda: False)():
+            if self.settings_dialog is None:
                 # Ensure main_window exists for parenting
                 if self.main_window is None:
                     self._create_main_window()
@@ -201,8 +201,6 @@ class UIService:
                 parent = self.main_window if self.main_window else None
                 try:
                     self.settings_dialog = SettingsDialog(app=self.app, parent=parent)
-                    # Reset reference when dialog finishes
-                    self.settings_dialog.finished.connect(lambda: setattr(self, "settings_dialog", None))
                 except Exception as e:
                     self.logger.error(f"UIService: Failed to create SettingsDialog: {e}", exc_info=True)
                     # Notify user via tray if possible
