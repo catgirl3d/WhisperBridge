@@ -679,11 +679,11 @@ class QtApp(QObject, SettingsObserver):
         self.show_main_window_signal.emit()
 
     def _on_copy_translate_hotkey(self):
-        """Handle copy-translate hotkey press — fallback-only simulated Ctrl+C copy.
+        """Handle copy-translate hotkey press using a simulated Ctrl+C copy.
 
         Added: API key presence check and structured performance logging.
         """
-        logger.info("Copy-translate hotkey pressed (fallback-only handler)")
+        logger.info("Copy-translate hotkey pressed (simulated copy handler)")
         self.copy_translate_service.run()
 
     @Slot(str, str)

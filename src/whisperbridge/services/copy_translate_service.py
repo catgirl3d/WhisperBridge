@@ -4,8 +4,8 @@ Copy-Translate Service
 Extracted from QtApp._on_copy_translate_hotkey in src/whisperbridge/ui_qt/app.py
 
 This service encapsulates the logic for handling the copy-translate hotkey. It performs
-simulated Ctrl+C copy (fallback), polls the clipboard, detects language, translates if
-possible, and emits a result signal with the original text, translated text, and
+a simulated Ctrl+C copy to capture the selected text, polls the clipboard, detects language,
+translates if possible, and emits a result signal with the original text, translated text, and
 auto-copy flag. Preserves all original behavior, including notifications, logging,
 and error handling.
 """
@@ -42,7 +42,7 @@ class CopyTranslateService(QObject):
 
         log = self.debug_logger or logger
 
-        log.info("Copy-translate hotkey pressed (fallback-only handler)")
+        log.info("Copy-translate hotkey pressed (simulated copy handler)")
         # Performance timing points (perf_counter for high-resolution timing)
         t_start = time.perf_counter()
         t_after_sim = None
@@ -52,7 +52,7 @@ class CopyTranslateService(QObject):
         try:
             import platform
 
-            # Determine platform once for use in fallback logic
+            # Determine platform once for use in platform-specific logic
             system = platform.system().lower()
 
             # Fallback-only approach: simulate Ctrl+C and read clipboard
@@ -61,7 +61,7 @@ class CopyTranslateService(QObject):
 
                 controller = Controller()
             except ImportError:
-                log.error("pynput not available for copy-translate fallback")
+                log.error("pynput not available for copy-translate simulated copy")
                 if self.tray_manager:
                     self.tray_manager.show_notification(
                         "WhisperBridge", "Copy-translate failed: pynput not installed"
@@ -131,19 +131,24 @@ class CopyTranslateService(QObject):
                     log.debug(f"Failed to detect/wait for Ctrl key state: {e_ctrl_wait}")
 
             try:
-                log.debug("Starting fallback simulated Ctrl+C copy")
-                # Always send Ctrl down, send 'c', then Ctrl up.
+                log.debug("Starting simulated Ctrl+C copy")
+                sim_start = time.perf_counter()
+                log.debug("Simulated copy step: press ctrl")
                 controller.press(Key.ctrl)
+                log.debug("Simulated copy step: press c")
                 controller.press("c")
+                log.debug("Simulated copy step: release c")
                 controller.release("c")
+                log.debug("Simulated copy step: release ctrl")
                 controller.release(Key.ctrl)
                 # Mark after-simulation timepoint
                 t_after_sim = time.perf_counter()
+                log.debug(f"Simulated copy sequence finished in {(t_after_sim - sim_start) * 1000:.2f}ms")
             except Exception as e:
                 log.error(f"Fallback copy simulation failed: {e}")
                 if self.tray_manager:
                     self.tray_manager.show_notification(
-                        "WhisperBridge", f"Copy-translate fallback failed: {e}"
+                        "WhisperBridge", f"Copy-translate copy simulation failed: {e}"
                     )
                 t_end = time.perf_counter()
                 log.info(f"Copy-translate performance: clipboard=0ms, translation=0ms, total={(t_end - t_start) * 1000:.0f}ms")
@@ -183,7 +188,18 @@ class CopyTranslateService(QObject):
                 if new_clip and new_clip != prev_clip:
                     t_after_poll_success = time.perf_counter()
                     duration = t_after_poll_success - poll_start
-                    log.info(f"Fallback simulated copy succeeded after {attempts} attempts in {duration:.3f}s")
+                    log.info(f"Simulated copy succeeded after {attempts} attempts in {duration:.3f}s")
+                    prev_len = len(prev_clip)
+                    new_len = len(new_clip)
+                    prev_sample = prev_clip[:40] + ("…" if prev_len > 40 else "")
+                    new_sample = new_clip[:40] + ("…" if new_len > 40 else "")
+                    log.debug(
+                        "Clipboard content changed: prev_len={} new_len={} prev_sample={!r} new_sample={!r}",
+                        prev_len,
+                        new_len,
+                        prev_sample,
+                        new_sample,
+                    )
                     break
 
                 # Check if we would exceed timeout with the next sleep
@@ -201,6 +217,13 @@ class CopyTranslateService(QObject):
                 t_after_poll_success = time.perf_counter()
                 total_elapsed = t_after_poll_success - t_start
                 log.info(f"No new clipboard text detected after polling; timeout reached (elapsed={total_elapsed:.3f}s, attempts={attempts})")
+                prev_len = len(prev_clip)
+                prev_sample = prev_clip[:40] + ("…" if prev_len > 40 else "")
+                log.debug(
+                    "Clipboard content unchanged; prev_len={} prev_sample={!r}",
+                    prev_len,
+                    prev_sample,
+                )
                 if self.tray_manager:
                     self.tray_manager.show_notification(
                         "WhisperBridge",
@@ -229,8 +252,16 @@ class CopyTranslateService(QObject):
             provider = (self.config_service.get_setting("api_provider", use_cache=False) or "openai").strip().lower()
             openai_key = self.config_service.get_setting("openai_api_key", use_cache=False)
             google_key = self.config_service.get_setting("google_api_key", use_cache=False)
+            has_openai_key = bool(openai_key)
+            has_google_key = bool(google_key)
+            log.debug(
+                "Copy-translate configuration: provider={} has_openai_key={} has_google_key={}",
+                provider,
+                has_openai_key,
+                has_google_key,
+            )
             # Backward compatibility: if provider is google but dedicated key is missing, allow fallback to openai key
-            has_api_key = bool(openai_key) if provider == "openai" else bool(google_key or openai_key)
+            has_api_key = has_openai_key if provider == "openai" else bool(google_key or openai_key)
             if not has_api_key:
                 log.info("No API key configured for the selected provider, showing original text only")
                 # Emit overlay with original text only (no translation attempt)
@@ -304,6 +335,7 @@ class CopyTranslateService(QObject):
             # Read auto_copy_translated setting live and set pending flag so main thread can copy AFTER overlay is shown
             try:
                 auto_copy = bool(self.config_service.get_setting("auto_copy_translated", use_cache=False))
+                log.debug("Auto-copy setting resolved to {}", auto_copy)
             except Exception as e:
                 log.debug(f"Failed to read auto_copy_translated setting: {e}")
                 auto_copy = False
@@ -317,7 +349,7 @@ class CopyTranslateService(QObject):
 
             # Emit signal to show overlay from main thread
             self.result_ready.emit(text_to_translate, translated_text, auto_copy)
-            log.info("Copy-translate hotkey processed successfully (fallback simulated copy path)")
+            log.info("Copy-translate hotkey processed successfully (simulated copy path)")
         except Exception as e:
             log.error(f"Error in copy-translate hotkey handler: {e}", exc_info=True)
             if self.tray_manager:
