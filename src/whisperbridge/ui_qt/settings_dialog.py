@@ -35,7 +35,7 @@ from loguru import logger
 class ApiTestWorker(QObject):
     """Worker for testing API key asynchronously."""
 
-    finished = Signal(bool, str)  # success, error_message
+    finished = Signal(bool, str, list, str)  # success, error_message, models, source
 
     def __init__(self, provider: str, api_key: str):
         super().__init__()
@@ -43,17 +43,23 @@ class ApiTestWorker(QObject):
         self.api_key = api_key
 
     def run(self):
-        """Test the API key for the specified provider."""
+        """Test the API key by delegating to APIManager with a temporary key and emit models to avoid double fetch."""
         try:
-            if self.provider == "openai":
-                self._test_openai()
-            elif self.provider == "google":
-                self._test_google()
+            api_manager = get_api_manager()
+            if not api_manager.is_initialized():
+                api_manager.initialize()
+            provider_enum = APIProvider(self.provider)
+            models, source = api_manager.get_available_models_sync(
+                provider=provider_enum, temp_api_key=self.api_key
+            )
+            if source in ("error", "unconfigured"):
+                self.finished.emit(False, "API error or invalid key", [], source)
+            elif not models:
+                self.finished.emit(False, "No models available for this API key", [], source)
             else:
-                self.finished.emit(False, f"Unsupported provider: {self.provider}")
-
+                self.finished.emit(True, "", models, source)
         except Exception as e:
-            self.finished.emit(False, f"Ошибка подключения: {str(e)}")
+            self.finished.emit(False, f"Ошибка подключения: {str(e)}", [], "error")
 
     def _test_openai(self):
         """Test OpenAI API by fetching available models."""
@@ -161,12 +167,40 @@ class SettingsDialog(QDialog, SettingsObserver):
         # Create buttons
         self._create_buttons(layout)
 
+        # Initialize the settings map
+        self._init_settings_map()
+
         # Register as config service observer
         config_service.add_observer(self)
 
         # Load current values
         self._load_settings()
 
+    def _init_settings_map(self):
+        """Initialize the map between settings and widgets."""
+        self.settings_map = {
+            "api_provider": (self.api_provider_combo, "currentText", "setCurrentText"),
+            "api_timeout": (self.api_timeout_spin, "value", "setValue"),
+            "ocr_auto_swap_en_ru": (self.ocr_auto_swap_checkbox, "isChecked", "setChecked"),
+            "system_prompt": (self.system_prompt_edit, "toPlainText", "setPlainText"),
+            "initialize_ocr": (self.initialize_ocr_check, "isChecked", "setChecked"),
+            "ocr_languages": (
+                self.ocr_languages_edit,
+                lambda w: [lang.strip() for lang in w.text().split(",") if lang.strip()],
+                lambda w, v: w.setText(",".join(v)),
+            ),
+            "ocr_confidence_threshold": (self.ocr_confidence_spin, "value", "setValue"),
+            "ocr_timeout": (self.ocr_timeout_spin, "value", "setValue"),
+            "translate_hotkey": (self.translate_hotkey_edit, "text", "setText"),
+            "quick_translate_hotkey": (self.quick_translate_hotkey_edit, "text", "setText"),
+            "activation_hotkey": (self.activation_hotkey_edit, "text", "setText"),
+            "copy_translate_hotkey": (self.copy_translate_hotkey_edit, "text", "setText"),
+            "auto_copy_translated": (self.auto_copy_translated_check, "isChecked", "setChecked"),
+            "clipboard_poll_timeout_ms": (self.clipboard_poll_timeout_spin, "value", "setValue"),
+            "theme": (self.theme_combo, "currentText", "setCurrentText"),
+            "log_level": (self.log_level_combo, "currentText", "setCurrentText"),
+            "show_notifications": (self.show_notifications_check, "isChecked", "setChecked"),
+        }
 
     def _apply_stylesheet(self):
         """Apply a custom stylesheet"""
@@ -334,8 +368,6 @@ class SettingsDialog(QDialog, SettingsObserver):
         self.model_combo = QComboBox()
         # Allow custom model input
         self.model_combo.setEditable(True)
-        # Add placeholder text while loading
-        self.model_combo.addItem("Loading models...")
         model_layout.addRow("Model:", self.model_combo)
 
         # Don't load models here - they will be loaded in _load_settings
@@ -356,12 +388,9 @@ class SettingsDialog(QDialog, SettingsObserver):
         provider = self.api_provider_combo.currentText().strip().lower()
         settings = config_service.get_settings()
 
-        if provider == "openai":
-            self.api_key_label.setText("OpenAI API Key:")
-            self.api_key_edit.setText(getattr(settings, "openai_api_key", "") or "")
-        elif provider == "google":
-            self.api_key_label.setText("Google API Key:")
-            self.api_key_edit.setText(getattr(settings, "google_api_key", "") or "")
+        self.api_key_label.setText(f"{provider.capitalize()} API Key:")
+        api_key = getattr(settings, f"{provider}_api_key", "") or ""
+        self.api_key_edit.setText(api_key)
 
     def _create_translation_tab(self):
         """Create translation settings tab."""
@@ -514,99 +543,51 @@ class SettingsDialog(QDialog, SettingsObserver):
 
     def _load_settings(self):
         """Load current settings into the UI."""
-        # Get fresh settings from config service
         settings = config_service.get_settings()
-
         logger.debug(f"Loading settings - theme: '{settings.theme}'")
 
-        # API tab
-        self.api_provider_combo.setCurrentText(settings.api_provider)
-        # This call will now correctly populate the unified API key field
+        for key, (widget, _, setter) in self.settings_map.items():
+            value = getattr(settings, key, None)
+            if value is not None:
+                if callable(setter):
+                    setter(widget, value)
+                else:
+                    getattr(widget, setter)(value)
+
+        # Special handling for API key and models
         self._update_api_key_field()
-        self.api_timeout_spin.setValue(settings.api_timeout)
 
-        # Translation tab
-        self.ocr_auto_swap_checkbox.setChecked(bool(getattr(settings, "ocr_auto_swap_en_ru", False)))
-        self.system_prompt_edit.setPlainText(settings.system_prompt)
-
-        # OCR tab
-        self.ocr_languages_edit.setText(",".join(settings.ocr_languages))
-        self.ocr_confidence_spin.setValue(settings.ocr_confidence_threshold)
-        self.ocr_timeout_spin.setValue(settings.ocr_timeout)
-        self.initialize_ocr_check.setChecked(bool(getattr(settings, "initialize_ocr", False)))
-
-        # Hotkeys tab
-        self.translate_hotkey_edit.setText(settings.translate_hotkey)
-        self.quick_translate_hotkey_edit.setText(settings.quick_translate_hotkey)
-        self.activation_hotkey_edit.setText(settings.activation_hotkey)
-        self.copy_translate_hotkey_edit.setText(settings.copy_translate_hotkey)
-
-        # Copy-translate enhancements
-        self.auto_copy_translated_check.setChecked(bool(getattr(settings, "auto_copy_translated", False)))
-        self.clipboard_poll_timeout_spin.setValue(int(getattr(settings, "clipboard_poll_timeout_ms", 2000)))
-
-        # General tab
-        self.theme_combo.setCurrentText(settings.theme)
-        self.log_level_combo.setCurrentText(getattr(settings, "log_level", "INFO"))
-        self.show_notifications_check.setChecked(settings.show_notifications)
-
-        # Reload models after loading settings to ensure dynamic loading
-        logger.debug("About to call _load_models from _load_settings")
         provider_name = self.api_provider_combo.currentText()
-        if provider_name.lower() == "openai":
-            model_to_select = settings.openai_model
-        elif provider_name.lower() == "google":
-            model_to_select = settings.google_model
-        else:
-            model_to_select = None  # Fallback
+        model_to_select = getattr(settings, f"{provider_name.lower()}_model", None)
         self._load_models(provider_name=provider_name, model_to_select=model_to_select)
 
     def _on_save(self):
         """Handle save button click."""
         try:
-            # Create a mutable copy of the current settings
             settings_to_save = config_service.get_settings().model_copy(deep=True)
 
-            # API Tab
+            for key, (widget, getter, _) in self.settings_map.items():
+                if callable(getter):
+                    value = getter(widget)
+                else:
+                    value = getattr(widget, getter)()
+                
+                if isinstance(value, str):
+                    value = value.strip()
+
+                setattr(settings_to_save, key, value)
+
+            # Special handling for provider-specific fields
             provider = self.api_provider_combo.currentText().lower()
             api_key_text = self.api_key_edit.text().strip() or None
             model_text = self.model_combo.currentText().strip()
 
-            settings_to_save.api_provider = provider
-            if provider == "openai":
-                settings_to_save.openai_api_key = api_key_text
-                settings_to_save.openai_model = model_text
-            elif provider == "google":
-                settings_to_save.google_api_key = api_key_text
-                settings_to_save.google_model = model_text
-            settings_to_save.api_timeout = self.api_timeout_spin.value()
-
-            # Translation Tab
-            settings_to_save.system_prompt = self.system_prompt_edit.toPlainText().strip()
-            settings_to_save.ocr_auto_swap_en_ru = self.ocr_auto_swap_checkbox.isChecked()
-
-            # OCR Tab
-            settings_to_save.initialize_ocr = self.initialize_ocr_check.isChecked()
-            settings_to_save.ocr_languages = [lang.strip() for lang in self.ocr_languages_edit.text().split(",") if lang.strip()]
-            settings_to_save.ocr_confidence_threshold = self.ocr_confidence_spin.value()
-            settings_to_save.ocr_timeout = self.ocr_timeout_spin.value()
-
-            # Hotkeys Tab
-            settings_to_save.translate_hotkey = self.translate_hotkey_edit.text().strip()
-            settings_to_save.quick_translate_hotkey = self.quick_translate_hotkey_edit.text().strip()
-            settings_to_save.activation_hotkey = self.activation_hotkey_edit.text().strip()
-            settings_to_save.copy_translate_hotkey = self.copy_translate_hotkey_edit.text().strip()
-            settings_to_save.auto_copy_translated = self.auto_copy_translated_check.isChecked()
-            settings_to_save.clipboard_poll_timeout_ms = self.clipboard_poll_timeout_spin.value()
-    
-            # General Tab
-            settings_to_save.theme = self.theme_combo.currentText()
-            settings_to_save.log_level = self.log_level_combo.currentText().strip()
-            settings_to_save.show_notifications = self.show_notifications_check.isChecked()
+            setattr(settings_to_save, f"{provider}_api_key", api_key_text)
+            setattr(settings_to_save, f"{provider}_model", model_text)
 
             logger.debug(f"Saving settings with theme: '{settings_to_save.theme}'")
 
-            # Save settings asynchronously by passing the dictionary representation
+            # Save settings asynchronously
             self.app.save_settings_async(settings_to_save.model_dump())
 
             # Assume success and close the dialog immediately
@@ -715,42 +696,21 @@ class SettingsDialog(QDialog, SettingsObserver):
 
         self.test_thread.start()
 
-    def _on_test_finished(self, success: bool, error_msg: str):
-        """Handle API test completion."""
+    def _on_test_finished(self, success: bool, error_msg: str, models: list, source: str):
+        """Handle API test completion (models already fetched in worker to avoid second network call)."""
         # Re-enable button
         self.test_api_button.setEnabled(True)
         self.test_api_button.setText("Test API")
 
-        # Show result
         if success:
-            QMessageBox.information(
-                self, "Test Successful", "API key is working correctly!"
-            )
-            # After a successful test, load models immediately using the tested key
+            QMessageBox.information(self, "Test Successful", "API key is working correctly!")
             try:
-                provider_name = self.api_provider_combo.currentText()
-                api_key = self.api_key_edit.text().strip()
-                provider_enum = APIProvider(provider_name)
-                
-                api_manager = get_api_manager()
-                logger.info(f"Fetching models for {provider_name} with temporary key after successful test.")
-                
-                # Use the modified method to get models with the temporary key
-                models, source = api_manager.get_available_models_sync(
-                    provider=provider_enum, temp_api_key=api_key
-                )
-
-                if source == "error":
-                    raise RuntimeError("Failed to fetch models with temporary key.")
-
-                # Apply models to the UI
                 current_model = self.model_combo.currentText().strip()
                 self._apply_models_to_ui(models, current_model, source)
-                logger.info(f"Successfully loaded {len(models)} models after API test.")
-
+                logger.info(f"Successfully applied {len(models)} models from {source} after API test without extra fetch.")
             except Exception as e:
-                logger.error(f"Failed to load models after successful API test: {e}")
-                QMessageBox.warning(self, "Model Load Failed", f"API key is valid, but could not fetch models: {e}")
+                logger.error(f"Failed applying models after API test: {e}")
+                QMessageBox.warning(self, "Model Apply Failed", f"API key is valid, but could not apply models: {e}")
         else:
             QMessageBox.warning(self, "Test Failed", f"API test failed: {error_msg}")
 
@@ -763,28 +723,36 @@ class SettingsDialog(QDialog, SettingsObserver):
         logger.debug(f"Loading models for provider: {provider_name}")
         logger.debug(f"Model to select: '{model_to_select}'")
 
-        # Check if API key is configured for the current provider
-        api_key_configured = self._is_api_key_configured(provider_name)
-
-        if not api_key_configured:
-            logger.debug("No API key configured for provider, showing empty model list")
-            self.model_combo.clear()
-            self.model_combo.addItem("No API key configured")
-            return
-
         # Clear current models and show loading state
         self.model_combo.clear()
         self.model_combo.addItem("Loading models...")
 
         try:
-            from ..core.api_manager import init_api_manager
-            api_manager = init_api_manager()  # Ensure API manager is initialized
-            logger.debug(f"API manager initialized: {api_manager.is_initialized()}")
+            api_manager = get_api_manager()
+            if not api_manager.is_initialized():
+                logger.debug("API manager not initialized; skipping model fetch in UI. It will be initialized at app startup.")
+                self._apply_models_to_ui([], model_to_select, "unconfigured")
+                return
 
-            # Unified synchronous fetch for all providers
+            # Unified synchronous fetch for all providers (API manager is the single SoT)
             logger.debug("Fetching models synchronously via centralized API manager")
             provider_enum = APIProvider(provider_name)
-            models, source = api_manager.get_available_models_sync(provider_enum)
+
+            # Derive temp_api_key from typed value if it differs from saved and has valid format
+            temp_key = None
+            try:
+                typed_key = self.api_key_edit.text().strip()
+                saved_key = getattr(config_service.get_settings(), f"{provider_name.lower()}_api_key", None) or ""
+                if typed_key and typed_key != saved_key and validate_api_key_format(typed_key, provider_name):
+                    temp_key = typed_key
+                    logger.debug("Using temporary API key from input for model fetch")
+            except Exception as ve:
+                logger.debug(f"Temp API key validation skipped or failed: {ve}")
+
+            models, source = api_manager.get_available_models_sync(
+                provider=provider_enum,
+                temp_api_key=temp_key
+            )
 
             logger.debug(f"Loaded {len(models)} models from {source} for provider {provider_name}")
 
@@ -807,12 +775,7 @@ class SettingsDialog(QDialog, SettingsObserver):
 
         # Also check if the key is saved in settings
         settings = config_service.get_settings()
-        if provider_name.lower() == "openai":
-            saved_key = bool(getattr(settings, "openai_api_key", None))
-        elif provider_name.lower() == "google":
-            saved_key = bool(getattr(settings, "google_api_key", None))
-        else:
-            saved_key = False
+        saved_key = bool(getattr(settings, f"{provider_name.lower()}_api_key", None))
 
         return current_input or saved_key
 
@@ -863,12 +826,7 @@ class SettingsDialog(QDialog, SettingsObserver):
         settings = config_service.get_settings()
 
         # Get the model that was saved for the new provider
-        if new_provider_name == "openai":
-            model_to_restore = settings.openai_model
-        elif new_provider_name == "google":
-            model_to_restore = settings.google_model
-        else:
-            model_to_restore = None
+        model_to_restore = getattr(settings, f"{new_provider_name}_model", None)
 
         logger.debug(f"🔄 Provider changed to {new_provider_name}, attempting to restore model: '{model_to_restore}'")
 
@@ -902,12 +860,18 @@ class SettingsDialog(QDialog, SettingsObserver):
         # This must be done BEFORE self.current_settings is updated.
         try:
             old_settings = self.current_settings
-            api_keys_changed = (
-                (getattr(settings, 'openai_api_key', None) or "") != (getattr(old_settings, 'openai_api_key', None) or "") or
-                (getattr(settings, 'google_api_key', None) or "") != (getattr(old_settings, 'google_api_key', None) or "") or
-                settings.api_provider != old_settings.api_provider
-            )
+            api_keys_changed = settings.api_provider != old_settings.api_provider
 
+            if not api_keys_changed:
+                providers = [self.api_provider_combo.itemText(i) for i in range(self.api_provider_combo.count())]
+                for provider in providers:
+                    p_lower = provider.lower()
+                    old_key = getattr(old_settings, f"{p_lower}_api_key", None) or ""
+                    new_key = getattr(settings, f"{p_lower}_api_key", None) or ""
+                    if old_key != new_key:
+                        api_keys_changed = True
+                        break
+            
             if api_keys_changed:
                 api_manager = get_api_manager()
                 api_manager.reinitialize()

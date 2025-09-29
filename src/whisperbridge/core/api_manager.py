@@ -490,6 +490,14 @@ class APIManager:
             temp_api_key: If provided, use this key for a one-off request
                           instead of the configured client.
         """
+        # 0. If provider is not configured and no temp key is provided, report UNCONFIGURED (ignore cache)
+        if not temp_api_key:
+            with self._lock:
+                is_configured = provider in self._clients
+            if not is_configured:
+                logger.debug(f"Provider {provider.value} not configured - ignoring cache and reporting UNCONFIGURED")
+                return [], ModelSource.UNCONFIGURED.value
+
         # 1. Check cache first, but only if not using a temporary key
         if not temp_api_key:
             with self._lock:
