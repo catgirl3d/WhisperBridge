@@ -61,70 +61,8 @@ class ApiTestWorker(QObject):
         except Exception as e:
             self.finished.emit(False, f"Ошибка подключения: {str(e)}", [], "error")
 
-    def _test_openai(self):
-        """Test OpenAI API by fetching available models."""
-        try:
-            import openai
-
-            # Create a temporary client for testing
-            client = openai.OpenAI(api_key=self.api_key, timeout=10)
-
-            # Test API by fetching models list
-            models_response = client.models.list()
-
-            # If we get here, the API key is valid and we have models
-            self.finished.emit(True, "")
-
-        except openai.AuthenticationError:
-            self.finished.emit(False, "Неверный API ключ")
-        except openai.RateLimitError:
-            self.finished.emit(False, "Превышен лимит запросов")
-        except openai.APIError as e:
-            self.finished.emit(False, f"Ошибка API: {str(e)}")
-        except ImportError:
-            self.finished.emit(False, "OpenAI library not installed")
-        except Exception as e:
-            self.finished.emit(False, f"Ошибка OpenAI: {str(e)}")
 
 
-    def _test_google(self):
-        """Test Google API by fetching available models."""
-        try:
-            import google.generativeai as genai
-            from google.api_core.exceptions import (
-                Unauthenticated,
-                ResourceExhausted,
-                NotFound,
-                PermissionDenied,
-                InvalidArgument,
-                FailedPrecondition,
-            )
-
-            # Configure the API
-            genai.configure(api_key=self.api_key)
-
-            # Test API by fetching models list
-            models_response = genai.list_models()
-
-            # If we get here, the API key is valid and we have models
-            self.finished.emit(True, "")
-
-        except Unauthenticated:
-            self.finished.emit(False, "Неверный API ключ")
-        except PermissionDenied:
-            self.finished.emit(False, "Недостаточно прав доступа")
-        except ResourceExhausted:
-            self.finished.emit(False, "Превышен лимит запросов")
-        except InvalidArgument as e:
-            self.finished.emit(False, f"Неверные параметры запроса: {str(e)}")
-        except FailedPrecondition as e:
-            self.finished.emit(False, f"API не готово к использованию: {str(e)}")
-        except NotFound as e:
-            self.finished.emit(False, f"Ресурс не найден: {str(e)}")
-        except ImportError:
-            self.finished.emit(False, "Библиотека google-generativeai не установлена")
-        except Exception as e:
-            self.finished.emit(False, f"Неизвестная ошибка Google API: {str(e)}")
 
 
 class SettingsDialog(QDialog, SettingsObserver):
@@ -385,7 +323,7 @@ class SettingsDialog(QDialog, SettingsObserver):
 
     def _update_api_key_field(self):
         """Update the API key field label and content for the selected provider."""
-        provider = self.api_provider_combo.currentText().strip().lower()
+        provider = self._get_current_provider()
         settings = config_service.get_settings()
 
         self.api_key_label.setText(f"{provider.capitalize()} API Key:")
@@ -541,6 +479,10 @@ class SettingsDialog(QDialog, SettingsObserver):
 
         layout.addLayout(button_layout)
 
+    def _get_current_provider(self) -> str:
+        """Gets the current provider name, normalized."""
+        return self.api_provider_combo.currentText().strip().lower()
+
     def _load_settings(self):
         """Load current settings into the UI."""
         settings = config_service.get_settings()
@@ -578,7 +520,7 @@ class SettingsDialog(QDialog, SettingsObserver):
                 setattr(settings_to_save, key, value)
 
             # Special handling for provider-specific fields
-            provider = self.api_provider_combo.currentText().lower()
+            provider = self._get_current_provider()
             api_key_text = self.api_key_edit.text().strip() or None
             model_text = self.model_combo.currentText().strip()
 
@@ -603,7 +545,7 @@ class SettingsDialog(QDialog, SettingsObserver):
 
     def _on_delete_api_key(self):
         """Handle delete API key button click."""
-        provider = self.api_provider_combo.currentText().strip()
+        provider = self._get_current_provider()
 
         reply = QMessageBox.question(
             self,
@@ -633,8 +575,7 @@ class SettingsDialog(QDialog, SettingsObserver):
                         logger.info(f"API manager reinitialized after deleting {provider} key.")
 
                         # 3. Reload models to update the UI, which will now show the unconfigured state
-                        provider = self.api_provider_combo.currentText().strip()
-                        self._load_models(provider_name=provider)
+                        self._load_models(provider_name=self._get_current_provider())
                     except Exception as e:
                         logger.error(f"Failed to update state after key deletion: {e}")
                 else:
@@ -654,7 +595,7 @@ class SettingsDialog(QDialog, SettingsObserver):
     def _on_test_api(self):
         """Handle test API button click."""
         # Get values from UI
-        provider = self.api_provider_combo.currentText().strip()
+        provider = self._get_current_provider()
         api_key = self.api_key_edit.text().strip()
 
         # Validate input
@@ -716,16 +657,15 @@ class SettingsDialog(QDialog, SettingsObserver):
 
     def _load_models(self, provider_name: str = None, model_to_select: str = None):
         """Load available models for the current provider."""
-        if provider_name is None:
-            provider_name = self.api_provider_combo.currentText()
+        # Normalize provider name if passed, or get from UI
+        provider = (provider_name.strip().lower() if provider_name else self._get_current_provider())
 
         logger.debug("=== _load_models called ===")
-        logger.debug(f"Loading models for provider: {provider_name}")
+        logger.debug(f"Loading models for provider: {provider}")
         logger.debug(f"Model to select: '{model_to_select}'")
 
-        # Clear current models and show loading state
+        # Clear current models
         self.model_combo.clear()
-        self.model_combo.addItem("Loading models...")
 
         try:
             api_manager = get_api_manager()
@@ -736,14 +676,14 @@ class SettingsDialog(QDialog, SettingsObserver):
 
             # Unified synchronous fetch for all providers (API manager is the single SoT)
             logger.debug("Fetching models synchronously via centralized API manager")
-            provider_enum = APIProvider(provider_name)
+            provider_enum = APIProvider(provider)
 
             # Derive temp_api_key from typed value if it differs from saved and has valid format
             temp_key = None
             try:
                 typed_key = self.api_key_edit.text().strip()
-                saved_key = getattr(config_service.get_settings(), f"{provider_name.lower()}_api_key", None) or ""
-                if typed_key and typed_key != saved_key and validate_api_key_format(typed_key, provider_name):
+                saved_key = getattr(config_service.get_settings(), f"{provider}_api_key", None) or ""
+                if typed_key and typed_key != saved_key and validate_api_key_format(typed_key, provider):
                     temp_key = typed_key
                     logger.debug("Using temporary API key from input for model fetch")
             except Exception as ve:
@@ -754,7 +694,7 @@ class SettingsDialog(QDialog, SettingsObserver):
                 temp_api_key=temp_key
             )
 
-            logger.debug(f"Loaded {len(models)} models from {source} for provider {provider_name}")
+            logger.debug(f"Loaded {len(models)} models from {source} for provider {provider}")
 
             if source == "unconfigured":
                 logger.debug(f"Provider {provider_enum.value} not configured, cannot load models")
@@ -768,16 +708,6 @@ class SettingsDialog(QDialog, SettingsObserver):
             logger.error(f"Failed to load models: {e}")
             self._apply_models_to_ui([], model_to_select, "error")
 
-    def _is_api_key_configured(self, provider_name: str) -> bool:
-        """Check if API key is configured for the given provider."""
-        # Check both current input field and saved settings
-        current_input = bool(self.api_key_edit.text().strip())
-
-        # Also check if the key is saved in settings
-        settings = config_service.get_settings()
-        saved_key = bool(getattr(settings, f"{provider_name.lower()}_api_key", None))
-
-        return current_input or saved_key
 
 
 
@@ -822,16 +752,16 @@ class SettingsDialog(QDialog, SettingsObserver):
         if not self.isVisible():
             return
 
-        new_provider_name = self.api_provider_combo.currentText().strip().lower()
+        provider = self._get_current_provider()
         settings = config_service.get_settings()
 
         # Get the model that was saved for the new provider
-        model_to_restore = getattr(settings, f"{new_provider_name}_model", None)
+        model_to_restore = getattr(settings, f"{provider}_model", None)
 
-        logger.debug(f"🔄 Provider changed to {new_provider_name}, attempting to restore model: '{model_to_restore}'")
+        logger.debug(f"🔄 Provider changed to {provider}, attempting to restore model: '{model_to_restore}'")
 
         self._update_api_key_field()
-        self._load_models(provider_name=self.api_provider_combo.currentText(), model_to_select=model_to_restore)
+        self._load_models(provider_name=provider, model_to_select=model_to_restore)
 
     # SettingsObserver methods
     def on_settings_changed(self, key: str, old_value, new_value):
