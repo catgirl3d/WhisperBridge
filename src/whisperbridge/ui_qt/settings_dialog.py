@@ -24,9 +24,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QTextEdit,
 )
-from PySide6.QtCore import Qt, QEvent, QThread, Signal, QObject
-
-import qtawesome as qta
+from PySide6.QtCore import QThread, Signal, QObject
 
 from ..services.config_service import config_service, SettingsObserver
 from ..core.api_manager import get_api_manager, APIProvider
@@ -39,11 +37,10 @@ class ApiTestWorker(QObject):
 
     finished = Signal(bool, str)  # success, error_message
 
-    def __init__(self, provider: str, api_key: str, model: str):
+    def __init__(self, provider: str, api_key: str):
         super().__init__()
         self.provider = provider
         self.api_key = api_key
-        self.model = model
 
     def run(self):
         """Test the API key for the specified provider."""
@@ -170,12 +167,6 @@ class SettingsDialog(QDialog, SettingsObserver):
         # Load current values
         self._load_settings()
 
-    def _apply_proper_colors(self):
-        """No-op method to prevent runtime errors from existing calls.
-
-        Colors are now handled by stylesheet instead of palette.
-        """
-        pass
 
     def _apply_stylesheet(self):
         """Apply a custom stylesheet"""
@@ -306,7 +297,6 @@ class SettingsDialog(QDialog, SettingsObserver):
         # API Provider
         provider_group = QGroupBox("API Provider")
         provider_layout = QFormLayout(provider_group)
-        self._provider_form_layout = provider_layout  # keep reference for label visibility
 
         self.api_provider_combo = QComboBox()
         self.api_provider_combo.addItems(["openai", "google"])
@@ -380,8 +370,6 @@ class SettingsDialog(QDialog, SettingsObserver):
 
         # Translation options: OCR auto-swap and System Prompt
         # OCR auto-swap checkbox (EN <-> RU)
-        from PySide6.QtWidgets import QCheckBox
-
         self.ocr_auto_swap_checkbox = QCheckBox("OCR Auto-swap EN ↔ RU")
         self.ocr_auto_swap_checkbox.setToolTip("If enabled, OCR translations will auto-swap: English→Russian, Russian→English")
         layout.addWidget(self.ocr_auto_swap_checkbox)
@@ -538,23 +526,14 @@ class SettingsDialog(QDialog, SettingsObserver):
         self.api_timeout_spin.setValue(settings.api_timeout)
 
         # Translation tab
-        # OCR auto-swap checkbox (EN <-> RU)
-        try:
-            self.ocr_auto_swap_checkbox.setChecked(bool(getattr(settings, "ocr_auto_swap_en_ru", False)))
-        except Exception:
-            logger.debug("Failed to set ocr_auto_swap_checkbox state from settings")
+        self.ocr_auto_swap_checkbox.setChecked(bool(getattr(settings, "ocr_auto_swap_en_ru", False)))
         self.system_prompt_edit.setPlainText(settings.system_prompt)
 
         # OCR tab
         self.ocr_languages_edit.setText(",".join(settings.ocr_languages))
         self.ocr_confidence_spin.setValue(settings.ocr_confidence_threshold)
         self.ocr_timeout_spin.setValue(settings.ocr_timeout)
-        # initialize_ocr checkbox (default False if missing)
-        try:
-            self.initialize_ocr_check.setChecked(bool(getattr(settings, "initialize_ocr", False)))
-        except Exception:
-            logger.debug("Failed to set initialize_ocr checkbox from settings; defaulting to False")
-            self.initialize_ocr_check.setChecked(False)
+        self.initialize_ocr_check.setChecked(bool(getattr(settings, "initialize_ocr", False)))
 
         # Hotkeys tab
         self.translate_hotkey_edit.setText(settings.translate_hotkey)
@@ -562,102 +541,73 @@ class SettingsDialog(QDialog, SettingsObserver):
         self.activation_hotkey_edit.setText(settings.activation_hotkey)
         self.copy_translate_hotkey_edit.setText(settings.copy_translate_hotkey)
 
-        # Copy-translate enhancements - load safely with defaults
-        try:
-            self.auto_copy_translated_check.setChecked(bool(getattr(settings, "auto_copy_translated", False)))
-        except Exception:
-            logger.debug("Failed to set auto_copy_translated state from settings")
-        try:
-            self.clipboard_poll_timeout_spin.setValue(int(getattr(settings, "clipboard_poll_timeout_ms", 2000)))
-        except Exception:
-            logger.debug("Failed to set clipboard_poll_timeout_ms from settings; defaulting to 2000")
-            self.clipboard_poll_timeout_spin.setValue(2000)
+        # Copy-translate enhancements
+        self.auto_copy_translated_check.setChecked(bool(getattr(settings, "auto_copy_translated", False)))
+        self.clipboard_poll_timeout_spin.setValue(int(getattr(settings, "clipboard_poll_timeout_ms", 2000)))
 
         # General tab
         self.theme_combo.setCurrentText(settings.theme)
-        # Load and set log level into UI safely
-        try:
-            self.log_level_combo.setCurrentText(getattr(settings, "log_level", "INFO"))
-        except Exception:
-            logger.debug("Failed to set log_level in UI; defaulting to INFO")
+        self.log_level_combo.setCurrentText(getattr(settings, "log_level", "INFO"))
         self.show_notifications_check.setChecked(settings.show_notifications)
 
         # Reload models after loading settings to ensure dynamic loading
-        logger.debug("About to call _load_models_synchronously from _load_settings")
-        self._load_models_synchronously()
+        logger.debug("About to call _load_models from _load_settings")
+        provider_name = self.api_provider_combo.currentText()
+        if provider_name.lower() == "openai":
+            model_to_select = settings.openai_model
+        elif provider_name.lower() == "google":
+            model_to_select = settings.google_model
+        else:
+            model_to_select = None  # Fallback
+        self._load_models(provider_name=provider_name, model_to_select=model_to_select)
 
     def _on_save(self):
         """Handle save button click."""
         try:
-            # Get current settings dict from config service to ensure we have the latest saved values
-            current_settings = config_service.get_settings()
-            current = current_settings.model_dump()
+            # Create a mutable copy of the current settings
+            settings_to_save = config_service.get_settings().model_copy(deep=True)
 
-            # Update from UI
-            current["api_provider"] = self.api_provider_combo.currentText()
-            # Handle API keys based on provider
-            provider = current["api_provider"].lower()
+            # API Tab
+            provider = self.api_provider_combo.currentText().lower()
             api_key_text = self.api_key_edit.text().strip() or None
-
-            if provider == "openai":
-                current["openai_api_key"] = api_key_text
-                # Ensure the other key is not lost if it was loaded
-                if "google_api_key" not in current or current["google_api_key"] is None:
-                    current["google_api_key"] = getattr(current_settings, "google_api_key", None)
-            elif provider == "google":
-                current["google_api_key"] = api_key_text
-                if "openai_api_key" not in current or current["openai_api_key"] is None:
-                    current["openai_api_key"] = getattr(current_settings, "openai_api_key", None)
-            
-            # Save the model based on the provider
             model_text = self.model_combo.currentText().strip()
+
+            settings_to_save.api_provider = provider
             if provider == "openai":
-                current["openai_model"] = model_text
-                # Preserve Google model if it exists
-                if "google_model" not in current or not current["google_model"]:
-                    current["google_model"] = getattr(current_settings, "google_model", "gemini-1.5-flash")
+                settings_to_save.openai_api_key = api_key_text
+                settings_to_save.openai_model = model_text
             elif provider == "google":
-                current["google_model"] = model_text
-                # Preserve OpenAI model if it exists
-                if "openai_model" not in current or not current["openai_model"]:
-                    current["openai_model"] = getattr(current_settings, "openai_model", "gpt-5-nano")
+                settings_to_save.google_api_key = api_key_text
+                settings_to_save.google_model = model_text
+            settings_to_save.api_timeout = self.api_timeout_spin.value()
 
-            current["api_timeout"] = self.api_timeout_spin.value()
-            current["system_prompt"] = self.system_prompt_edit.toPlainText().strip()
-            # OCR auto-swap flag
-            current["ocr_auto_swap_en_ru"] = bool(self.ocr_auto_swap_checkbox.isChecked())
-            current["ocr_languages"] = [lang.strip() for lang in self.ocr_languages_edit.text().split(",") if lang.strip()]
-            current["ocr_confidence_threshold"] = self.ocr_confidence_spin.value()
-            current["ocr_timeout"] = self.ocr_timeout_spin.value()
-            # Persist initialize_ocr flag
-            try:
-                current["initialize_ocr"] = bool(self.initialize_ocr_check.isChecked())
-            except Exception:
-                current["initialize_ocr"] = False
-            current["translate_hotkey"] = self.translate_hotkey_edit.text().strip()
-            current["quick_translate_hotkey"] = self.quick_translate_hotkey_edit.text().strip()
-            current["activation_hotkey"] = self.activation_hotkey_edit.text().strip()
-            current["copy_translate_hotkey"] = self.copy_translate_hotkey_edit.text().strip()
+            # Translation Tab
+            settings_to_save.system_prompt = self.system_prompt_edit.toPlainText().strip()
+            settings_to_save.ocr_auto_swap_en_ru = self.ocr_auto_swap_checkbox.isChecked()
 
-            # Copy-translate enhancements - persist UI values
-            current["auto_copy_translated"] = bool(self.auto_copy_translated_check.isChecked())
-            current["clipboard_poll_timeout_ms"] = int(self.clipboard_poll_timeout_spin.value())
+            # OCR Tab
+            settings_to_save.initialize_ocr = self.initialize_ocr_check.isChecked()
+            settings_to_save.ocr_languages = [lang.strip() for lang in self.ocr_languages_edit.text().split(",") if lang.strip()]
+            settings_to_save.ocr_confidence_threshold = self.ocr_confidence_spin.value()
+            settings_to_save.ocr_timeout = self.ocr_timeout_spin.value()
+
+            # Hotkeys Tab
+            settings_to_save.translate_hotkey = self.translate_hotkey_edit.text().strip()
+            settings_to_save.quick_translate_hotkey = self.quick_translate_hotkey_edit.text().strip()
+            settings_to_save.activation_hotkey = self.activation_hotkey_edit.text().strip()
+            settings_to_save.copy_translate_hotkey = self.copy_translate_hotkey_edit.text().strip()
+            settings_to_save.auto_copy_translated = self.auto_copy_translated_check.isChecked()
+            settings_to_save.clipboard_poll_timeout_ms = self.clipboard_poll_timeout_spin.value()
     
-            selected_theme = self.theme_combo.currentText()
-            current["theme"] = selected_theme
-            # Persist selected log level
-            try:
-                current["log_level"] = self.log_level_combo.currentText().strip()
-            except Exception:
-                current["log_level"] = "INFO"
-            current["show_notifications"] = self.show_notifications_check.isChecked()
+            # General Tab
+            settings_to_save.theme = self.theme_combo.currentText()
+            settings_to_save.log_level = self.log_level_combo.currentText().strip()
+            settings_to_save.show_notifications = self.show_notifications_check.isChecked()
 
-            logger.debug(f"Saving theme: '{selected_theme}'")
-            logger.debug(f"Current settings before update: theme='{current.get('theme', 'NOT_FOUND')}'")
-            logger.debug(f"Current dict keys: {list(current.keys())}")
+            logger.debug(f"Saving settings with theme: '{settings_to_save.theme}'")
 
-            # Save settings asynchronously
-            self.app.save_settings_async(current)
+            # Save settings asynchronously by passing the dictionary representation
+            self.app.save_settings_async(settings_to_save.model_dump())
 
             # Assume success and close the dialog immediately
             # The user will be notified of the result via a tray notification
@@ -702,7 +652,8 @@ class SettingsDialog(QDialog, SettingsObserver):
                         logger.info(f"API manager reinitialized after deleting {provider} key.")
 
                         # 3. Reload models to update the UI, which will now show the unconfigured state
-                        self._load_models_for_provider()
+                        provider = self.api_provider_combo.currentText().strip()
+                        self._load_models(provider_name=provider)
                     except Exception as e:
                         logger.error(f"Failed to update state after key deletion: {e}")
                 else:
@@ -749,8 +700,8 @@ class SettingsDialog(QDialog, SettingsObserver):
         self.test_api_button.setEnabled(False)
         self.test_api_button.setText("Testing...")
 
-        # Create and start worker thread (model parameter no longer needed)
-        self.test_worker = ApiTestWorker(provider, api_key, "")
+        # Create and start worker thread
+        self.test_worker = ApiTestWorker(provider, api_key)
         self.test_thread = QThread()
 
         self.test_worker.moveToThread(self.test_thread)
@@ -803,23 +754,14 @@ class SettingsDialog(QDialog, SettingsObserver):
         else:
             QMessageBox.warning(self, "Test Failed", f"API test failed: {error_msg}")
 
-    def _load_models_synchronously(self):
-        """Load available models synchronously for immediate display."""
-        provider_name = self.api_provider_combo.currentText()
-        # Get the model from settings based on the provider
-        settings = config_service.get_settings()
-        provider_name = self.api_provider_combo.currentText()
-        
-        if provider_name.lower() == "openai":
-            current_model = settings.openai_model
-        elif provider_name.lower() == "google":
-            current_model = settings.google_model
-        else:
-            current_model = "gpt-5-nano" # Fallback
+    def _load_models(self, provider_name: str = None, model_to_select: str = None):
+        """Load available models for the current provider."""
+        if provider_name is None:
+            provider_name = self.api_provider_combo.currentText()
 
-        logger.debug("=== _load_models_synchronously called ===")
-        logger.debug("Loading models for provider: %s", provider_name)
-        logger.debug("Current model from settings: '%s'", current_model)
+        logger.debug("=== _load_models called ===")
+        logger.debug(f"Loading models for provider: {provider_name}")
+        logger.debug(f"Model to select: '{model_to_select}'")
 
         # Check if API key is configured for the current provider
         api_key_configured = self._is_api_key_configured(provider_name)
@@ -830,19 +772,21 @@ class SettingsDialog(QDialog, SettingsObserver):
             self.model_combo.addItem("No API key configured")
             return
 
-        # Clear current models
+        # Clear current models and show loading state
         self.model_combo.clear()
+        self.model_combo.addItem("Loading models...")
 
         try:
             from ..core.api_manager import init_api_manager
             api_manager = init_api_manager()  # Ensure API manager is initialized
             logger.debug(f"API manager initialized: {api_manager.is_initialized()}")
 
-            # Load models for all providers using centralized API manager
-            logger.debug("Fetching models using centralized API manager")
+            # Unified synchronous fetch for all providers
+            logger.debug("Fetching models synchronously via centralized API manager")
             provider_enum = APIProvider(provider_name)
             models, source = api_manager.get_available_models_sync(provider_enum)
-            logger.debug(f"Loaded {len(models)} models from {source}: {models[:5] if models else []}")  # Log first 5 models
+
+            logger.debug(f"Loaded {len(models)} models from {source} for provider {provider_name}")
 
             if source == "unconfigured":
                 logger.debug(f"Provider {provider_enum.value} not configured, cannot load models")
@@ -850,15 +794,11 @@ class SettingsDialog(QDialog, SettingsObserver):
                 self.model_combo.addItem("No API key configured")
                 return
 
-            if models:
-                self._apply_models_to_ui(models, current_model, source)
-            else:
-                self._apply_models_to_ui([], current_model, "error")
+            self._apply_models_to_ui(models, model_to_select, source)
 
         except Exception as e:
-            logger.error(f"Failed to load models synchronously: {e}")
-            # Show empty model list when API fails - no fallback models
-            self._apply_models_to_ui([], current_model, "error")
+            logger.error(f"Failed to load models: {e}")
+            self._apply_models_to_ui([], model_to_select, "error")
 
     def _is_api_key_configured(self, provider_name: str) -> bool:
         """Check if API key is configured for the given provider."""
@@ -876,135 +816,43 @@ class SettingsDialog(QDialog, SettingsObserver):
 
         return current_input or saved_key
 
-    def _load_models_for_provider(self, model_to_restore: str = None):
-        """Load available models for the current provider asynchronously."""
-        provider_name = self.api_provider_combo.currentText()
-
-        logger.debug(f"=== _load_models_for_provider called (async) ===")
-        logger.debug(f"Loading models for provider: {provider_name}")
-        logger.debug(f"Model to restore: '{model_to_restore}'")
-        logger.debug(f"Combo box is visible: {self.model_combo.isVisible()}")
-        logger.debug(f"Dialog is visible: {self.isVisible()}")
-
-        # Check if API key is configured for the current provider
-        api_key_configured = self._is_api_key_configured(provider_name)
-
-        if not api_key_configured:
-            logger.debug("No API key configured for provider, showing empty model list")
-            self.model_combo.clear()
-            self.model_combo.addItem("No API key configured")
-            return
-
-        # Clear current models
-        self.model_combo.clear()
-
-        try:
-            from ..core.api_manager import init_api_manager
-            api_manager = init_api_manager()  # Ensure API manager is initialized
-            logger.debug(f"API manager initialized: {api_manager.is_initialized()}")
-
-            # Unified synchronous fetch for all providers (simplified, with caching/fallback in APIManager)
-            logger.debug("Fetching models synchronously via centralized API manager")
-            provider_enum = APIProvider(provider_name)
-            models, source = api_manager.get_available_models_sync(provider_enum)
-
-            logger.debug(f"Loaded {len(models)} models from {source} for provider {provider_name}")
-
-            if source == "unconfigured":
-                logger.debug(f"Provider {provider_enum.value} not configured, cannot load models")
-                self.model_combo.clear()
-                self.model_combo.addItem("No API key configured")
-                return
-
-            if models:
-                self._apply_models_to_ui(models, model_to_restore, source)
-            else:
-                logger.debug(f"No models returned from API manager for {provider_name}")
-                # If no models from API but we have a model to restore, try to restore from cache
-                if model_to_restore:
-                    logger.debug(f"Attempting to restore model '{model_to_restore}' from cache")
-                    # Try to get cached models for this provider
-                    try:
-                        # Check if API manager is properly initialized and has cache
-                        if (api_manager.is_initialized() and
-                            hasattr(api_manager, '_model_cache') and
-                            hasattr(api_manager, '_lock')):
-                            with api_manager._lock:
-                                cached_models, _ = api_manager._model_cache.get(provider_enum, ([], 0))
-                            if cached_models and model_to_restore in cached_models:
-                                logger.debug(f"Found model '{model_to_restore}' in cache")
-                                self._apply_models_to_ui(cached_models, model_to_restore, "cache")
-                            else:
-                                logger.debug(f"Model '{model_to_restore}' not found in cache")
-                                self._apply_models_to_ui([], model_to_restore, "error")
-                        else:
-                            logger.debug("API manager not properly initialized or missing cache attributes")
-                            self._apply_models_to_ui([], model_to_restore, "error")
-                    except Exception as e:
-                        logger.error(f"Failed to access model cache: {e}")
-                        self._apply_models_to_ui([], model_to_restore, "error")
-                else:
-                    self._apply_models_to_ui([], model_to_restore, "error")
-
-        except Exception as e:
-            logger.error(f"Failed to load models: {e}")
-            # Show empty model list when API fails - no fallback models
-            self._apply_models_to_ui([], model_to_restore, "error")
 
 
     def _apply_models_to_ui(self, models: list, current_model: str, source: str = "unknown"):
         """Apply models to the UI combo box."""
         logger.debug(f"Applying {len(models)} models to UI: {models}")
-        logger.debug(f"Combo box current count before clear: {self.model_combo.count()}")
-
-        # Clear existing items
-        self.model_combo.clear()
-
-        # Add new models
-        self.model_combo.addItems(models)
-        logger.debug(f"Added {len(models)} models to combo box, new count: {self.model_combo.count()}")
-        logger.info(f"Successfully loaded {len(models)} models from {source.upper()} for the model selection dropdown: {', '.join(models)}")
-
-        # Force UI update
-        self.model_combo.update()
-        self.model_combo.repaint()
-
-        # Restore previously selected model if it exists in the new list
-        logger.debug(f"Attempting to restore model: '{current_model}'")
-        logger.debug(f"Available models: {models}")
-
-        # Find the best match for the current model
-        # This handles cases where a model is saved (e.g. "gpt-4") but a more specific version is available ("gpt-4-turbo")
-        best_match = None
-        if current_model:
-            # Exact match first
-            if current_model in models:
-                best_match = current_model
-            else:
-                # Partial match (e.g., "gpt-4" should match "gpt-4-turbo")
-                for model in models:
-                    if model.startswith(current_model):
-                        best_match = model
-                        break
         
-        if best_match:
-            self.model_combo.setCurrentText(best_match)
-            logger.debug(f"✅ Restored current model: {best_match}")
-        elif models:
-            # Select first model as default
-            self.model_combo.setCurrentText(models[0])
-            logger.debug(f"✅ Selected default model: {models[0]}")
+        self.model_combo.clear()
+        if models:
+            self.model_combo.addItems(models)
+            logger.info(f"Successfully loaded {len(models)} models from {source.upper()} for the model selection dropdown.")
+
+            # Restore previously selected model if it exists in the new list
+            best_match = None
+            if current_model:
+                # Exact match first
+                if current_model in models:
+                    best_match = current_model
+                else:
+                    # Partial match (e.g., "gpt-4" should match "gpt-4-turbo")
+                    for model in models:
+                        if model.startswith(current_model):
+                            best_match = model
+                            break
+            
+            if best_match:
+                self.model_combo.setCurrentText(best_match)
+                logger.debug(f"✅ Restored current model: {best_match}")
+            else:
+                # Select first model as default if no match found
+                self.model_combo.setCurrentText(models[0])
+                logger.debug(f"✅ Selected default model: {models[0]}")
         else:
             # If no models are available, show a placeholder
-            self.model_combo.clear()
             self.model_combo.addItem("No models available")
             logger.debug("❌ No models available to select")
 
         logger.debug(f"Final combo box current text: '{self.model_combo.currentText()}'")
-
-        # Additional UI refresh
-        self.update()
-        self.repaint()
 
     def _on_provider_changed(self):
         """Handle provider change - update API key field and reload models."""
@@ -1025,16 +873,15 @@ class SettingsDialog(QDialog, SettingsObserver):
         logger.debug(f"🔄 Provider changed to {new_provider_name}, attempting to restore model: '{model_to_restore}'")
 
         self._update_api_key_field()
-        self._load_models_for_provider(model_to_restore)
+        self._load_models(provider_name=self.api_provider_combo.currentText(), model_to_select=model_to_restore)
 
     # SettingsObserver methods
     def on_settings_changed(self, key: str, old_value, new_value):
         """Called when a setting value changes."""
         if key == "theme":
             logger.debug(f"Theme setting changed from {old_value} to {new_value}")
-            # Update current settings and reapply colors
+            # Update current settings
             self.current_settings = config_service.get_settings()
-            self._apply_proper_colors()
             # Update the theme combo box to reflect the change
             self.theme_combo.setCurrentText(new_value)
         elif key == "ocr_auto_swap_en_ru":
@@ -1046,7 +893,6 @@ class SettingsDialog(QDialog, SettingsObserver):
         logger.debug("Settings loaded")
         self.current_settings = settings
         self._load_settings()
-        self._apply_proper_colors()
 
     def on_settings_saved(self, settings):
         """Called when settings are saved."""
@@ -1073,8 +919,6 @@ class SettingsDialog(QDialog, SettingsObserver):
 
         # Now, update the dialog's state with the new settings
         self.current_settings = settings
-        # Reapply colors in case theme changed
-        self._apply_proper_colors()
 
     def closeEvent(self, event):
         """Handle dialog close event."""
