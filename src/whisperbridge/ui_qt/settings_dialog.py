@@ -3,7 +3,6 @@ Settings Dialog for WhisperBridge Qt UI.
 
 Provides a comprehensive settings interface with tabs for different configuration categories.
 """
- 
 from pathlib import Path
 from textwrap import dedent
 from PySide6.QtWidgets import (
@@ -60,9 +59,6 @@ class ApiTestWorker(QObject):
                 self.finished.emit(True, "", models, source)
         except Exception as e:
             self.finished.emit(False, f"Ошибка подключения: {str(e)}", [], "error")
-
-
-
 
 
 class SettingsDialog(QDialog, SettingsObserver):
@@ -290,7 +286,6 @@ class SettingsDialog(QDialog, SettingsObserver):
         key_layout.setContentsMargins(0, 0, 0, 0)
         key_layout.addWidget(self.api_key_edit)
         key_layout.addWidget(self.delete_api_key_button)
-        
         self.api_key_widget = QWidget()
         self.api_key_widget.setLayout(key_layout)
 
@@ -321,10 +316,9 @@ class SettingsDialog(QDialog, SettingsObserver):
 
         self.tab_widget.addTab(tab, "API")
 
-    def _update_api_key_field(self):
+    def _update_api_key_field(self, settings):
         """Update the API key field label and content for the selected provider."""
         provider = self._get_current_provider()
-        settings = config_service.get_settings()
 
         self.api_key_label.setText(f"{provider.capitalize()} API Key:")
         api_key = getattr(settings, f"{provider}_api_key", "") or ""
@@ -378,7 +372,6 @@ class SettingsDialog(QDialog, SettingsObserver):
         self.ocr_confidence_spin.setSingleStep(0.05)
         self.ocr_confidence_spin.setValue(0.7)
         ocr_layout.addRow("Confidence Threshold:", self.ocr_confidence_spin)
- 
         self.ocr_timeout_spin = QSpinBox()
         self.ocr_timeout_spin.setRange(1, 300)
         ocr_layout.addRow("OCR Timeout (seconds):", self.ocr_timeout_spin)
@@ -402,7 +395,6 @@ class SettingsDialog(QDialog, SettingsObserver):
 
         self.quick_translate_hotkey_edit = QLineEdit()
         hotkey_layout.addRow("Quick Translate Hotkey:", self.quick_translate_hotkey_edit)
-    
         self.activation_hotkey_edit = QLineEdit()
         hotkey_layout.addRow("Activation Hotkey:", self.activation_hotkey_edit)
 
@@ -430,7 +422,6 @@ class SettingsDialog(QDialog, SettingsObserver):
         self.clipboard_poll_timeout_spin.setRange(500, 10000)
         self.clipboard_poll_timeout_spin.setSingleStep(100)
         copy_layout.addRow("Clipboard polling timeout (ms):", self.clipboard_poll_timeout_spin)
-    
         layout.addWidget(copy_group)
 
         layout.addStretch()
@@ -483,9 +474,11 @@ class SettingsDialog(QDialog, SettingsObserver):
         """Gets the current provider name, normalized."""
         return self.api_provider_combo.currentText().strip().lower()
 
-    def _load_settings(self):
+    def _load_settings(self, settings=None):
         """Load current settings into the UI."""
-        settings = config_service.get_settings()
+        if settings is None:
+            settings = config_service.get_settings()
+        self.current_settings = settings
         logger.debug(f"Loading settings - theme: '{settings.theme}'")
 
         for key, (widget, _, setter) in self.settings_map.items():
@@ -497,7 +490,7 @@ class SettingsDialog(QDialog, SettingsObserver):
                     getattr(widget, setter)(value)
 
         # Special handling for API key and models
-        self._update_api_key_field()
+        self._update_api_key_field(settings)
 
         provider_name = self.api_provider_combo.currentText()
         model_to_select = getattr(settings, f"{provider_name.lower()}_model", None)
@@ -513,7 +506,6 @@ class SettingsDialog(QDialog, SettingsObserver):
                     value = getter(widget)
                 else:
                     value = getattr(widget, getter)()
-                
                 if isinstance(value, str):
                     value = value.strip()
 
@@ -694,27 +686,16 @@ class SettingsDialog(QDialog, SettingsObserver):
                 temp_api_key=temp_key
             )
 
-            logger.debug(f"Loaded {len(models)} models from {source} for provider {provider}")
-
-            if source == "unconfigured":
-                logger.debug(f"Provider {provider_enum.value} not configured, cannot load models")
-                self.model_combo.clear()
-                self.model_combo.addItem("No API key configured")
-                return
-
             self._apply_models_to_ui(models, model_to_select, source)
 
         except Exception as e:
             logger.error(f"Failed to load models: {e}")
             self._apply_models_to_ui([], model_to_select, "error")
 
-
-
-
     def _apply_models_to_ui(self, models: list, current_model: str, source: str = "unknown"):
         """Apply models to the UI combo box."""
-        logger.debug(f"Applying {len(models)} models to UI: {models}")
-        
+        logger.debug(f"Applying {len(models)} models to UI from source '{source}': {models}")
+
         self.model_combo.clear()
         if models:
             self.model_combo.addItems(models)
@@ -732,7 +713,6 @@ class SettingsDialog(QDialog, SettingsObserver):
                         if model.startswith(current_model):
                             best_match = model
                             break
-            
             if best_match:
                 self.model_combo.setCurrentText(best_match)
                 logger.debug(f"✅ Restored current model: {best_match}")
@@ -741,9 +721,13 @@ class SettingsDialog(QDialog, SettingsObserver):
                 self.model_combo.setCurrentText(models[0])
                 logger.debug(f"✅ Selected default model: {models[0]}")
         else:
-            # If no models are available, show a placeholder
-            self.model_combo.addItem("No models available")
-            logger.debug("❌ No models available to select")
+            # If no models are available, show a placeholder based on the source
+            if source == "unconfigured":
+                self.model_combo.addItem("No API key configured")
+                logger.debug("❌ No API key configured, cannot select models.")
+            else:
+                self.model_combo.addItem("No models available")
+                logger.debug(f"❌ No models available to select (source: {source})")
 
         logger.debug(f"Final combo box current text: '{self.model_combo.currentText()}'")
 
@@ -760,7 +744,7 @@ class SettingsDialog(QDialog, SettingsObserver):
 
         logger.debug(f"🔄 Provider changed to {provider}, attempting to restore model: '{model_to_restore}'")
 
-        self._update_api_key_field()
+        self._update_api_key_field(settings)
         self._load_models(provider_name=provider, model_to_select=model_to_restore)
 
     # SettingsObserver methods
@@ -780,7 +764,7 @@ class SettingsDialog(QDialog, SettingsObserver):
         """Called when settings are loaded."""
         logger.debug("Settings loaded")
         self.current_settings = settings
-        self._load_settings()
+        self._load_settings(settings=settings)
 
     def on_settings_saved(self, settings):
         """Called when settings are saved."""
@@ -801,7 +785,6 @@ class SettingsDialog(QDialog, SettingsObserver):
                     if old_key != new_key:
                         api_keys_changed = True
                         break
-            
             if api_keys_changed:
                 api_manager = get_api_manager()
                 api_manager.reinitialize()

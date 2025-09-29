@@ -80,9 +80,9 @@ class ImageProcessor:
             logger.error(f"Error preprocessing image: {e}")
             return image
 
-    def optimize_for_ocr(self, image: Image.Image,
-                        target_dpi: int = 300,
-                        min_width: int = 800) -> Image.Image:
+    def optimize_for_ocr(
+        self, image: Image.Image, target_dpi: int = 300, min_width: int = 800
+    ) -> Image.Image:
         """Optimize image specifically for OCR engines.
 
         Args:

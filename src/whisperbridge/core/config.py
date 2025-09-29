@@ -132,11 +132,13 @@ class Settings(BaseSettings):
     @field_validator("api_provider")
     @classmethod
     def validate_api_provider(cls, v: str) -> str:
-        """Validate API provider."""
-        valid_providers = ["openai", "google"]
-        if v not in valid_providers:
-            raise ValueError(f'Invalid API provider: {v}. Must be one of {valid_providers}')
-        return v
+        """Validate API provider format."""
+        if not v or not isinstance(v, str) or not v.strip():
+            raise ValueError("API provider must be a non-empty string.")
+        # Allow any provider name, removing the hardcoded list.
+        # The system will dynamically handle the provider as long as
+        # a corresponding '{provider}_model' setting exists.
+        return v.strip().lower()
 
     @field_validator("clipboard_poll_timeout_ms")
     @classmethod

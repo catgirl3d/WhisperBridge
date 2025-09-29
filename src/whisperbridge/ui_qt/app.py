@@ -958,7 +958,14 @@ class QtApp(QObject, SettingsObserver):
             except Exception:
                 pass
             self.hotkey_service = None
-
+    
+        # Shutdown clipboard service
+        if self.clipboard_service:
+            try:
+                self.clipboard_service.shutdown()
+            except Exception as e:
+                logger.warning(f"Error shutting down clipboard service: {e}")
+    
         # Shutdown OCR service
         try:
             from ..services.ocr_service import get_ocr_service

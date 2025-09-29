@@ -93,11 +93,6 @@ class ConfigService:
             self._observers.add(observer)
             logger.debug(f"Added settings observer: {observer}")
 
-    def remove_observer(self, observer: SettingsObserver):
-        """Remove an observer."""
-        with self._lock:
-            self._observers.discard(observer)
-            logger.debug(f"Removed settings observer: {observer}")
 
     def load_settings(self) -> Settings:
         """Load settings and notify observers."""
@@ -240,54 +235,10 @@ class ConfigService:
                 logger.error(f"Failed to update settings: {e}")
                 return False
 
-    def validate_settings(self, settings: Optional[Settings] = None) -> bool:
-        """Validate settings configuration."""
-        try:
-            if settings is None:
-                settings = self.get_settings()
 
-            # Use Pydantic validation
-            settings.model_validate(settings.model_dump())
-            return True
 
-        except Exception as e:
-            logger.error(f"Settings validation failed: {e}")
-            return False
 
-    def reset_to_defaults(self) -> bool:
-        """Reset all settings to defaults."""
-        with self._lock:
-            try:
-                from ..core.config import Settings as DefaultSettings
 
-                default_settings = DefaultSettings()
-                return self.save_settings(default_settings)
-            except Exception as e:
-                logger.error(f"Failed to reset to defaults: {e}")
-                return False
-
-    def get_cache_stats(self) -> Dict[str, Any]:
-        """Get cache statistics."""
-        with self._lock:
-            return {
-                "cache_size": len(self._cache),
-                "cache_ttl": self._cache_ttl,
-                "cached_keys": list(self._cache.keys()),
-                "observer_count": len(self._observers),
-            }
-
-    def clear_cache(self):
-        """Clear all cached values."""
-        with self._lock:
-            self._invalidate_cache()
-            logger.debug("Settings cache cleared")
-
-    def set_cache_ttl(self, ttl: int):
-        """Set cache time-to-live in seconds."""
-        with self._lock:
-            self._cache_ttl = ttl
-            self._invalidate_cache()  # Clear cache when TTL changes
-            logger.debug(f"Cache TTL set to {ttl} seconds")
 
 
 # Global config service instance

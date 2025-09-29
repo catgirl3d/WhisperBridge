@@ -356,6 +356,11 @@ class APIManager:
         """Check if API manager is initialized."""
         return self._is_initialized
 
+    def has_clients(self) -> bool:
+        """Check if any API clients are configured."""
+        with self._lock:
+            return bool(self._clients)
+
     def _classify_error(self, error: Exception) -> APIError:
         """Classify exception into API error type."""
         error_str = str(error).lower()
@@ -438,6 +443,66 @@ class APIManager:
 
             # Re-raise for retry mechanism
             raise
+
+    @requires_initialization
+    def make_translation_request(
+        self, messages: List[Dict[str, str]], model_hint: Optional[str] = None
+    ) -> tuple[Any, str]:
+        """
+        Makes a translation request using the configured provider.
+
+        This method encapsulates the logic for:
+        1. Selecting the provider specified in the settings.
+        2. Applying provider-specific optimizations (e.g., for OpenAI).
+        3. Calling the core `make_request_sync` method.
+
+        Args:
+            messages: A list of messages for the chat completion.
+            model_hint: The model name to use for the request.
+
+        Returns:
+            A tuple containing the API response and the model name used.
+        """
+        # 1. Select the configured provider
+        provider_name = (self.config_service.get_setting("api_provider") or "openai").strip().lower()
+        try:
+            selected_provider = APIProvider(provider_name)
+        except ValueError:
+            raise RuntimeError(f"Invalid API provider '{provider_name}' configured in settings.")
+
+        if selected_provider not in self._clients:
+            raise RuntimeError(
+                f"The configured API provider '{provider_name}' is not available. "
+                "Please check your API key in the settings."
+            )
+
+        # 2. Use the provided model hint directly
+        final_model = (model_hint or "").strip()
+        if not final_model:
+            raise ValueError("Model name must be provided for the translation request.")
+
+        # 3. Prepare API call parameters
+        api_params = {
+            "model": final_model,
+            "messages": messages,
+            "temperature": 1,
+            "max_completion_tokens": 2048,
+        }
+
+        if selected_provider == APIProvider.OPENAI:
+            if final_model.startswith(("gpt-5", "chatgpt")):
+                api_params["extra_body"] = {"reasoning_effort": "minimal", "verbosity": "low"}
+                logger.debug("Using OpenAI GPT-5 optimizations: reasoning_effort=minimal, verbosity=low")
+            elif final_model.startswith("gpt-"):
+                api_params["extra_body"] = {"reasoning_effort": "minimal"}
+                logger.debug("Using OpenAI GPT optimizations: reasoning_effort=minimal")
+        
+        logger.debug(f"Final API parameters for {selected_provider.value}: {api_params}")
+
+        # 4. Make the API call
+        response = self.make_request_sync(selected_provider, **api_params)
+
+        return response, final_model
 
     @requires_initialization
     def get_usage_stats(self, provider: Optional[APIProvider] = None) -> Dict[str, Any]:
