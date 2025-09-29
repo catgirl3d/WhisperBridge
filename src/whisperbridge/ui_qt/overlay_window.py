@@ -46,7 +46,7 @@ class TranslatorSettingsDialog(QDialog):
         self.setWindowTitle("Translator Settings")
         self.setObjectName("TranslatorSettingsDialog")
         self.setModal(False)
-        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, False)
+        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
         self.setMinimumWidth(320)
 
         layout = QVBoxLayout(self)
@@ -164,13 +164,7 @@ class OverlayWindow(QWidget):
         self.target_combo.setSizeAdjustPolicy(QComboBox.AdjustToContents)
         language_row.addWidget(self.target_combo)
 
-        # Add font-awesome chevron arrows to comboboxes (overlay labels; preserve mouse events)
-        self._combo_arrows = {}
-        try:
-            self._decorate_combobox(self.source_combo)
-            self._decorate_combobox(self.target_combo)
-        except Exception as e:
-            logger.debug(f"Failed to decorate combobox arrows: {e}")
+        # Arrows are now handled by stylesheet
 
         # Populate combos
         self._programmatic_combo_change = False
@@ -539,6 +533,11 @@ class OverlayWindow(QWidget):
                 border-top-right-radius: 3px;
                 border-bottom-right-radius: 3px;
                 background-color: transparent;
+            }
+            QComboBox::down-arrow {
+                image: url("c:/git/WhisperBridge/src/whisperbridge/assets/icons/chevron-down-solid-full.svg");
+                width: 12px;
+                height: 12px;
             }
             /* Popup list */
             QComboBox QAbstractItemView {
@@ -1007,59 +1006,8 @@ class OverlayWindow(QWidget):
             pass
         return -1
 
-    # --- ComboBox arrow decoration using qtawesome (font-awesome) ---
-
-    def _decorate_combobox(self, combo: QComboBox):
-        """Overlay a small chevron-down icon on the right side of the QComboBox."""
-        try:
-            from PySide6.QtWidgets import QLabel
-
-            arrow_label = QLabel(combo)
-            # Use a subtle color to match UI; adjust size as needed
-            try:
-                icon = qta.icon("fa5s.chevron-down", color="#666666")
-            except Exception:
-                # Fallback to angle-down if chevron unavailable
-                icon = qta.icon("fa5s.angle-down", color="#666666")
-            pix = icon.pixmap(12, 12)
-            arrow_label.setPixmap(pix)
-            arrow_label.setFixedSize(12, 12)
-            # Allow clicks to pass through to the combo
-            arrow_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
-            arrow_label.setObjectName("comboArrow")
-            arrow_label.show()
-
-            # Store and install event filter to reposition on resize/style changes
-            self._combo_arrows[combo] = arrow_label
-            combo.installEventFilter(self)
-            self._position_combo_arrow(combo)
-        except Exception as e:
-            logger.debug(f"_decorate_combobox failed: {e}")
-
-    def _position_combo_arrow(self, combo: QComboBox):
-        """Position the overlay arrow label inside the combo (right-aligned, centered vertically)."""
-        try:
-            label = self._combo_arrows.get(combo)
-            if not label:
-                return
-            aw, ah = label.width(), label.height()
-            # Center arrow in the drop-down area (22px wide)
-            x = max(0, combo.width() - 22 + (22 - aw) // 2)
-            y = max(0, (combo.height() - ah) // 2)
-            label.move(x, y)
-            label.raise_()
-            label.show()
-        except Exception as e:
-            logger.debug(f"_position_combo_arrow failed: {e}")
-
     def eventFilter(self, obj, event):
         """Handle events for child widgets."""
-        # Reposition combo arrow on resize/show/style changes
-        try:
-            if isinstance(obj, QComboBox) and event.type() in (QEvent.Resize, QEvent.Show, QEvent.StyleChange):
-                self._position_combo_arrow(obj)
-        except Exception:
-            pass
 
         # Change close button icon on hover
         try:
@@ -1369,6 +1317,14 @@ class OverlayWindow(QWidget):
                 self._minibar = None
         except Exception:
             pass
+
+        # Close settings dialog if open
+        try:
+            if self._translator_settings_dialog:
+                self._translator_settings_dialog.close()
+        except Exception:
+            pass
+
         self.hide()
         logger.debug("Overlay window hidden")
 

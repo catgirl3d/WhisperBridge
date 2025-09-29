@@ -3,7 +3,9 @@ Settings Dialog for WhisperBridge Qt UI.
 
 Provides a comprehensive settings interface with tabs for different configuration categories.
 """
-
+ 
+from pathlib import Path
+from textwrap import dedent
 from PySide6.QtWidgets import (
     QDialog,
     QVBoxLayout,
@@ -22,7 +24,9 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QTextEdit,
 )
-from PySide6.QtCore import QThread, Signal, QObject
+from PySide6.QtCore import Qt, QEvent, QThread, Signal, QObject
+
+import qtawesome as qta
 
 from ..services.config_service import config_service, SettingsObserver
 from ..core.api_manager import get_api_manager, APIProvider
@@ -140,7 +144,8 @@ class SettingsDialog(QDialog, SettingsObserver):
         self.current_settings = config_service.get_settings()
 
         # Apply proper color scheme for visibility
-        self._apply_proper_colors()
+        # self._apply_proper_colors()  # Commented out to use stylesheet instead
+        self._apply_stylesheet()
 
         # Create main layout
         layout = QVBoxLayout(self)
@@ -166,42 +171,132 @@ class SettingsDialog(QDialog, SettingsObserver):
         self._load_settings()
 
     def _apply_proper_colors(self):
-        """Apply proper color scheme to ensure text visibility."""
-        from PySide6.QtGui import QPalette, QColor
-        from PySide6.QtCore import Qt
+        """No-op method to prevent runtime errors from existing calls.
 
-        # Create a palette that ensures good contrast
-        palette = QPalette()
+        Colors are now handled by stylesheet instead of palette.
+        """
+        pass
 
-        # Check current theme setting from config service
-        current_theme = config_service.get_setting("theme", use_cache=False).lower()
-
-        if current_theme == "dark":
-            # Dark theme - use dark colors but ensure good contrast
-            palette.setColor(QPalette.ColorRole.Window, QColor(45, 45, 45))  # Dark gray background
-            palette.setColor(QPalette.ColorRole.WindowText, Qt.GlobalColor.white)  # White text
-            palette.setColor(QPalette.ColorRole.Base, QColor(30, 30, 30))  # Dark input background
-            palette.setColor(QPalette.ColorRole.Text, Qt.GlobalColor.white)  # White text in inputs
-            palette.setColor(QPalette.ColorRole.Button, QColor(45, 45, 45))  # Dark button background
-            palette.setColor(QPalette.ColorRole.ButtonText, Qt.GlobalColor.white)  # White button text
-            palette.setColor(QPalette.ColorRole.Highlight, QColor(42, 130, 218))  # Blue highlight
-            palette.setColor(QPalette.ColorRole.HighlightedText, Qt.GlobalColor.white)  # White text on highlight
-        else:
-            # Light theme (default) - use light colors
-            palette.setColor(QPalette.ColorRole.Window, QColor(240, 240, 240))  # Light gray background
-            palette.setColor(QPalette.ColorRole.WindowText, Qt.GlobalColor.black)  # Black text
-            palette.setColor(QPalette.ColorRole.Base, Qt.GlobalColor.white)  # White for input fields
-            palette.setColor(QPalette.ColorRole.Text, Qt.GlobalColor.black)  # Black text in inputs
-            palette.setColor(QPalette.ColorRole.Button, QColor(240, 240, 240))  # Light button background
-            palette.setColor(QPalette.ColorRole.ButtonText, Qt.GlobalColor.black)  # Black button text
-            palette.setColor(QPalette.ColorRole.Highlight, QColor(42, 130, 218))  # Blue highlight
-            palette.setColor(QPalette.ColorRole.HighlightedText, Qt.GlobalColor.white)  # White text on highlight
-
-        # Apply the palette to this dialog
-        self.setPalette(palette)
-
-        # Also set auto-fill background to ensure consistency
-        self.setAutoFillBackground(True)
+    def _apply_stylesheet(self):
+        """Apply a custom stylesheet"""
+        icon_base_path = (Path(__file__).resolve().parent.parent / "assets" / "icons").as_posix()
+        stylesheet = dedent("""
+            QDialog {
+                background-color: #ffffff;
+            }
+            QTabWidget::pane {
+                border-top: 0px solid #f0f0f0;
+            }
+            QTabBar::tab {
+                background: #f0f0f0;
+                color: #111111;
+                padding: 6px 16px;
+                border-radius: 2px;
+                border-bottom: none;
+                margin-bottom: 2px;
+                border-left: 2px solid #fff;
+            }
+            QTabBar::tab:selected {
+                background: #356bd0;
+                border: 0px solid #d0d0d0;
+                border-bottom: 0px solid #ffffff; /* Match pane background */
+                color:white;
+            }
+            QTabBar::tab:!selected:hover {
+                background: #e8e8e8;
+            }
+            QGroupBox {
+                font-weight: bold;
+                border: 1px solid rgba(0,0,0,0.08);
+                border-radius: 4px;
+                margin-top: 10px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                subcontrol-position: top left;
+                padding: 0 5px;
+                left: 10px;
+            }
+            QLabel {
+                color: #111111;
+                border: none;
+            }
+            QLineEdit, QTextEdit, QSpinBox, QDoubleSpinBox {
+                background-color: #ffffff;
+                color: #111111;
+                border: 1px solid rgba(0,0,0,0.12);
+                border-radius: 4px;
+                padding: 6px;
+            }
+            QPushButton {
+                color: #111111;
+                padding: 8px 16px;
+                border: none;
+                border-radius: 4px;
+                background-color: #f0f0f0;
+            }
+            QPushButton:hover {
+                background-color: #e8e8e8;
+            }
+            QPushButton#save_button {
+                background-color: #356bd0;
+                color: #ffffff;
+                font-weight: 600;
+            }
+            QPushButton#save_button:hover {
+                background-color: #2f5db3;
+            }
+            QComboBox {
+                border: 1px solid rgba(0,0,0,0.12);
+                border-radius: 4px;
+                padding: 6px 8px;
+                background-color: #ffffff;
+                color: #111111;
+            }
+            QComboBox::drop-down {
+                subcontrol-origin: padding;
+                subcontrol-position: top right;
+                width: 22px;
+                border-left: 1px solid rgba(0,0,0,0.08);
+                border-top-right-radius: 3px;
+                border-bottom-right-radius: 3px;
+                background-color: transparent;
+            }
+            QComboBox::down-arrow {
+                image: url("__ICON_PATH__/chevron-down-solid-full.svg");
+                width: 12px;
+                height: 12px;
+            }
+            QComboBox QAbstractItemView {
+                border: 1px solid rgba(0,0,0,0.12);
+                background-color: #ffffff;
+                color: #111111;
+                selection-background-color: #0078d7;
+            }
+            QSpinBox::up-button {
+                subcontrol-origin: border;
+                subcontrol-position: top right;
+                width: 22px;
+                border-left: 1px solid rgba(0,0,0,0.08);
+            }
+            QSpinBox::down-button {
+                subcontrol-origin: border;
+                subcontrol-position: bottom right;
+                width: 22px;
+                border-left: 1px solid rgba(0,0,0,0.08);
+            }
+            QSpinBox::up-arrow {
+                image: url("__ICON_PATH__/chevron-up-solid-full.svg");
+                width: 12px;
+                height: 12px;
+            }
+            QSpinBox::down-arrow {
+                image: url("__ICON_PATH__/chevron-down-solid-full.svg");
+                width: 12px;
+                height: 12px;
+            }
+        """)
+        self.setStyleSheet(stylesheet.replace("__ICON_PATH__", icon_base_path))
 
     def _create_api_tab(self):
         """Create API settings tab."""
@@ -258,8 +353,7 @@ class SettingsDialog(QDialog, SettingsObserver):
 
         self.api_timeout_spin = QSpinBox()
         self.api_timeout_spin.setRange(1, 300)
-        self.api_timeout_spin.setSuffix(" seconds")
-        model_layout.addRow("Timeout:", self.api_timeout_spin)
+        model_layout.addRow("Timeout (seconds):", self.api_timeout_spin)
 
         layout.addWidget(model_group)
 
@@ -329,6 +423,10 @@ class SettingsDialog(QDialog, SettingsObserver):
         self.ocr_confidence_spin.setSingleStep(0.05)
         self.ocr_confidence_spin.setValue(0.7)
         ocr_layout.addRow("Confidence Threshold:", self.ocr_confidence_spin)
+ 
+        self.ocr_timeout_spin = QSpinBox()
+        self.ocr_timeout_spin.setRange(1, 300)
+        ocr_layout.addRow("OCR Timeout (seconds):", self.ocr_timeout_spin)
 
         layout.addWidget(ocr_group)
         layout.addStretch()
@@ -376,7 +474,6 @@ class SettingsDialog(QDialog, SettingsObserver):
         self.clipboard_poll_timeout_spin = QSpinBox()
         self.clipboard_poll_timeout_spin.setRange(500, 10000)
         self.clipboard_poll_timeout_spin.setSingleStep(100)
-        self.clipboard_poll_timeout_spin.setSuffix(" ms")
         copy_layout.addRow("Clipboard polling timeout (ms):", self.clipboard_poll_timeout_spin)
     
         layout.addWidget(copy_group)
@@ -417,6 +514,7 @@ class SettingsDialog(QDialog, SettingsObserver):
         button_layout = QHBoxLayout()
 
         self.save_button = QPushButton("Save")
+        self.save_button.setObjectName("save_button")  # Set object name for specific styling
         self.save_button.clicked.connect(self._on_save)
         button_layout.addWidget(self.save_button)
 
@@ -450,6 +548,7 @@ class SettingsDialog(QDialog, SettingsObserver):
         # OCR tab
         self.ocr_languages_edit.setText(",".join(settings.ocr_languages))
         self.ocr_confidence_spin.setValue(settings.ocr_confidence_threshold)
+        self.ocr_timeout_spin.setValue(settings.ocr_timeout)
         # initialize_ocr checkbox (default False if missing)
         try:
             self.initialize_ocr_check.setChecked(bool(getattr(settings, "initialize_ocr", False)))
@@ -529,6 +628,7 @@ class SettingsDialog(QDialog, SettingsObserver):
             current["ocr_auto_swap_en_ru"] = bool(self.ocr_auto_swap_checkbox.isChecked())
             current["ocr_languages"] = [lang.strip() for lang in self.ocr_languages_edit.text().split(",") if lang.strip()]
             current["ocr_confidence_threshold"] = self.ocr_confidence_spin.value()
+            current["ocr_timeout"] = self.ocr_timeout_spin.value()
             # Persist initialize_ocr flag
             try:
                 current["initialize_ocr"] = bool(self.initialize_ocr_check.isChecked())

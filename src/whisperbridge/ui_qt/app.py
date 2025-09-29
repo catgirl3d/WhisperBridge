@@ -4,6 +4,8 @@ Provides compatible interface with the existing CTK-based application.
 """
 
 import sys
+import os
+from PySide6.QtGui import QIcon
 import time
 from typing import Any, Dict, Optional
 
@@ -270,6 +272,20 @@ class QtApp(QObject, SettingsObserver):
         self.qt_app.setApplicationName("WhisperBridge")
         self.qt_app.setApplicationVersion("1.0.0")
         self.qt_app.setOrganizationName("WhisperBridge")
+        # Set application icon
+        icon_path = os.path.join(
+            os.path.dirname(__file__),
+            "..",
+            "assets",
+            "icons",
+            "app_icon.png",
+        )
+        if os.path.exists(icon_path):
+            self.qt_app.setWindowIcon(QIcon(icon_path))
+            logger.debug(f"Loaded application icon from: {icon_path}")
+        else:
+            logger.warning(f"Application icon not found at: {icon_path}")
+
         # Prevent app from quitting when all windows are closed (tray keeps it running)
         self.qt_app.setQuitOnLastWindowClosed(False)
 
