@@ -74,31 +74,10 @@ class CaptureOcrTranslateWorker(QObject):
         try:
             self.started.emit()
 
-            image_to_process = None
-
-            if self.image is not None:
-                logger.debug("Processing pre-captured image")
-                image_to_process = self.image
-            elif self.region is not None:
-                logger.debug("Starting synchronous capture for region")
-                capture_service = get_capture_service()
-                capture_result = capture_service.capture_area(self.region)
-
-                if not capture_result.success or capture_result.image is None:
-                    logger.error("Capture failed")
-                    self.error.emit("Capture failed")
-                    return
-
-                image_to_process = capture_result.image
-                self.progress.emit("Capture completed, starting OCR")
-            else:
-                self.error.emit("No image or region provided")
-                return
-
             if self._cancel_requested:
                 return
 
-            # OCR
+            # OCR + Translation processing using service method
             ocr_service = get_ocr_service()
             if not ocr_service.is_initialized:
                 logger.info("OCR not ready, triggering on-demand initialization")
@@ -114,97 +93,31 @@ class CaptureOcrTranslateWorker(QObject):
                     return
                 logger.info("On-demand OCR initialization completed successfully")
 
-            logger.debug("Starting OCR")
-            # Get OCR languages from config service to ensure we have the latest saved values
-            ocr_languages = config_service.get_setting("ocr_languages", use_cache=False)
-            ocr_request = OCRRequest(
-                image=image_to_process,
-                languages=ocr_languages,
-                preprocess=True,
-                use_cache=True,
-            )
-            ocr_response = ocr_service.process_image(ocr_request)
+            if self.image is not None:
+                logger.debug("Processing pre-captured image")
+                self.progress.emit("Starting OCR and translation")
+                original_text, translated_text, overlay_id = ocr_service.process_image_with_translation(
+                    self.image, preprocess=True, use_cache=True
+                )
+            elif self.region is not None:
+                logger.debug(f"Starting synchronous capture for region {self.region}")
+                self.progress.emit("Starting screen capture")
+                capture_service = get_capture_service()
+                capture_result = capture_service.capture_area(self.region)
 
-            if self._cancel_requested:
+                if not capture_result.success or capture_result.image is None:
+                    logger.error("Capture failed")
+                    self.error.emit("Screen capture failed")
+                    return
+
+                logger.debug("Capture completed, starting OCR and translation")
+                self.progress.emit("Capture completed, starting OCR and translation")
+                original_text, translated_text, overlay_id = ocr_service.process_image_with_translation(
+                    capture_result.image, preprocess=True, use_cache=True
+                )
+            else:
+                self.error.emit("No image or region provided")
                 return
-
-            original_text = ocr_response.text
-
-            self.progress.emit("OCR completed, checking translation")
-
-            # Translation
-            translated_text = ""
-            try:
-                # Check presence of API key depending on selected provider (with legacy compatibility)
-                provider = (config_service.get_setting("api_provider", use_cache=False) or "openai").strip().lower()
-                openai_key = config_service.get_setting("openai_api_key", use_cache=False)
-                google_key = config_service.get_setting("google_api_key", use_cache=False)
-
-                def _has_valid_key(p: str) -> bool:
-                    """
-                    Validate API key presence and format using centralized core validation only.
-                    """
-                    provider = (p or "").strip().lower()
-                    if provider == "google":
-                        key = google_key
-                    elif provider == "openai":
-                        key = openai_key
-                    else:
-                        return False
-                    return bool(key and validate_api_key_format(key, provider))
-
-                if _has_valid_key(provider):
-                    translation_service = get_translation_service()
-                    # Guard against uninitialized translation service to reduce exceptions
-                    if hasattr(translation_service, "is_initialized") and not translation_service.is_initialized():
-                        logger.warning("Translation service not initialized, skipping translation")
-                    else:
-                        # Determine whether OCR auto-swap is enabled in settings
-                        settings = config_service.get_settings()
-                        ocr_auto_swap = getattr(settings, "ocr_auto_swap_en_ru", False)
-
-                        # If auto-swap enabled, detect language and swap en<->ru
-                        if ocr_auto_swap:
-                            try:
-                                from ..utils.language_utils import detect_language
-
-                                detected = detect_language(original_text) or "auto"
-                                if detected == "en":
-                                    target = "ru"
-                                elif detected == "ru":
-                                    target = "en"
-                                else:
-                                    target = "en"  # Default fallback
-
-                                logger.debug(f"OCR auto-swap enabled: detected='{detected}', target='{target}'")
-                                response = translation_service.translate_text_sync(
-                                    original_text, source_lang=detected, target_lang=target
-                                )
-                            except Exception as e:
-                                logger.warning(f"OCR auto-swap detection/translation failed: {e}")
-                                # Fallback to default translation call
-                                response = translation_service.translate_text_sync(original_text)
-                        else:
-                            # Use the synchronous translation API which returns a TranslationResponse
-                            # When auto-swap is disabled, use UI-selected languages instead of global settings
-                            ui_source = getattr(settings, "ui_source_language", "auto")
-                            ui_target = getattr(settings, "ui_target_language", "en")
-                            response = translation_service.translate_text_sync(
-                                original_text, source_lang=ui_source, target_lang=ui_target
-                            )
-
-                        if response and getattr(response, "success", False):
-                            translated_text = getattr(response, "translated_text", "") or ""
-                            logger.debug("Translation completed successfully")
-                        else:
-                            error_msg = getattr(response, "error_message", "") if response else "Unknown error"
-                            logger.warning(f"Translation failed or returned empty result: {error_msg}")
-                else:
-                    logger.debug("No valid API key for selected provider, skipping translation")
-            except Exception as e:
-                logger.warning(f"Translation failed, using empty: {e}")
-
-            overlay_id = f"ocr_{int(time.time() * 1000)}"
 
             if self._cancel_requested:
                 return
@@ -537,9 +450,7 @@ class QtApp(QObject, SettingsObserver):
             ocr_service = get_ocr_service()
             logger.debug(f"OCR service instance: {ocr_service}")
             # Start background initialization and provide a callback
-            ocr_service.start_background_initialization(
-                on_complete=self._on_ocr_service_ready
-            )
+            ocr_service.initialize_ocr_service(on_complete=self._on_ocr_service_ready)
             # Update tray icon to show loading state
             self.update_tray_status(is_loading=True)
             logger.info("OCR service background initialization started successfully")
@@ -551,18 +462,9 @@ class QtApp(QObject, SettingsObserver):
     def _on_ocr_service_ready(self):
         """Callback for when OCR service is ready."""
         ocr_service = get_ocr_service()
-        if not ocr_service.is_initialized:
-            logger.info("OCR service initialization skipped (disabled)")
-            return
 
-        logger.info("OCR service initialization completed - service is now ready")
-        logger.debug(f"OCR service status: initialized={ocr_service.is_initialized}")
-
-        # If this was on-demand init and flag was False, update to True
-        current_flag = config_service.get_setting("initialize_ocr", use_cache=False)
-        if not current_flag:
-            config_service.set_setting("initialize_ocr", True)
-            logger.info("On-demand OCR init completed; updated initialize_ocr flag to True (persisted)")
+        # Call service method for common logic
+        ocr_service.on_ocr_service_ready()
 
         # Update tray icon to show normal state
         self.update_tray_status(is_loading=False)

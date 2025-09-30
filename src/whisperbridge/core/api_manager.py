@@ -103,6 +103,12 @@ class APIError:
             self.timestamp = datetime.now()
 
 
+class RetryableAPIError(Exception):
+    """Custom exception to signal a retryable API error."""
+
+    pass
+
+
 class APIManager:
     """Centralized API manager for handling authentication and requests."""
 
@@ -399,10 +405,13 @@ class APIManager:
         return APIError(APIErrorType.UNKNOWN, str(error))
 
     @requires_initialization
-    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=60), retry=retry_if_exception_type((openai.APIError, openai.APIConnectionError, openai.RateLimitError)))
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=4, max=60),
+        retry=retry_if_exception_type(RetryableAPIError),
+    )
     def make_request_sync(self, provider: APIProvider, **kwargs) -> Any:
         """Make API request with retry logic."""
-
         client = self._clients.get(provider)
         if not client:
             raise ValueError(f"Provider {provider.value} not configured. Please set up your API key in settings.")
@@ -410,14 +419,12 @@ class APIManager:
         usage = self._usage.get(provider, APIUsage())
 
         try:
-            # Make the request
             logger.debug(f"Making API request to provider '{provider.value}' with args: {kwargs}")
             start_time = time.time()
             response = client.chat.completions.create(**kwargs)
             request_time = time.time() - start_time
             logger.debug(f"Raw API response: {response}")
 
-            # Update usage statistics
             with self._lock:
                 usage.requests_count += 1
                 usage.successful_requests += 1
@@ -429,20 +436,29 @@ class APIManager:
             return response
 
         except Exception as e:
-            # Update failure statistics
+            api_error = self._classify_error(e)
+
             with self._lock:
                 usage.requests_count += 1
                 usage.failed_requests += 1
-                if isinstance(e, openai.RateLimitError):
+                if api_error.error_type == APIErrorType.RATE_LIMIT:
                     usage.rate_limit_hits += 1
-
-            # Classify and handle error
-            api_error = self._classify_error(e)
 
             logger.error(f"API request failed: {api_error.error_type.value} - {api_error.message}")
 
-            # Re-raise for retry mechanism
-            raise
+            # Check if the error is retryable based on its type
+            if api_error.error_type in [
+                APIErrorType.RATE_LIMIT,
+                APIErrorType.NETWORK,
+                APIErrorType.TIMEOUT,
+                APIErrorType.SERVER_ERROR,
+                APIErrorType.QUOTA_EXCEEDED,
+            ]:
+                # Wrap in custom exception to trigger tenacity retry
+                raise RetryableAPIError(f"Retryable error occurred: {api_error.message}") from e
+
+            # For non-retryable errors, re-raise the original exception
+            raise e
 
     @requires_initialization
     def make_translation_request(

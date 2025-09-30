@@ -1,8 +1,6 @@
 """
 Copy-Translate Service
 
-Extracted from QtApp._on_copy_translate_hotkey in src/whisperbridge/ui_qt/app.py
-
 This service encapsulates the logic for handling the copy-translate hotkey. It performs
 a simulated Ctrl+C copy to capture the selected text, polls the clipboard, detects language,
 translates if possible, and emits a result signal with the original text, translated text, and
@@ -277,10 +275,8 @@ class CopyTranslateService(QObject):
             # Translate text synchronously (respect ocr_auto_swap_en_ru setting) — with debug logs and live config check
             try:
                 # Try to detect language and apply EN<->RU auto-swap if enabled in settings
-                from ..utils.language_utils import detect_language
-
                 log.debug(f"Copy-translate: text length={len(text_to_translate)}")
-                detected = detect_language(text_to_translate) or "auto"
+                detected = self.translation_service.detect_language_sync(text_to_translate) or "auto"
                 log.debug(f"Copy-translate: detected language='{detected}'")
 
                 # Read all relevant settings

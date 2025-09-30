@@ -249,11 +249,19 @@ class TranslationService:
                 target_lang=target_lang,
             )
 
+    def detect_language_sync(self, text: str) -> Optional[str]:
+        """Detect language of the input text synchronously."""
+        try:
+            return detect_language(text)
+        except Exception as e:
+            logger.warning(f"Language detection failed: {e}")
+            return None
+
     async def _detect_language_async(self, text: str) -> Optional[str]:
         """Detect language of the input text asynchronously."""
         try:
             loop = asyncio.get_event_loop()
-            return await loop.run_in_executor(None, detect_language, text)
+            return await loop.run_in_executor(None, self.detect_language_sync, text)
         except Exception as e:
             logger.warning(f"Language detection failed: {e}")
             return None

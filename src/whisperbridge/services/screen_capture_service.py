@@ -7,9 +7,7 @@ including area selection, image capture, and processing.
 
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Optional
 
 try:
@@ -43,26 +41,15 @@ class CaptureResult:
     success: bool
     error_message: str = ""
     capture_time: float = 0.0
-    file_path: Optional[str] = None
 
 
 @dataclass
 class CaptureOptions:
     """Options for screen capture."""
 
-    format: str = "PNG"
-    quality: int = 95
     include_cursor: bool = False
     monitor_index: Optional[int] = None
     scale_factor: float = 1.0
-    save_to_file: bool = False
-    output_path: Optional[str] = None
-
-
-class ScreenCaptureError(Exception):
-    """Exception raised when screen capture fails."""
-
-    pass
 
 
 class ScreenCaptureService:
@@ -73,9 +60,8 @@ class ScreenCaptureService:
         if not PIL_AVAILABLE:
             raise ImportError("Pillow is required for screen capture functionality")
 
-        self._lock = threading.RLock()
-        self._executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="capture")
         self._capture_active = False
+        self._lock = threading.RLock()
 
         # Default options
         self.default_options = CaptureOptions()
@@ -134,7 +120,7 @@ class ScreenCaptureService:
         """
         start_time = time.time()
         logger.info(f"Starting selected area capture: rectangle={rectangle}")
-        logger.debug(f"Capture options: format={options.format}, quality={options.quality}, scale_factor={options.scale_factor}")
+        logger.debug(f"Capture options: include_cursor={options.include_cursor}, monitor_index={options.monitor_index}, scale_factor={options.scale_factor}")
 
         try:
             # Clamp rectangle to screen bounds
@@ -154,18 +140,11 @@ class ScreenCaptureService:
             capture_time = time.time() - start_time
             logger.info(f"Area capture completed in {capture_time:.2f}s")
 
-            # Save to file if requested
-            file_path = None
-            if options.save_to_file and image:
-                file_path = self._save_image(image, options)
-                logger.info(f"Image saved to file: {file_path}")
-
             result = CaptureResult(
                 image=image,
                 rectangle=clamped_rect,
                 success=image is not None,
                 capture_time=capture_time,
-                file_path=file_path,
             )
 
             logger.info(f"Capture result: success={result.success}, image_size={image.size if image else None}")
@@ -226,57 +205,8 @@ class ScreenCaptureService:
             logger.debug(f"Capture error details: {type(e).__name__}: {str(e)}", exc_info=True)
             return None
 
-    def _save_image(self, image: Image.Image, options: CaptureOptions) -> Optional[str]:
-        """Save image to file.
-
-        Args:
-            image: Image to save
-            options: Save options
-
-        Returns:
-            Optional[str]: File path if saved successfully
-        """
-        try:
-            logger.debug(f"Saving image: size={image.size}, mode={image.mode}, format={options.format}")
-            if not options.output_path:
-                # Generate default path
-                timestamp = int(time.time())
-                options.output_path = f"capture_{timestamp}.{options.format.lower()}"
-                logger.debug(f"Generated output path: {options.output_path}")
-
-            output_path = Path(options.output_path)
-
-            # Ensure directory exists
-            output_path.parent.mkdir(parents=True, exist_ok=True)
-            logger.debug(f"Output directory ensured: {output_path.parent}")
-
-            # Save image
-            if options.format.upper() == "JPEG":
-                image.save(output_path, options.format.upper(), quality=options.quality)
-                logger.debug(f"Image saved as JPEG with quality={options.quality}")
-            else:
-                image.save(output_path, options.format.upper())
-                logger.debug(f"Image saved as {options.format.upper()}")
-
-            logger.info(f"Image saved successfully to: {output_path}")
-            return str(output_path)
-
-        except Exception as e:
-            logger.error(f"Failed to save image: {e}")
-            logger.debug(f"Save error details: {type(e).__name__}: {str(e)}", exc_info=True)
-            return None
-
-    def __del__(self):
-        """Cleanup resources."""
-        try:
-            self._executor.shutdown(wait=True)
-        except Exception:
-            pass
-
-
 # Global service instance
 _capture_service: Optional[ScreenCaptureService] = None
-_service_lock = threading.RLock()
 
 
 def get_capture_service() -> ScreenCaptureService:
@@ -287,9 +217,8 @@ def get_capture_service() -> ScreenCaptureService:
     """
     global _capture_service
 
-    with _service_lock:
-        if _capture_service is None:
-            _capture_service = ScreenCaptureService()
+    if _capture_service is None:
+        _capture_service = ScreenCaptureService()
 
     return _capture_service
 
