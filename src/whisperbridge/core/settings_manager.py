@@ -44,8 +44,11 @@ class SettingsManager:
         data.setdefault("activation_hotkey", "ctrl+shift+a")
         data.setdefault("api_timeout", 30)
         data.setdefault("max_retries", 3)
+
+        # Global caching settings (used by TranslationService; OCR cache removed)
         data.setdefault("cache_enabled", True)
         data.setdefault("cache_ttl", 3600)
+        data.setdefault("max_cache_size", 100)
 
         return data
 

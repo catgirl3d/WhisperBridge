@@ -23,6 +23,7 @@ from ..services.config_service import SettingsObserver, config_service
 from ..services.copy_translate_service import CopyTranslateService
 from ..services.hotkey_service import HotkeyService
 from ..services.ocr_service import OCRRequest, get_ocr_service
+from ..services.ocr_translation_service import get_ocr_translation_coordinator
 from ..services.screen_capture_service import get_capture_service
 from ..services.theme_service import ThemeService
 from ..services.translation_service import get_translation_service
@@ -77,28 +78,21 @@ class CaptureOcrTranslateWorker(QObject):
             if self._cancel_requested:
                 return
 
-            # OCR + Translation processing using service method
+            # OCR + Translation processing using centralized ensure_ready in worker thread
             ocr_service = get_ocr_service()
-            if not ocr_service.is_initialized:
-                logger.info("OCR not ready, triggering on-demand initialization")
-                ocr_service.start_background_initialization()
-                max_wait = 15.0
-                wait_start = self.time.time()
-                while self.time.time() - wait_start < max_wait:
-                    if ocr_service.is_initialized:
-                        break
-                    self.time.sleep(0.2)
-                if not ocr_service.is_initialized:
-                    self.error.emit("OCR service initialization timed out during capture")
-                    return
-                logger.info("On-demand OCR initialization completed successfully")
+            ready = ocr_service.ensure_ready(timeout=15.0)
+            if not ready:
+                self.error.emit("OCR service not ready or initialization timed out")
+                return
 
             if self.image is not None:
                 logger.debug("Processing pre-captured image")
                 self.progress.emit("Starting OCR and translation")
-                original_text, translated_text, overlay_id = ocr_service.process_image_with_translation(
-                    self.image, preprocess=True, use_cache=True
+                coordinator = get_ocr_translation_coordinator()
+                original_text, translated_text = coordinator.process_image_with_translation(
+                    self.image, preprocess=True
                 )
+                overlay_id = "ocr"
             elif self.region is not None:
                 logger.debug(f"Starting synchronous capture for region {self.region}")
                 self.progress.emit("Starting screen capture")
@@ -112,9 +106,11 @@ class CaptureOcrTranslateWorker(QObject):
 
                 logger.debug("Capture completed, starting OCR and translation")
                 self.progress.emit("Capture completed, starting OCR and translation")
-                original_text, translated_text, overlay_id = ocr_service.process_image_with_translation(
-                    capture_result.image, preprocess=True, use_cache=True
+                coordinator = get_ocr_translation_coordinator()
+                original_text, translated_text = coordinator.process_image_with_translation(
+                    capture_result.image, preprocess=True
                 )
+                overlay_id = "ocr"
             else:
                 self.error.emit("No image or region provided")
                 return
@@ -201,6 +197,9 @@ class QtApp(QObject, SettingsObserver):
 
         # Prevent app from quitting when all windows are closed (tray keeps it running)
         self.qt_app.setQuitOnLastWindowClosed(False)
+
+        # Connect shutdown to Qt's aboutToQuit signal to ensure cleanup on any exit
+        self.qt_app.aboutToQuit.connect(self.shutdown)
 
         # Window instances
         self.main_window: Optional[MainWindow] = None
@@ -450,7 +449,7 @@ class QtApp(QObject, SettingsObserver):
             ocr_service = get_ocr_service()
             logger.debug(f"OCR service instance: {ocr_service}")
             # Start background initialization and provide a callback
-            ocr_service.initialize_ocr_service(on_complete=self._on_ocr_service_ready)
+            ocr_service.initialize(on_complete=self._on_ocr_service_ready)
             # Update tray icon to show loading state
             self.update_tray_status(is_loading=True)
             logger.info("OCR service background initialization started successfully")
@@ -461,10 +460,6 @@ class QtApp(QObject, SettingsObserver):
 
     def _on_ocr_service_ready(self):
         """Callback for when OCR service is ready."""
-        ocr_service = get_ocr_service()
-
-        # Call service method for common logic
-        ocr_service.on_ocr_service_ready()
 
         # Update tray icon to show normal state
         self.update_tray_status(is_loading=False)
@@ -560,7 +555,7 @@ class QtApp(QObject, SettingsObserver):
 
         # Check OCR service readiness
         ocr_service = get_ocr_service()
-        logger.debug(f"OCR service initialized: {ocr_service.is_initialized}, initializing: {ocr_service.is_initializing}")
+        logger.debug(f"OCR service engine available: {ocr_service.is_ocr_engine_ready()}")
 
         # Emit to main thread for UI operations
         self.update_tray_status(is_active=True)

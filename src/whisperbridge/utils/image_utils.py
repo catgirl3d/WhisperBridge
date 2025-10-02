@@ -338,19 +338,11 @@ def get_image_processor() -> ImageProcessor:
     return _image_processor
 
 
-def preprocess_for_ocr(
-    image: Image.Image,
-    enhance_contrast: bool = True,
-    reduce_noise: bool = True,
-    deskew: bool = True,
-) -> Image.Image:
+def preprocess_for_ocr(image: Image.Image) -> Image.Image:
     """Convenience function for OCR preprocessing.
 
     Args:
         image: Input PIL image
-        enhance_contrast: Whether to enhance contrast
-        reduce_noise: Whether to reduce noise
-        deskew: Whether to deskew image
 
     Returns:
         Preprocessed PIL image
