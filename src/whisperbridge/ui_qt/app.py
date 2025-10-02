@@ -7,7 +7,7 @@ import sys
 import os
 from PySide6.QtGui import QIcon
 import time
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, cast
 
 from loguru import logger
 from PySide6.QtCore import QObject, QThread, Signal, Slot
@@ -33,11 +33,7 @@ from ..services.ui_service import UIService
 # Worker classes for background processing
 from .workers import CaptureOcrTranslateWorker, SettingsSaveWorker
 from ..utils.screen_utils import Rectangle
-from .main_window import MainWindow
-from .overlay_window import OverlayWindow
-from .selection_overlay import SelectionOverlayQt
-from .settings_dialog import SettingsDialog
-from .tray import TrayManager
+# UI widgets are managed by UIService; direct imports removed to avoid tight coupling
 
 try:
     from pynput.keyboard import Controller, Key
@@ -65,9 +61,8 @@ class QtApp(QObject, SettingsObserver):
     def __init__(self):
         """Initialize the Qt application."""
         super().__init__()
-        self.qt_app = QApplication.instance()
-        if self.qt_app is None:
-            self.qt_app = QApplication(sys.argv)
+        app_instance = QApplication.instance()
+        self.qt_app = cast(QApplication, app_instance if app_instance is not None else QApplication(sys.argv))
 
         # Configure application
         self.qt_app.setApplicationName("WhisperBridge")
@@ -93,15 +88,10 @@ class QtApp(QObject, SettingsObserver):
         # Connect shutdown to Qt's aboutToQuit signal to ensure cleanup on any exit
         self.qt_app.aboutToQuit.connect(self.shutdown)
 
-        # Window instances
-        self.main_window: Optional[MainWindow] = None
-        self.overlay_windows: Dict[str, OverlayWindow] = {}
-        self.selection_overlay: Optional[SelectionOverlayQt] = None
-        self.settings_dialog: Optional[SettingsDialog] = None
+        # Worker threads (holds (thread, worker) pairs to prevent garbage collection)
         self._worker_threads: list = []  # Holds (thread, worker) pairs to prevent garbage collection
 
         # Services
-        self.tray_manager: Optional[TrayManager] = None
         self.hotkey_service: Optional[HotkeyService] = None
         self.keyboard_manager: Optional[KeyboardManager] = None
         self.overlay_service = None
@@ -158,31 +148,15 @@ class QtApp(QObject, SettingsObserver):
             # Pass app=self so UIService can create and manage all UI components.
             try:
                 self.ui_service = UIService(app=self, clipboard_service=self.clipboard_service)
-                # Ensure key UI components are created in main thread for references and connections
-                if self.ui_service.main_window is None:
-                    self.ui_service._create_main_window()
-                self.main_window = self.ui_service.main_window
-                if self.ui_service.selection_overlay is None:
-                    self.ui_service._create_selection_overlay(self)
-                self.selection_overlay = self.ui_service.selection_overlay
-                self.tray_manager = self.ui_service.tray_manager
-                self.overlay_windows = self.ui_service.overlay_windows
-                # Connect main window close-to-tray signal if main_window exists
-                if self.main_window:
-                    self.main_window.closeToTrayRequested.connect(self.hide_main_window_to_tray)
             except Exception as e:
                 logger.error(f"Failed to instantiate UIService: {e}", exc_info=True)
                 raise
 
             # Create copy-translate service
             self.copy_translate_service = CopyTranslateService(
-                tray_manager=self.tray_manager, clipboard_service=self.clipboard_service
+                tray_manager=self.ui_service.tray_manager, clipboard_service=self.clipboard_service
             )
             self.copy_translate_service.result_ready.connect(self._on_copy_translate_result)
-    
-            # Connect main window close-to-tray signal (UIService has created main_window)
-            if self.main_window:
-                self.main_window.closeToTrayRequested.connect(self.hide_main_window_to_tray)
 
             # Initialize keyboard services
             self._create_keyboard_services()
@@ -208,10 +182,6 @@ class QtApp(QObject, SettingsObserver):
         except Exception as e:
             logger.error(f"Failed to initialize Qt application: {e}")
             raise
-
-    def _create_main_window(self):
-        """Create the main settings window."""
-        self.main_window = MainWindow(on_save_callback=self._on_settings_saved)
 
     def _initialize_overlay_service(self):
         """Initialize the overlay service."""
@@ -244,22 +214,6 @@ class QtApp(QObject, SettingsObserver):
             logger.error(f"Failed to create keyboard services: {e}")
             self.keyboard_manager = None
             self.hotkey_service = None
-
-    def _create_tray_manager(self):
-        """Create and initialize the system tray manager."""
-        try:
-            self.tray_manager = TrayManager(
-                on_show_main_window=self.show_main_window,
-                on_toggle_overlay=self.toggle_overlay,
-                on_open_settings=self.open_settings,
-                on_exit_app=self.exit_app,
-                on_activate_ocr=self.activate_ocr,
-            )
-            if not self.tray_manager.create():
-                logger.warning("Failed to initialize system tray")
-        except Exception as e:
-            logger.error(f"Failed to create tray manager: {e}")
-            self.tray_manager = None
 
     def _register_default_hotkeys(self):
         """Register default hotkeys for the application."""
@@ -421,12 +375,12 @@ class QtApp(QObject, SettingsObserver):
             try:
                 if new_value:
                     self._initialize_ocr_service()
-                    if self.tray_manager:
-                        self.tray_manager.update_ocr_action_enabled(True)
+                    if self.ui_service and self.ui_service.tray_manager:
+                        self.ui_service.tray_manager.update_ocr_action_enabled(True)
                     logger.info("OCR enabled via settings; initialized service and enabled menu")
                 else:
-                    if self.tray_manager:
-                        self.tray_manager.update_ocr_action_enabled(False)
+                    if self.ui_service and self.ui_service.tray_manager:
+                        self.ui_service.tray_manager.update_ocr_action_enabled(False)
                     logger.info("OCR disabled via settings; menu disabled (hotkeys remain for on-demand)")
             except Exception as e:
                 logger.error(f"Error handling initialize_ocr change: {e}", exc_info=True)
@@ -540,81 +494,6 @@ class QtApp(QObject, SettingsObserver):
         """Activate OCR selection overlay."""
         self.ui_service.activate_ocr()
 
-    def _on_selection_completed(self, rect):
-        """Handle selection completion."""
-        logger.info(f"Selection completed: {rect}")
-        try:
-            # Convert logical coordinates to absolute pixels
-            x, y, width, height = self._convert_rect_to_pixels(rect)
-            logger.info(f"Converted to pixels: x={x}, y={y}, w={width}, h={height}")
-
-            # Run capture and OCR in background thread
-            region = Rectangle(x, y, width, height)
-            logger.info(f"Creating CaptureOcrTranslateWorker with region: {region}")
-            worker = CaptureOcrTranslateWorker(region=region)
-            thread = QThread()
-            logger.info("Moving worker to QThread")
-            worker.moveToThread(thread)
-
-            # Add info/debug logging for worker signals with named slots
-            def on_worker_started():
-                logger.info("Worker started successfully")
-
-            def on_worker_progress(msg):
-                logger.info(f"Worker progress: {msg}")
-
-            def on_worker_error(msg):
-                logger.error(f"Worker error: {msg}")
-
-            worker.started.connect(on_worker_started)
-            worker.progress.connect(on_worker_progress)
-            worker.error.connect(on_worker_error)
-
-            logger.info("Connecting worker.run to thread.started and starting thread")
-            thread.started.connect(worker.run)
-
-            # Ensure UI actions are executed on the main thread via a Qt slot on self
-            worker.finished.connect(self._handle_worker_finished)
-            worker.error.connect(self._show_ocr_error)
-
-            worker.finished.connect(thread.quit)
-            worker.finished.connect(worker.deleteLater)
-            thread.finished.connect(thread.deleteLater)
-            thread.start()
-            self._worker_threads.append((thread, worker))  # Store both to prevent GC
-            logger.info(f"QThread started and worker-thread pair stored in self._worker_threads (count: {len(self._worker_threads)})")
-        except Exception as e:
-            logger.error(f"Error processing selection: {e}")
-
-    def _on_selection_canceled(self):
-        """Handle selection cancellation."""
-        logger.info("Selection canceled")
-        try:
-            self.ui_service.show_tray_notification("WhisperBridge", "Отменено")
-        except Exception as e:
-            logger.error(f"Error showing selection canceled notification: {e}", exc_info=True)
-
-    def _convert_rect_to_pixels(self, rect):
-        """Convert QRect logical coordinates to absolute pixels."""
-        # Use screen_utils to handle DPI
-        logical_x = rect.x()
-        logical_y = rect.y()
-        logical_width = rect.width()
-        logical_height = rect.height()
-
-        # Get the screen for this rectangle (assume single screen for MVP)
-        screen = self.qt_app.screenAt(rect.center())
-        if screen:
-            dpr = screen.devicePixelRatio()
-            # Convert to pixels
-            pixel_x = int(logical_x * dpr)
-            pixel_y = int(logical_y * dpr)
-            pixel_width = int(logical_width * dpr)
-            pixel_height = int(logical_height * dpr)
-            return pixel_x, pixel_y, pixel_width, pixel_height
-        else:
-            # Fallback: assume 1.0 DPR
-            return logical_x, logical_y, logical_width, logical_height
 
     @Slot(str, str, str)
     def _handle_worker_finished(self, original_text: str, translated_text: str, overlay_id: str):
@@ -806,7 +685,7 @@ class QtApp(QObject, SettingsObserver):
 
     def hide_main_window(self):
         """Hide the main window (minimize to tray)."""
-        self.ui_service.hide_main_window()
+        self.ui_service.hide_main_window_to_tray()
 
     def toggle_minimize_to_tray(self, enabled: bool):
         """Toggle minimize to tray behavior.
@@ -816,6 +695,7 @@ class QtApp(QObject, SettingsObserver):
         """
         self.minimize_to_tray = enabled
         logger.info(f"Minimize to tray behavior set to: {enabled}")
+
 
 
 # Global application instance

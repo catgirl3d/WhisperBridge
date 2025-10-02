@@ -1230,7 +1230,7 @@ class OverlayWindow(QWidget):
         """Copy translated text to clipboard."""
         self._copy_text_to_clipboard(self.translated_text, self.copy_translated_btn, "Translated")
 
-    def show_overlay(self, original_text: str = "", translated_text: str = "", position: tuple = None):
+    def show_overlay(self, original_text: str = "", translated_text: str = "", position: tuple[int, int] | None = None):
         """Show the overlay with specified content.
 
         Args:

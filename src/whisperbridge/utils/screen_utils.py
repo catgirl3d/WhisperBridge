@@ -516,3 +516,34 @@ class ScreenUtils:
             Rectangle: Screen capture bounds
         """
         return ScreenUtils.get_virtual_screen_bounds()
+
+    @staticmethod
+    def convert_rect_to_pixels(rect) -> Tuple[int, int, int, int]:
+        """Convert QRect logical coordinates to absolute pixels.
+
+        Args:
+            rect: QRect object with logical coordinates
+
+        Returns:
+            Tuple[int, int, int, int]: pixel_x, pixel_y, pixel_width, pixel_height
+        """
+        # Use screen_utils to handle DPI
+        logical_x = rect.x()
+        logical_y = rect.y()
+        logical_width = rect.width()
+        logical_height = rect.height()
+
+        # Get the screen for this rectangle (assume single screen for MVP)
+        from PySide6.QtWidgets import QApplication
+        screen = QApplication.instance().screenAt(rect.center())
+        if screen:
+            dpr = screen.devicePixelRatio()
+            # Convert to pixels
+            pixel_x = int(logical_x * dpr)
+            pixel_y = int(logical_y * dpr)
+            pixel_width = int(logical_width * dpr)
+            pixel_height = int(logical_height * dpr)
+            return pixel_x, pixel_y, pixel_width, pixel_height
+        else:
+            # Fallback: assume 1.0 DPR
+            return logical_x, logical_y, logical_width, logical_height

@@ -1,14 +1,15 @@
 """
-UI service extracted from QtApp.
+UI service
 
 It provides slots/handlers that can be connected to worker signals so UI-related
 work happens in the main Qt thread.
 """
 
+import functools
 from typing import Dict, Optional, Tuple
 
 from loguru import logger as _default_logger
-from PySide6.QtCore import QThread, Slot
+from PySide6.QtCore import QThread, Slot, Qt
 from PySide6.QtWidgets import QApplication
 
 # UI widgets (import from ui_qt package)
@@ -17,9 +18,31 @@ from ..ui_qt.overlay_window import OverlayWindow
 from ..ui_qt.selection_overlay import SelectionOverlayQt
 from ..ui_qt.settings_dialog import SettingsDialog
 from ..ui_qt.tray import TrayManager
+from ..ui_qt.workers import CaptureOcrTranslateWorker
+from ..utils.screen_utils import ScreenUtils, Rectangle
 
 # Clipboard accessor (fallback)
 from .clipboard_service import get_clipboard_service
+
+
+def main_thread_only(func):
+    """
+    Decorator that ensures the method is called only from the main Qt thread.
+    """
+    @functools.wraps(func)
+    def wrapper(self, *args, **kwargs):
+        # 'self' - this is an instance of UIService
+        app = QApplication.instance()
+        if app and QThread.currentThread() != app.thread():
+            if hasattr(self, 'logger'):
+                self.logger.error(
+                    f"Method '{func.__name__}' was called from a background thread! "
+                    f"This may cause the application to crash. Call blocked."
+                )
+            return  # Block execution
+
+        return func(self, *args, **kwargs)
+    return wrapper
 
 
 class UIService:
@@ -41,7 +64,6 @@ class UIService:
         main_window: Optional[MainWindow] = None,
         tray_manager: Optional[TrayManager] = None,
         selection_overlay: Optional[SelectionOverlayQt] = None,
-        settings_dialog: Optional[SettingsDialog] = None,
         overlay_windows: Optional[Dict[str, OverlayWindow]] = None,
         clipboard_service=None,
         logger=None,
@@ -60,61 +82,74 @@ class UIService:
         self.logger = logger or _default_logger
         self.app = app
 
-        # Lazy initialization: set to None if not provided
-        if self.main_window is None:
-            self.main_window = None
-        if self.selection_overlay is None:
-            self.selection_overlay = None
-        if self.tray_manager is None:
-            # Create tray manager early as it's lightweight and needed for notifications
-            try:
-                # Use app methods as callbacks if available, otherwise no-op lambdas
-                on_show = (
-                    getattr(app, "show_main_window_signal", None).emit
-                    if app
-                    else (lambda: None)
-                )
-                on_toggle = (
-                    getattr(app, "toggle_overlay_signal", None).emit
-                    if app
-                    else (lambda: None)
-                )
-                on_open = (
-                    getattr(app, "show_settings_signal", None).emit
-                    if app
-                    else (lambda: None)
-                )
-                on_exit = getattr(app, "exit_app", None) or (lambda: None)
-                on_activate = getattr(app, "activate_ocr", None) or (lambda: None)
+        # Worker threads (holds (thread, worker) pairs to prevent garbage collection)
+        self._worker_threads: list = []
 
-                self.tray_manager = TrayManager(
-                    on_show_main_window=on_show,
-                    on_toggle_overlay=on_toggle,
-                    on_open_settings=on_open,
-                    on_exit_app=on_exit,
-                    on_activate_ocr=on_activate,
-                )
-                if not self.tray_manager.create():
-                    self.logger.warning("UIService: Failed to initialize system tray")
-                else:
-                    self.logger.debug("UIService: TrayManager created and shown")
-            except Exception as e:
-                self.logger.error(f"UIService: Failed to create TrayManager: {e}", exc_info=True)
+        # Initialize UI components
+        self._initialize_ui_components()
+
+    def _initialize_ui_components(self):
+        """Initialize all UI components managed by this service."""
+        # Create tray manager first as it's needed for notifications
+        if self.tray_manager is None:
+            self._create_tray_manager()
+
+        # Create main window
+        if self.main_window is None:
+            self._create_main_window()
+
+        # Create selection overlay
+        if self.selection_overlay is None:
+            self._create_selection_overlay()
+
+    def _create_tray_manager(self):
+        """Create and initialize the system tray manager."""
+        try:
+            # Use app methods as callbacks if available, otherwise no-op lambdas
+            # Build safe callbacks that emit Qt signals only if present
+            def _emit_if_signal(name: str):
+                def _cb():
+                    try:
+                        sig = getattr(self.app, name, None)
+                        if sig:
+                            sig.emit()
+                    except Exception:
+                        pass
+                return _cb
+
+            on_show = _emit_if_signal("show_main_window_signal")
+            on_toggle = _emit_if_signal("toggle_overlay_signal")
+            on_open = _emit_if_signal("show_settings_signal")
+            on_exit = getattr(self.app, "exit_app", None) or (lambda: None)
+            on_activate = getattr(self.app, "activate_ocr", None) or (lambda: None)
+
+            self.tray_manager = TrayManager(
+                on_show_main_window=on_show,
+                on_toggle_overlay=on_toggle,
+                on_open_settings=on_open,
+                on_exit_app=on_exit,
+                on_activate_ocr=on_activate,
+            )
+            if not self.tray_manager.create():
+                self.logger.warning("UIService: Failed to initialize system tray")
+            else:
+                self.logger.debug("UIService: TrayManager created and shown")
+        except Exception as e:
+            self.logger.error(f"UIService: Failed to create TrayManager: {e}", exc_info=True)
+            self.tray_manager = None
 
     # --- Main window operations ------------------------------------------------
 
+    @main_thread_only
     def _create_main_window(self):
         """Create the main window (called lazily in main thread)."""
         try:
-            from ..ui_qt.app import get_qt_app  # To get app for callbacks
-
-            app = get_qt_app()
-            on_save_cb = getattr(app, "_on_settings_saved", None)
+            on_save_cb = getattr(self.app, "_on_settings_saved", None)
             self.main_window = MainWindow(on_save_callback=on_save_cb)
             # Connect close-to-tray signal
-            if app and hasattr(app, "hide_main_window_to_tray"):
+            if self.app and hasattr(self.app, "hide_main_window_to_tray"):
                 try:
-                    self.main_window.closeToTrayRequested.connect(app.hide_main_window_to_tray)
+                    self.main_window.closeToTrayRequested.connect(self.app.hide_main_window_to_tray)
                 except Exception:
                     pass
             self.logger.debug("UIService: MainWindow created")
@@ -122,34 +157,30 @@ class UIService:
             self.logger.error(f"UIService: Failed to create MainWindow: {e}", exc_info=True)
             self.main_window = None
 
-    def _create_selection_overlay(self, app):
+    @main_thread_only
+    def _create_selection_overlay(self):
         """Create the selection overlay (called lazily in main thread)."""
         try:
             self.selection_overlay = SelectionOverlayQt()
-            # Connect signals to app handlers if available
-            if app:
-                if hasattr(self.selection_overlay, "selectionCompleted") and hasattr(app, "_on_selection_completed"):
-                    try:
-                        self.selection_overlay.selectionCompleted.connect(app._on_selection_completed)
-                    except Exception:
-                        pass
-                if hasattr(self.selection_overlay, "selectionCanceled") and hasattr(app, "_on_selection_canceled"):
-                    try:
-                        self.selection_overlay.selectionCanceled.connect(app._on_selection_canceled)
-                    except Exception:
-                        pass
+            # Connect signals to ui_service handlers
+            if hasattr(self.selection_overlay, "selectionCompleted"):
+                try:
+                    self.selection_overlay.selectionCompleted.connect(self._on_selection_completed)
+                except Exception:
+                    pass
+            if hasattr(self.selection_overlay, "selectionCanceled"):
+                try:
+                    self.selection_overlay.selectionCanceled.connect(self._on_selection_canceled)
+                except Exception:
+                    pass
             self.logger.debug("UIService: SelectionOverlayQt created")
         except Exception as e:
             self.logger.error(f"UIService: Failed to create SelectionOverlayQt: {e}", exc_info=True)
             self.selection_overlay = None
 
+    @main_thread_only
     def show_main_window(self):
         """Show and activate the main settings window."""
-        # Thread check
-        if QThread.currentThread() != QApplication.instance().thread():
-            self.logger.error("show_main_window called from wrong thread!")
-            return
-
         self.logger.info("UIService: show_main_window() called")
         try:
             # Lazy creation
@@ -171,6 +202,7 @@ class UIService:
         except Exception as e:
             self.logger.error(f"UIService.show_main_window error: {e}", exc_info=True)
 
+    @main_thread_only
     def hide_main_window_to_tray(self):
         """Hide the main window (minimize to tray)."""
         self.logger.info("UIService: hide_main_window_to_tray() called")
@@ -183,13 +215,9 @@ class UIService:
 
     # --- Settings dialog ------------------------------------------------------
 
+    @main_thread_only
     def open_settings(self):
         """Open (or create) the settings dialog and bring it to front."""
-        # Thread check
-        if QThread.currentThread() != QApplication.instance().thread():
-            self.logger.error("open_settings called from wrong thread!")
-            return
-
         self.logger.info("UIService: open_settings() called")
         try:
             # Create dialog if it doesn't exist or was closed
@@ -227,6 +255,7 @@ class UIService:
 
     # --- Overlay windows -------------------------------------------------------
 
+    @main_thread_only
     def show_overlay_window(
         self,
         original_text: str,
@@ -263,8 +292,9 @@ class UIService:
 
             overlay = self.overlay_windows[overlay_id]
             try:
+                pos = position
                 overlay.show_overlay(
-                    original_text or "", translated_text or "", position
+                    original_text or "", translated_text or "", pos
                 )
                 self.logger.info(
                     f"Overlay '{overlay_id}' displayed successfully by UIService"
@@ -289,6 +319,7 @@ class UIService:
                 f"Unexpected error in UIService.show_overlay_window: {e}", exc_info=True
             )
 
+    @main_thread_only
     def hide_overlay_window(self, overlay_id: str = "main"):
         """Hide an overlay window if present."""
         try:
@@ -307,6 +338,7 @@ class UIService:
                 exc_info=True,
             )
 
+    @main_thread_only
     def toggle_overlay(self):
         """Toggle overlay visibility. If no overlay exists, create a basic fullscreen overlay."""
         self.logger.info("UIService: toggling overlay")
@@ -346,22 +378,18 @@ class UIService:
                 f"UIService: Failed to create/show overlay: {e}", exc_info=True
             )
 
+    @main_thread_only
     def activate_ocr(self):
         """Activate OCR selection overlay in the main Qt thread."""
-        # Thread check
-        if QThread.currentThread() != QApplication.instance().thread():
-            self.logger.error("activate_ocr called from wrong thread!")
-            return
         try:
+            # Ensure OCR overlay exists (created in main thread)
+            if 'ocr' not in self.overlay_windows:
+                self.overlay_windows['ocr'] = OverlayWindow()
+                self.logger.debug("OCR overlay created in main thread")
+
             if self.selection_overlay is None:
                 # Lazily create and wire selection overlay
-                try:
-                    from ..ui_qt.app import get_qt_app
-
-                    app = get_qt_app()
-                except Exception:
-                    app = None
-                self._create_selection_overlay(app)
+                self._create_selection_overlay()
                 if self.selection_overlay is None:
                     self.logger.error("Failed to create selection_overlay")
                     return
@@ -372,6 +400,7 @@ class UIService:
 
     # --- Slots / handlers -----------------------------------------------------
 
+    @main_thread_only
     @Slot(str, str, str)
     def handle_worker_finished(
         self, original_text: str, translated_text: str, overlay_id: str
@@ -394,6 +423,7 @@ class UIService:
                 f"UIService.handle_worker_finished error: {e}", exc_info=True
             )
 
+    @main_thread_only
     @Slot(str, str, bool)
     def handle_copy_translate(
         self, clipboard_text: str, translated_text: str, auto_copy: bool = False
@@ -438,7 +468,8 @@ class UIService:
                 except Exception:
                     self.logger.debug("Failed to show tray notification for copy-translate error")
 
-    # --- Additional UI helpers moved from QtApp --------------------------------
+    # --- Additional UI helpers --------------------------------
+    @main_thread_only
     def show_tray_notification(self, title: str, message: str):
         """Show a notification through the tray manager (if available)."""
         try:
@@ -448,6 +479,7 @@ class UIService:
         except Exception as e:
             self.logger.error(f"UIService.show_tray_notification error: {e}", exc_info=True)
 
+    @main_thread_only
     def update_tray_status(
         self, is_active: bool = False, has_error: bool = False, is_loading: bool = False
     ):
@@ -461,6 +493,7 @@ class UIService:
         except Exception as e:
             self.logger.error(f"UIService.update_tray_status error: {e}", exc_info=True)
 
+    @main_thread_only
     def update_window_opacity(self, opacity: float):
         """Update window opacity for all managed windows."""
         try:
@@ -483,18 +516,8 @@ class UIService:
                 f"UIService.update_window_opacity error: {e}", exc_info=True
             )
 
-    def hide_main_window(self):
-        """Hide the main window (minimize to tray)."""
-        try:
-            if self.main_window:
-                try:
-                    self.main_window.hide()
-                    self.logger.debug("UIService: Main window hidden")
-                except Exception:
-                    pass
-        except Exception as e:
-            self.logger.error(f"UIService.hide_main_window error: {e}", exc_info=True)
 
+    @main_thread_only
     def update_theme(self, theme: str):
         """Persist theme setting and log (keeps parity with QtApp.update_theme)."""
         try:
@@ -505,6 +528,7 @@ class UIService:
         except Exception as e:
             self.logger.error(f"UIService.update_theme error: {e}", exc_info=True)
 
+    @main_thread_only
     def shutdown_ui(self):
         """Shutdown/cleanup UI-specific resources: tray, overlays, main window."""
         try:
@@ -539,3 +563,84 @@ class UIService:
                 self.logger.warning(f"UIService: Error closing main window: {e}")
         except Exception as e:
             self.logger.error(f"UIService.shutdown_ui error: {e}", exc_info=True)
+
+    @main_thread_only
+    def _on_selection_canceled(self):
+        """Handle selection cancellation."""
+        self.logger.info("Selection canceled")
+        try:
+            self.show_tray_notification("WhisperBridge", "Canceled")
+        except Exception as e:
+            self.logger.error(f"Error showing selection canceled notification: {e}", exc_info=True)
+
+    @main_thread_only
+    def _on_selection_completed(self, rect):
+        """Handle selection completion."""
+        self.logger.info(f"Selection completed: {rect}")
+        try:
+            # Convert logical coordinates to absolute pixels
+            x, y, width, height = ScreenUtils.convert_rect_to_pixels(rect)
+            self.logger.info(f"Converted to pixels: x={x}, y={y}, w={width}, h={height}")
+
+            # Create region rectangle for capture
+            region = Rectangle(x, y, width, height)
+
+            # Create and start worker for OCR + translation
+            self._start_ocr_worker(region)
+
+            self.logger.debug("Selection completed processed by UIService")
+        except Exception as e:
+            self.logger.error(f"Error processing selection: {e}")
+
+    def _start_ocr_worker(self, region: Rectangle):
+        """Start OCR worker for the selected region."""
+        try:
+            self.logger.info(f"Starting OCR worker for region: {region}")
+
+            # Create worker
+            worker = CaptureOcrTranslateWorker(region=region)
+            thread = QThread()
+
+            # Move worker to thread
+            worker.moveToThread(thread)
+
+            # Connect signals with QueuedConnection to ensure slots run in main thread
+            if self.app:
+                try:
+                    worker.finished.connect(self.app._handle_worker_finished, Qt.ConnectionType.QueuedConnection)
+                except Exception:
+                    worker.finished.connect(self.handle_worker_finished, Qt.ConnectionType.QueuedConnection)
+                try:
+                    worker.error.connect(self.app._show_error, Qt.ConnectionType.QueuedConnection)
+                except Exception:
+                    worker.error.connect(self._handle_worker_error, Qt.ConnectionType.QueuedConnection)
+            else:
+                worker.finished.connect(self.handle_worker_finished, Qt.ConnectionType.QueuedConnection)
+                worker.error.connect(self._handle_worker_error, Qt.ConnectionType.QueuedConnection)
+
+            # Connect thread lifecycle
+            thread.started.connect(worker.run)
+            worker.finished.connect(thread.quit)
+            worker.finished.connect(worker.deleteLater)
+            thread.finished.connect(thread.deleteLater)
+
+            # Start thread
+            thread.start()
+
+            # Keep reference to prevent garbage collection
+            self._worker_threads.append((thread, worker))
+
+            self.logger.info("OCR worker started successfully")
+
+        except Exception as e:
+            self.logger.error(f"Error starting OCR worker: {e}", exc_info=True)
+            if self.tray_manager:
+                self.tray_manager.show_notification("WhisperBridge", f"Failed to start OCR processing: {e}")
+
+    @main_thread_only
+    @Slot(str)
+    def _handle_worker_error(self, error_message: str):
+        """Handle worker error."""
+        self.logger.error(f"Worker error: {error_message}")
+        if self.tray_manager:
+            self.tray_manager.show_notification("WhisperBridge", f"Processing error: {error_message}")
