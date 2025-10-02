@@ -36,6 +36,7 @@ from loguru import logger
 from ..services.config_service import config_service
 from ..utils.language_utils import get_language_name, detect_language
 from .minibar_overlay import MiniBarOverlay
+from .workers import TranslationWorker
 
 
 class TranslatorSettingsDialog(QDialog):
@@ -1170,45 +1171,6 @@ class OverlayWindow(QWidget):
             logger.debug(f"Translate clicked with detected='{detected}', source='{source_lang}', target='{target_lang}'")
 
             # Worker that runs translation in a separate thread and its own event loop
-            class TranslationWorker(QObject):
-                finished = Signal(bool, str)  # success, result_or_error
-
-                def __init__(self, text_to_translate: str, source_lang: str, target_lang: str):
-                    super().__init__()
-                    self.text = text_to_translate
-                    self.source_lang = source_lang
-                    self.target_lang = target_lang
-
-                def run(self):
-                    try:
-                        from ..services.translation_service import get_translation_service
-                        service = get_translation_service()
-
-                        import asyncio
-
-                        # Create and use a new event loop in this thread to avoid conflicting with Qt's loop
-                        loop = asyncio.new_event_loop()
-                        try:
-                            asyncio.set_event_loop(loop)
-                            resp = loop.run_until_complete(
-                                service.translate_text_async(
-                                    self.text,
-                                    source_lang=self.source_lang,
-                                    target_lang=self.target_lang,
-                                )
-                            )
-                        finally:
-                            try:
-                                loop.close()
-                            except Exception:
-                                pass
-
-                        if resp and getattr(resp, "success", False):
-                            self.finished.emit(True, resp.translated_text or "")
-                        else:
-                            self.finished.emit(False, getattr(resp, "error_message", "Translation failed"))
-                    except Exception as e:
-                        self.finished.emit(False, str(e))
 
             # Create worker and thread
             self._translation_worker = TranslationWorker(text, source_lang, target_lang)

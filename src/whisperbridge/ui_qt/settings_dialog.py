@@ -29,36 +29,7 @@ from ..services.config_service import config_service, SettingsObserver
 from ..core.api_manager import get_api_manager, APIProvider
 from ..core.config import delete_api_key, validate_api_key_format
 from loguru import logger
-
-
-class ApiTestWorker(QObject):
-    """Worker for testing API key asynchronously."""
-
-    finished = Signal(bool, str, list, str)  # success, error_message, models, source
-
-    def __init__(self, provider: str, api_key: str):
-        super().__init__()
-        self.provider = provider
-        self.api_key = api_key
-
-    def run(self):
-        """Test the API key by delegating to APIManager with a temporary key and emit models to avoid double fetch."""
-        try:
-            api_manager = get_api_manager()
-            if not api_manager.is_initialized():
-                api_manager.initialize()
-            provider_enum = APIProvider(self.provider)
-            models, source = api_manager.get_available_models_sync(
-                provider=provider_enum, temp_api_key=self.api_key
-            )
-            if source in ("error", "unconfigured"):
-                self.finished.emit(False, "API error or invalid key", [], source)
-            elif not models:
-                self.finished.emit(False, "No models available for this API key", [], source)
-            else:
-                self.finished.emit(True, "", models, source)
-        except Exception as e:
-            self.finished.emit(False, f"Ошибка подключения: {str(e)}", [], "error")
+from .workers import ApiTestWorker
 
 
 class SettingsDialog(QDialog, SettingsObserver):

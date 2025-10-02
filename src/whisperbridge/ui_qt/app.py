@@ -30,6 +30,8 @@ from ..services.translation_service import get_translation_service
 
 # UI service extracted to manage window/overlay lifecycle
 from ..services.ui_service import UIService
+# Worker classes for background processing
+from .workers import CaptureOcrTranslateWorker, SettingsSaveWorker
 from ..utils.screen_utils import Rectangle
 from .main_window import MainWindow
 from .overlay_window import OverlayWindow
@@ -46,116 +48,6 @@ except ImportError:
     PYNPUT_AVAILABLE = False
     Controller = None
     Key = None
-
-
-class CaptureOcrTranslateWorker(QObject):
-    """Worker for synchronous capture, OCR, and optional translation."""
-
-    started = Signal()
-    progress = Signal(str)
-    ocr_finished = Signal(str)
-    finished = Signal(str, str, str)
-    error = Signal(str)
-
-    def __init__(self, region=None, image=None, capture_options=None):
-        super().__init__()
-        self.region = region
-        self.image = image
-        self.capture_options = capture_options or {}
-        self._cancel_requested = False
-
-    import time  # Import at class level for worker thread access
-
-    def request_cancel(self):
-        self._cancel_requested = True
-
-    def run(self):
-        logger.info("CaptureOcrTranslateWorker run started")
-
-        try:
-            self.started.emit()
-
-            if self._cancel_requested:
-                return
-
-            # OCR + Translation processing using centralized ensure_ready in worker thread
-            ocr_service = get_ocr_service()
-            ready = ocr_service.ensure_ready(timeout=15.0)
-            if not ready:
-                self.error.emit("OCR service not ready or initialization timed out")
-                return
-
-            if self.image is not None:
-                logger.debug("Processing pre-captured image")
-                self.progress.emit("Starting OCR and translation")
-                coordinator = get_ocr_translation_coordinator()
-                original_text, translated_text = coordinator.process_image_with_translation(
-                    self.image, preprocess=True
-                )
-                overlay_id = "ocr"
-            elif self.region is not None:
-                logger.debug(f"Starting synchronous capture for region {self.region}")
-                self.progress.emit("Starting screen capture")
-                capture_service = get_capture_service()
-                capture_result = capture_service.capture_area(self.region)
-
-                if not capture_result.success or capture_result.image is None:
-                    logger.error("Capture failed")
-                    self.error.emit("Screen capture failed")
-                    return
-
-                logger.debug("Capture completed, starting OCR and translation")
-                self.progress.emit("Capture completed, starting OCR and translation")
-                coordinator = get_ocr_translation_coordinator()
-                original_text, translated_text = coordinator.process_image_with_translation(
-                    capture_result.image, preprocess=True
-                )
-                overlay_id = "ocr"
-            else:
-                self.error.emit("No image or region provided")
-                return
-
-            if self._cancel_requested:
-                return
-
-            self.progress.emit("Processing completed")
-            self.ocr_finished.emit(original_text)
-            self.finished.emit(original_text, translated_text, overlay_id)
-
-            logger.info("CaptureOcrTranslateWorker run completed successfully")
-
-        except Exception as e:
-            logger.error(f"Error in worker run: {e}", exc_info=True)
-            self.error.emit(str(e))
-
-    def process_and_emit(self, text):
-        """Backward compatibility method for existing callers in _process_selection."""
-        self.ocr_finished.emit(text)
-        self.finished.emit(text, "", "")
-
-
-class SettingsSaveWorker(QObject):
-    """Worker for saving settings asynchronously."""
-
-    finished = Signal(bool, str)  # success, error_message
-
-    def __init__(self, settings_to_save: Dict[str, Any]):
-        super().__init__()
-        self.settings_to_save = settings_to_save
-
-    def run(self):
-        """Save settings using the settings manager."""
-        try:
-            from ..core.config import Settings
-
-            new_settings = Settings(**self.settings_to_save)
-            if config_service.save_settings(new_settings):
-                self.finished.emit(True, "Settings saved successfully.")
-            else:
-                self.finished.emit(False, "Failed to save settings.")
-        except Exception as e:
-            logger.error(f"Error in SettingsSaveWorker: {e}", exc_info=True)
-            self.finished.emit(False, f"An error occurred: {e}")
 
 
 class QtApp(QObject, SettingsObserver):
