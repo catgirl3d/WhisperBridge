@@ -152,7 +152,7 @@ class OverlayWindow(QWidget):
         # Swap button
         self.swap_btn = QPushButton()
         self.swap_btn.setFixedSize(35, 28)
-        img_path = Path(__file__).parent.parent.parent.parent / "img" / "arrows-exchange.png"
+        img_path = Path(__file__).parent.parent / "assets" / "icons" / "arrows-exchange.png"
         pixmap = QPixmap(str(img_path))
         self.swap_btn.setIcon(QIcon(pixmap))
         self.swap_btn.setIconSize(QSize(20, 24))
@@ -295,7 +295,7 @@ class OverlayWindow(QWidget):
         self.translate_btn.setFixedHeight(28)
         self.translate_btn.setFixedWidth(120)
         try:
-            img_path = Path(__file__).parent.parent.parent.parent / "img" / "translation-icon.png"
+            img_path = Path(__file__).parent.parent / "assets" / "icons" / "translation-icon.png"
             pixmap = QPixmap(str(img_path))
             if not pixmap.isNull():
                 self.translate_btn.setIcon(QIcon(pixmap))
