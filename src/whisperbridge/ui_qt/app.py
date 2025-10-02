@@ -57,6 +57,7 @@ class QtApp(QObject, SettingsObserver):
     show_settings_signal = Signal()
     toggle_overlay_signal = Signal()
     activate_ocr_signal = Signal()
+    ocr_ready_signal = Signal()
 
     def __init__(self):
         """Initialize the Qt application."""
@@ -115,6 +116,7 @@ class QtApp(QObject, SettingsObserver):
         self.show_settings_signal.connect(self._show_settings_slot)
         self.toggle_overlay_signal.connect(self._toggle_overlay_slot)
         self.activate_ocr_signal.connect(self._activate_ocr_slot)
+        self.ocr_ready_signal.connect(self._on_ocr_service_ready)
 
         # Initialize clipboard service singleton (if available)
         try:
@@ -294,8 +296,10 @@ class QtApp(QObject, SettingsObserver):
         try:
             ocr_service = get_ocr_service()
             logger.debug(f"OCR service instance: {ocr_service}")
-            # Start background initialization and provide a callback
-            ocr_service.initialize(on_complete=self._on_ocr_service_ready)
+            # Start background initialization and emit signal when complete
+            def on_complete():
+                self.ocr_ready_signal.emit()
+            ocr_service.initialize(on_complete=on_complete)
             # Update tray icon to show loading state
             self.update_tray_status(is_loading=True)
             logger.info("OCR service background initialization started successfully")
@@ -304,8 +308,9 @@ class QtApp(QObject, SettingsObserver):
             logger.debug(f"Initialization error details: {type(e).__name__}: {str(e)}", exc_info=True)
             self.update_tray_status(has_error=True)
 
+    @Slot()
     def _on_ocr_service_ready(self):
-        """Callback for when OCR service is ready."""
+        """Slot for when OCR service is ready (called from main thread via signal)."""
 
         # Update tray icon to show normal state
         self.update_tray_status(is_loading=False)

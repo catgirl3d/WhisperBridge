@@ -26,6 +26,12 @@
   QThread.currentThread() == QApplication.instance().thread()
 - В проекте примеры проверок в [`src/whisperbridge/services/ui_service.py`](src/whisperbridge/services/ui_service.py:151).
 
+5.1) Декоратор @main_thread_only
+- Для автоматической проверки потока используется декоратор `@main_thread_only` из [`src/whisperbridge/services/ui_service.py`](src/whisperbridge/services/ui_service.py:28).
+- Декоратор проверяет, что метод вызывается только из главного Qt потока.
+- Если метод вызывается из фонового потока, декоратор блокирует выполнение и логирует ошибку.
+- Пример использования: `@main_thread_only` применяется ко всем методам UIService, изменяющим UI.
+
 6) Взаимодействие с QThread и QObject
 - Перемещать QObject в QThread только если есть точное понимание ownership и lifecycle.
 - Для worker-объектов (QObject с сигналами) использовать moveToThread и связывать сигналы со слотами в главном потоке.
