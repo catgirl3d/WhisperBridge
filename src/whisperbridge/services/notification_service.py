@@ -8,7 +8,7 @@ Centralized service for managing system tray notifications with different types
 from enum import Enum
 from typing import Optional
 from loguru import logger
-from PySide6.QtCore import QThread, QTimer
+from PySide6.QtCore import QThread, QObject, Signal, Slot
 from PySide6.QtWidgets import QSystemTrayIcon, QApplication
 
 # Lazy import to avoid circular dependencies
@@ -22,8 +22,11 @@ class NotificationType(Enum):
     SUCCESS = "success"
 
 
-class NotificationService:
+class NotificationService(QObject):
     """Centralized service for managing system tray notifications."""
+
+    # Signal for thread-safe notification display
+    _show_notification_signal = Signal(str, str, object, int)  # message, title, notification_type, duration
 
     def __init__(self, tray_manager=None):
         """
@@ -32,9 +35,13 @@ class NotificationService:
         Args:
             tray_manager: Optional tray manager instance
         """
+        super().__init__()
         self.tray_manager = tray_manager
         self._enabled = True
         self._logger = logger
+        
+        # Connect signal to slot for thread-safe operation
+        self._show_notification_signal.connect(self._show_internal)
 
     def set_tray_manager(self, tray_manager):
         """
@@ -71,16 +78,19 @@ class NotificationService:
             self._logger.debug(f"Notification suppressed (disabled): {title} - {message}")
             return
 
-        # Ensure execution on the main Qt thread
-        try:
-            app = QApplication.instance()
-            if app and QThread.currentThread() != app.thread():
-                QTimer.singleShot(0, lambda: self.show(message, title, notification_type, duration))
-                self._logger.debug("Notification marshalled to main thread")
-                return
-        except Exception as e:
-            self._logger.debug(f"Main-thread dispatch check failed: {e}")
+        # Qt automatically chooses the correct connection type:
+        # - DirectConnection for same thread (synchronous)
+        # - QueuedConnection for different threads (via event loop)
+        self._show_notification_signal.emit(message, title, notification_type, duration)
 
+    @Slot(str, str, object, int)
+    def _show_internal(self, message: str, title: str, notification_type: NotificationType, duration: int):
+        """Internal slot to show notification (called in main thread)."""
+        # Double-check enabled state in case it changed between emit and slot execution
+        if not self._enabled:
+            self._logger.debug(f"Notification suppressed by slot (disabled): {title} - {message}")
+            return
+            
         try:
             if self.tray_manager and hasattr(self.tray_manager, 'is_available') and self.tray_manager.is_available():
                 # Map notification type to QSystemTrayIcon.MessageIcon
