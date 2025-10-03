@@ -19,7 +19,6 @@ class TrayManager(QObject):
 
     def __init__(
         self,
-        on_show_main_window: Callable,
         on_toggle_overlay: Callable,
         on_open_settings: Callable,
         on_exit_app: Callable,
@@ -29,7 +28,6 @@ class TrayManager(QObject):
         Initialize the tray manager.
 
         Args:
-            on_show_main_window: Callback for showing main window
             on_toggle_overlay: Callback for toggling overlay
             on_open_settings: Callback for opening settings
             on_exit_app: Callback for exiting application
@@ -37,7 +35,6 @@ class TrayManager(QObject):
         """
         super().__init__()
 
-        self.on_show_main_window = on_show_main_window
         self.on_toggle_overlay = on_toggle_overlay
         self.on_open_settings = on_open_settings
         self.on_exit_app = on_exit_app
@@ -83,7 +80,10 @@ class TrayManager(QObject):
             self._create_context_menu()
 
             # Set menu
-            self.tray_icon.setContextMenu(self.tray_menu)
+            if self.tray_menu:
+                self.tray_icon.setContextMenu(self.tray_menu)
+            else:
+                logger.error("Failed to create tray context menu, cannot set context menu.")
 
             # Connect signals
             self.tray_icon.activated.connect(self._on_tray_activated)
@@ -190,15 +190,6 @@ class TrayManager(QObject):
         except Exception as e:
             logger.error(f"Error handling tray activation: {e}")
 
-    def _on_show_main_window(self):
-        """Handle show main window action."""
-        try:
-            logger.info("Tray: Show main window requested")
-            if self.on_show_main_window:
-                self.on_show_main_window()
-        except Exception as e:
-            logger.error(f"Error showing main window from tray: {e}")
-
     def _on_toggle_overlay(self):
         """Handle toggle overlay action."""
         try:
@@ -234,14 +225,6 @@ class TrayManager(QObject):
                 logger.debug(f"Tray: OCR menu action enabled state updated to: {enabled}")
         except Exception as e:
             logger.error(f"Error updating OCR action enabled state: {e}")
-
-    def set_activate_ocr_enabled(self, enabled: bool):
-        """Enable or disable the Activate OCR menu action at runtime."""
-        try:
-            if hasattr(self, "activate_ocr_action") and self.activate_ocr_action:
-                self.activate_ocr_action.setEnabled(bool(enabled))
-        except Exception as e:
-            logger.error(f"Failed to set Activate OCR enabled state: {e}")
 
     def _on_exit_app(self):
         """Handle exit application action."""

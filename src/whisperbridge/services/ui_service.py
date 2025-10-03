@@ -23,6 +23,7 @@ from ..utils.screen_utils import ScreenUtils, Rectangle
 
 # Clipboard accessor (fallback)
 from .clipboard_service import get_clipboard_service
+from .notification_service import get_notification_service
 
 
 def main_thread_only(func):
@@ -117,14 +118,12 @@ class UIService:
                         pass
                 return _cb
 
-            on_show = _emit_if_signal("show_main_window_signal")
             on_toggle = _emit_if_signal("toggle_overlay_signal")
             on_open = _emit_if_signal("show_settings_signal")
             on_exit = getattr(self.app, "exit_app", None) or (lambda: None)
             on_activate = getattr(self.app, "activate_ocr", None) or (lambda: None)
 
             self.tray_manager = TrayManager(
-                on_show_main_window=on_show,
                 on_toggle_overlay=on_toggle,
                 on_open_settings=on_open,
                 on_exit_app=on_exit,
@@ -232,8 +231,8 @@ class UIService:
                 except Exception as e:
                     self.logger.error(f"UIService: Failed to create SettingsDialog: {e}", exc_info=True)
                     # Notify user via tray if possible
-                    if self.tray_manager:
-                        self.tray_manager.show_notification("WhisperBridge", f"Failed to open settings: {e}")
+                    notification_service = get_notification_service()
+                    notification_service.error(f"Failed to open settings: {e}", "WhisperBridge")
                     return
 
             # Show and activate dialog
@@ -247,11 +246,11 @@ class UIService:
 
         except Exception as e:
             self.logger.error(f"UIService.open_settings error: {e}", exc_info=True)
-            if self.tray_manager:
-                try:
-                    self.tray_manager.show_notification("WhisperBridge", f"Settings dialog error: {e}")
-                except Exception:
-                    self.logger.debug("Failed to show tray notification for settings error")
+            notification_service = get_notification_service()
+            try:
+                notification_service.error(f"Settings dialog error: {e}", "WhisperBridge")
+            except Exception:
+                self.logger.debug("Failed to show tray notification for settings error")
 
     # --- Overlay windows -------------------------------------------------------
 
@@ -284,10 +283,8 @@ class UIService:
                         f"UIService: Failed to create OverlayWindow '{overlay_id}': {e}",
                         exc_info=True,
                     )
-                    if self.tray_manager:
-                        self.tray_manager.show_notification(
-                            "WhisperBridge", f"Overlay creation failed: {e}"
-                        )
+                    notification_service = get_notification_service()
+                    notification_service.error(f"Overlay creation failed: {e}", "WhisperBridge")
                     return
 
             overlay = self.overlay_windows[overlay_id]
@@ -306,9 +303,8 @@ class UIService:
                 )
                 if self.tray_manager:
                     try:
-                        self.tray_manager.show_notification(
-                            "WhisperBridge", f"Overlay display error: {e}"
-                        )
+                        notification_service = get_notification_service()
+                        notification_service.error(f"Overlay display error: {e}", "WhisperBridge")
                     except Exception:
                         self.logger.debug(
                             "Failed to show tray notification for overlay display error"
@@ -462,22 +458,24 @@ class UIService:
             self.logger.error(f"UIService.handle_copy_translate error: {e}", exc_info=True)
             if self.tray_manager:
                 try:
-                    self.tray_manager.show_notification(
-                        "WhisperBridge", f"Copy-translate overlay error: {e}"
-                    )
+                    notification_service = get_notification_service()
+                    notification_service.error(f"Copy-translate overlay error: {e}", "WhisperBridge")
                 except Exception:
                     self.logger.debug("Failed to show tray notification for copy-translate error")
 
     # --- Additional UI helpers --------------------------------
+
     @main_thread_only
-    def show_tray_notification(self, title: str, message: str):
-        """Show a notification through the tray manager (if available)."""
+    def handle_ocr_service_ready(self):
+        """Handle OCR service ready event: update tray status and show notification."""
         try:
-            if self.tray_manager:
-                self.tray_manager.show_notification(title, message)
-                self.logger.debug(f"Tray notification shown: {title}")
+            self.update_tray_status(is_loading=False)
+            notification_service = get_notification_service()
+            notification_service.info("OCR service is ready.", "WhisperBridge")
+            self.logger.info("Handled OCR service ready: updated tray and showed notification.")
         except Exception as e:
-            self.logger.error(f"UIService.show_tray_notification error: {e}", exc_info=True)
+            self.logger.error(f"UIService.handle_ocr_service_ready error: {e}", exc_info=True)
+
 
     @main_thread_only
     def update_tray_status(
@@ -569,7 +567,8 @@ class UIService:
         """Handle selection cancellation."""
         self.logger.info("Selection canceled")
         try:
-            self.show_tray_notification("WhisperBridge", "Canceled")
+            notification_service = get_notification_service()
+            notification_service.info("Canceled", "WhisperBridge")
         except Exception as e:
             self.logger.error(f"Error showing selection canceled notification: {e}", exc_info=True)
 
@@ -611,7 +610,7 @@ class UIService:
                 except Exception:
                     worker.finished.connect(self.handle_worker_finished, Qt.ConnectionType.QueuedConnection)
                 try:
-                    worker.error.connect(self.app._show_error, Qt.ConnectionType.QueuedConnection)
+                    worker.error.connect(self._handle_worker_error, Qt.ConnectionType.QueuedConnection)
                 except Exception:
                     worker.error.connect(self._handle_worker_error, Qt.ConnectionType.QueuedConnection)
             else:
@@ -634,13 +633,13 @@ class UIService:
 
         except Exception as e:
             self.logger.error(f"Error starting OCR worker: {e}", exc_info=True)
-            if self.tray_manager:
-                self.tray_manager.show_notification("WhisperBridge", f"Failed to start OCR processing: {e}")
+            notification_service = get_notification_service()
+            notification_service.error(f"Failed to start OCR processing: {e}", "WhisperBridge")
 
     @main_thread_only
     @Slot(str)
     def _handle_worker_error(self, error_message: str):
         """Handle worker error."""
         self.logger.error(f"Worker error: {error_message}")
-        if self.tray_manager:
-            self.tray_manager.show_notification("WhisperBridge", f"Processing error: {error_message}")
+        notification_service = get_notification_service()
+        notification_service.error(f"Processing error: {error_message}", "WhisperBridge")

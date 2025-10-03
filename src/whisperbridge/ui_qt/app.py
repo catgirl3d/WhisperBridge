@@ -6,33 +6,29 @@ Provides compatible interface with the existing CTK-based application.
 import sys
 import os
 from PySide6.QtGui import QIcon
-import time
 from typing import Any, Dict, Optional, cast
 
 from loguru import logger
-from PySide6.QtCore import QObject, QThread, Signal, Slot
+from PySide6.QtCore import QObject, QThread, QTimer, Signal, Slot
 from PySide6.QtWidgets import QApplication
 
 from ..core.api_manager import init_api_manager
 from ..core.keyboard_manager import KeyboardManager
-from ..core.config import validate_api_key_format
 
 # Clipboard singleton accessor (used to obtain a shared ClipboardService)
 from ..services.clipboard_service import get_clipboard_service
 from ..services.config_service import SettingsObserver, config_service
 from ..services.copy_translate_service import CopyTranslateService
 from ..services.hotkey_service import HotkeyService
-from ..services.ocr_service import OCRRequest, get_ocr_service
-from ..services.ocr_translation_service import get_ocr_translation_coordinator
-from ..services.screen_capture_service import get_capture_service
+from ..services.notification_service import get_notification_service
+from ..services.ocr_service import get_ocr_service
 from ..services.theme_service import ThemeService
 from ..services.translation_service import get_translation_service
 
 # UI service extracted to manage window/overlay lifecycle
 from ..services.ui_service import UIService
 # Worker classes for background processing
-from .workers import CaptureOcrTranslateWorker, SettingsSaveWorker
-from ..utils.screen_utils import Rectangle
+from .workers import SettingsSaveWorker
 # UI widgets are managed by UIService; direct imports removed to avoid tight coupling
 
 try:
@@ -58,6 +54,7 @@ class QtApp(QObject, SettingsObserver):
     toggle_overlay_signal = Signal()
     activate_ocr_signal = Signal()
     ocr_ready_signal = Signal()
+    update_tray_signal = Signal(bool, bool, bool)  # is_active, has_error, is_loading
 
     def __init__(self):
         """Initialize the Qt application."""
@@ -99,7 +96,6 @@ class QtApp(QObject, SettingsObserver):
 
         # Application state
         self.is_running = False
-        self.minimize_to_tray = True
         self.shutdown_requested = False
 
         # Pending actions (set by hotkey handler and consumed in main thread)
@@ -117,6 +113,7 @@ class QtApp(QObject, SettingsObserver):
         self.toggle_overlay_signal.connect(self._toggle_overlay_slot)
         self.activate_ocr_signal.connect(self._activate_ocr_slot)
         self.ocr_ready_signal.connect(self._on_ocr_service_ready)
+        self.update_tray_signal.connect(self._update_tray_slot)
 
         # Initialize clipboard service singleton (if available)
         try:
@@ -153,6 +150,10 @@ class QtApp(QObject, SettingsObserver):
             except Exception as e:
                 logger.error(f"Failed to instantiate UIService: {e}", exc_info=True)
                 raise
+
+            # Create notification service and set tray manager
+            self.notification_service = get_notification_service()
+            self.notification_service.set_tray_manager(self.ui_service.tray_manager)
 
             # Create copy-translate service
             self.copy_translate_service = CopyTranslateService(
@@ -233,26 +234,20 @@ class QtApp(QObject, SettingsObserver):
             logger.debug(f"OCR service instance: {ocr_service}")
             # Start background initialization and emit signal when complete
             def on_complete():
-                self.ocr_ready_signal.emit()
+                QTimer.singleShot(0, lambda: self.ocr_ready_signal.emit())
             ocr_service.initialize(on_complete=on_complete)
             # Update tray icon to show loading state
-            self.update_tray_status(is_loading=True)
+            self.update_tray_signal.emit(False, False, True)
             logger.info("OCR service background initialization started successfully")
         except Exception as e:
             logger.error(f"Failed to start OCR service initialization: {e}")
             logger.debug(f"Initialization error details: {type(e).__name__}: {str(e)}", exc_info=True)
-            self.update_tray_status(has_error=True)
+            self.update_tray_signal.emit(False, True, False)
 
     @Slot()
     def _on_ocr_service_ready(self):
-        """Slot for when OCR service is ready (called from main thread via signal)."""
-
-        # Update tray icon to show normal state
-        self.update_tray_status(is_loading=False)
-        logger.debug("Tray status updated to normal (loading=False)")
-
-        self.show_tray_notification("WhisperBridge", "OCR service is ready.")
-        logger.info("User notification shown: OCR service ready")
+        """Slot for when OCR service is ready — delegate to UIService."""
+        self.ui_service.handle_ocr_service_ready()
 
     def _initialize_translation_service(self):
         """Initialize translation service."""
@@ -270,12 +265,6 @@ class QtApp(QObject, SettingsObserver):
 
         except Exception as e:
             logger.warning(f"Failed to initialize translation service: {e}")
-
-    def _on_settings_saved(self):
-        """Handle settings saved event."""
-        logger.info("Settings saved, updating Qt application...")
-
-        # Theme is handled by ThemeService observer
 
     def _on_config_settings_saved(self, saved_settings):
         """Handle settings saved through config service (e.g., from settings dialog)."""
@@ -350,32 +339,19 @@ class QtApp(QObject, SettingsObserver):
         logger.debug(f"OCR service engine available: {ocr_service.is_ocr_engine_ready()}")
 
         # Emit to main thread for UI operations
-        self.update_tray_status(is_active=True)
+        self.update_tray_signal.emit(True, False, False)
         self.activate_ocr_signal.emit()
 
     # def _capture_and_process(self):
     #     """Legacy non-UI capture method - replaced by UI selection overlay."""
     #     pass  # Not used; UI selection handles interactive capture
 
-    def _show_capture_error(self, message: str):
-        """Show capture error notification."""
-        logger.error(f"Capture error: {message}")
-        try:
-            self.ui_service.show_tray_notification("WhisperBridge", f"Capture Error: {message}")
-        except Exception as e:
-            logger.error(f"Error showing capture notification: {e}", exc_info=True)
-
-    def _show_ocr_error(self, message: str):
-        """Show OCR error notification."""
-        logger.error(f"OCR error: {message}")
-        self.ui_service.show_tray_notification("WhisperBridge", f"OCR Error: {message}")
-
     def _on_quick_translate_hotkey(self):
         """Handle quick translation hotkey press - triggers OCR capture."""
         logger.info("Quick translation hotkey pressed - starting OCR capture")
         quick_translate_hotkey = config_service.get_setting("quick_translate_hotkey", use_cache=False)
         logger.debug(f"Hotkey: {quick_translate_hotkey}")
-        self.update_tray_status(is_active=True)
+        self.update_tray_signal.emit(True, False, False)
         self.activate_ocr_signal.emit()
 
     def _on_activation_hotkey(self):
@@ -412,7 +388,11 @@ class QtApp(QObject, SettingsObserver):
     @Slot()
     def _show_main_window_slot(self):
         self.ui_service.show_main_window()
-        self.ui_service.show_tray_notification("WhisperBridge", "Application activated")
+        # Use centralized NotificationService
+        try:
+            self.notification_service.info("Application activated", "WhisperBridge")
+        except Exception as e:
+            logger.debug(f"Failed to show activation notification: {e}")
         logger.debug("Tray notification shown for application activation")
 
     @Slot()
@@ -436,6 +416,12 @@ class QtApp(QObject, SettingsObserver):
         except Exception as e:
             logger.error(f"Error handling copy-translate result: {e}")
 
+    @Slot(bool, bool, bool)
+    def _update_tray_slot(self, is_active: bool, has_error: bool, is_loading: bool):
+        """Slot to update tray status in main thread."""
+        self.update_tray_status(is_active, has_error, is_loading)
+
+
     def activate_ocr(self):
         """Activate OCR selection overlay."""
         self.ui_service.activate_ocr()
@@ -449,15 +435,6 @@ class QtApp(QObject, SettingsObserver):
             self.ui_service.handle_worker_finished(original_text, translated_text, overlay_id)
         except Exception as e:
             logger.error(f"Error in _handle_worker_finished delegate: {e}", exc_info=True)
-
-
-    def _show_error(self, message):
-        """Show error notification."""
-        logger.error(f"Showing error: {message}")
-        try:
-            self.ui_service.show_tray_notification("WhisperBridge", f"Error: {message}")
-        except Exception as e:
-            logger.error(f"Error showing generic notification: {e}", exc_info=True)
 
     def show_main_window(self):
         """Show the main settings window (delegates to UIService)."""
@@ -500,10 +477,16 @@ class QtApp(QObject, SettingsObserver):
         """Handle the result of the asynchronous settings save."""
         if success:
             logger.info(message)
-            self.show_tray_notification("WhisperBridge", message)
+            try:
+                self.notification_service.info(message, "WhisperBridge")
+            except Exception as e:
+                logger.debug(f"Failed to show success notification: {e}")
         else:
             logger.error(f"Failed to save settings asynchronously: {message}")
-            self.show_tray_notification("WhisperBridge", f"Error: {message}")
+            try:
+                self.notification_service.error(f"Error: {message}", "WhisperBridge")
+            except Exception as e:
+                logger.debug(f"Failed to show error notification: {e}")
 
     def show_overlay_window(
         self,
@@ -618,31 +601,18 @@ class QtApp(QObject, SettingsObserver):
         """
         return self.is_running and self.qt_app is not None
 
-    def show_tray_notification(self, title: str, message: str):
-        """Show a notification through the system tray."""
-        self.ui_service.show_tray_notification(title, message)
 
     def update_tray_status(self, is_active: bool = False, has_error: bool = False, is_loading: bool = False):
-        """Update the tray icon status."""
+        """Update the tray icon status (thread-safe via signal)."""
         try:
-            self.ui_service.update_tray_status(is_active=is_active, has_error=has_error, is_loading=is_loading)
+            # Always route through signal to ensure main-thread execution
+            self.update_tray_signal.emit(is_active, has_error, is_loading)
         except Exception as e:
             logger.error(f"Error updating tray status: {e}", exc_info=True)
 
     def hide_main_window(self):
         """Hide the main window (minimize to tray)."""
         self.ui_service.hide_main_window_to_tray()
-
-    def toggle_minimize_to_tray(self, enabled: bool):
-        """Toggle minimize to tray behavior.
-
-        Args:
-            enabled: Whether to minimize to tray on close
-        """
-        self.minimize_to_tray = enabled
-        logger.info(f"Minimize to tray behavior set to: {enabled}")
-
-
 
 # Global application instance
 _qt_app_instance: Optional[QtApp] = None

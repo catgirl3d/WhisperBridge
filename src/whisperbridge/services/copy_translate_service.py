@@ -32,6 +32,15 @@ class CopyTranslateService(QObject):
         self.config_service = config_service or _config_service  # Use global if not provided
         self.translation_service = translation_service or get_translation_service()
         self.debug_logger = debug_logger
+        self._notification_service = None
+
+    @property
+    def notification_service(self):
+        """Lazy getter for notification service to avoid circular imports."""
+        if self._notification_service is None:
+            from ..services.notification_service import get_notification_service
+            self._notification_service = get_notification_service()
+        return self._notification_service
 
     def run(self):
         import time
@@ -60,10 +69,7 @@ class CopyTranslateService(QObject):
                 controller = Controller()
             except ImportError:
                 log.error("pynput not available for copy-translate simulated copy")
-                if self.tray_manager:
-                    self.tray_manager.show_notification(
-                        "WhisperBridge", "Copy-translate failed: pynput not installed"
-                    )
+                self.notification_service.error("Copy-translate failed: pynput not installed", "WhisperBridge")
                 # Log final summary with zeros since we didn't proceed
                 t_end = time.perf_counter()
                 log.info(f"Copy-translate performance: clipboard=0ms, translation=0ms, total={(t_end - t_start) * 1000:.0f}ms")
@@ -72,11 +78,7 @@ class CopyTranslateService(QObject):
             # Prepare clipboard service and read previous content BEFORE simulating copy
             if self.clipboard_service is None:
                 log.error("Clipboard service not available; aborting copy-translate")
-                if self.tray_manager:
-                    self.tray_manager.show_notification(
-                        "WhisperBridge",
-                        "Copy-translate failed: clipboard service unavailable",
-                    )
+                self.notification_service.error("Copy-translate failed: clipboard service unavailable", "WhisperBridge")
                 t_end = time.perf_counter()
                 log.info(f"Copy-translate performance: clipboard=0ms, translation=0ms, total={(t_end - t_start) * 1000:.0f}ms")
                 return
@@ -117,11 +119,7 @@ class CopyTranslateService(QObject):
                             still_down = False
                         if still_down:
                             log.info("Physical Ctrl key still down after waiting; aborting copy-translate to avoid accidental trigger")
-                            if self.tray_manager:
-                                self.tray_manager.show_notification(
-                                    "WhisperBridge",
-                                    "Copy-translate aborted: physical Ctrl key held down",
-                                )
+                            self.notification_service.warning("Copy-translate aborted: physical Ctrl key held down", "WhisperBridge")
                             t_end = time.perf_counter()
                             log.info(f"Copy-translate performance: clipboard=0ms, translation=0ms, total={(t_end - t_start) * 1000:.0f}ms")
                             return
@@ -144,10 +142,7 @@ class CopyTranslateService(QObject):
                 log.debug(f"Simulated copy sequence finished in {(t_after_sim - sim_start) * 1000:.2f}ms")
             except Exception as e:
                 log.error(f"Fallback copy simulation failed: {e}")
-                if self.tray_manager:
-                    self.tray_manager.show_notification(
-                        "WhisperBridge", f"Copy-translate copy simulation failed: {e}"
-                    )
+                self.notification_service.error(f"Copy-translate copy simulation failed: {e}", "WhisperBridge")
                 t_end = time.perf_counter()
                 log.info(f"Copy-translate performance: clipboard=0ms, translation=0ms, total={(t_end - t_start) * 1000:.0f}ms")
                 return
@@ -222,11 +217,7 @@ class CopyTranslateService(QObject):
                     prev_len,
                     prev_sample,
                 )
-                if self.tray_manager:
-                    self.tray_manager.show_notification(
-                        "WhisperBridge",
-                        "Copy-translate failed: no clipboard text detected",
-                    )
+                self.notification_service.warning("Copy-translate failed: no clipboard text detected", "WhisperBridge")
                 # Performance summary: clipboard time measured from simulation to poll end, translation 0
                 clipboard_ms = ((t_after_poll_success - (t_after_sim or t_start)) * 1000) if t_after_sim else 0
                 t_end = time.perf_counter()
@@ -238,10 +229,7 @@ class CopyTranslateService(QObject):
             text_to_translate = new_clip
             if not text_to_translate:
                 log.info("No text to translate (empty selection)")
-                if self.tray_manager:
-                    self.tray_manager.show_notification(
-                        "WhisperBridge", "Copy-translate: no text selected to translate"
-                    )
+                self.notification_service.warning("Copy-translate: no text selected to translate", "WhisperBridge")
                 t_end = time.perf_counter()
                 log.info(f"Copy-translate performance: clipboard=0ms, translation=0ms, total={(t_end - t_start) * 1000:.0f}ms")
                 return
@@ -304,11 +292,7 @@ class CopyTranslateService(QObject):
                 log.debug(f"Copy-translate: swap_enabled={swap_enabled}. Source='{source_lang}', Target='{target_lang}'")
 
                 # Show a brief translating notification
-                try:
-                    if self.tray_manager:
-                        self.tray_manager.show_notification("WhisperBridge", "Translating...")
-                except Exception:
-                    pass
+                self.notification_service.info("Translating...", "WhisperBridge")
 
                 response = self.translation_service.translate_text_sync(
                     text_to_translate, source_lang=source_lang, target_lang=target_lang
@@ -316,11 +300,7 @@ class CopyTranslateService(QObject):
             except Exception as exc:
                 log.error(f"Copy-translate: error during language detection/auto-swap: {exc}", exc_info=True)
                 # Fallback to default translation call on any failure
-                try:
-                    if self.tray_manager:
-                        self.tray_manager.show_notification("WhisperBridge", "Translating...")
-                except Exception:
-                    pass
+                self.notification_service.info("Translating...", "WhisperBridge")
                 response = self.translation_service.translate_text_sync(text_to_translate)
 
             # Mark translation completion time
@@ -348,10 +328,7 @@ class CopyTranslateService(QObject):
             log.info("Copy-translate hotkey processed successfully (simulated copy path)")
         except Exception as e:
             log.error(f"Error in copy-translate hotkey handler: {e}", exc_info=True)
-            if self.tray_manager:
-                self.tray_manager.show_notification(
-                    "WhisperBridge", f"Copy-translate error: {str(e)}"
-                )
+            self.notification_service.error(f"Copy-translate error: {str(e)}", "WhisperBridge")
             # Ensure we still log performance summary on unexpected errors
             try:
                 t_end = time.perf_counter()
