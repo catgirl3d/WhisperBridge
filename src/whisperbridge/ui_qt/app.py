@@ -413,7 +413,7 @@ class QtApp(QObject, SettingsObserver):
     @Slot(bool, bool, bool)
     def _update_tray_slot(self, is_active: bool, has_error: bool, is_loading: bool):
         """Slot to update tray status in main thread."""
-        self.update_tray_status(is_active, has_error, is_loading)
+        self.ui_service.update_tray_status(is_active, has_error, is_loading)
 
 
     def activate_ocr(self):

@@ -466,12 +466,11 @@ class UIService:
 
     @main_thread_only
     def handle_ocr_service_ready(self):
-        """Handle OCR service ready event: update tray status and show notification."""
+        """Handle OCR service ready event: show notification."""
         try:
-            self.update_tray_status(is_loading=False)
             notification_service = get_notification_service()
             notification_service.info("OCR service is ready.", "WhisperBridge")
-            self.logger.info("Handled OCR service ready: updated tray and showed notification.")
+            self.logger.info("Handled OCR service ready: showed notification.")
         except Exception as e:
             self.logger.error(f"UIService.handle_ocr_service_ready error: {e}", exc_info=True)
 
