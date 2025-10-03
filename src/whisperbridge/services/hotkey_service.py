@@ -121,6 +121,87 @@ class HotkeyService:
 
             logger.info("Hotkey service stopped")
 
+    def register_application_hotkeys(self, config_service, on_translate, on_quick_translate, on_activate, on_copy_translate):
+        """Register default application hotkeys based on configuration.
+
+        Args:
+            config_service: The configuration service instance
+            on_translate: Callback for translate hotkey
+            on_quick_translate: Callback for quick translate hotkey
+            on_activate: Callback for activation hotkey
+            on_copy_translate: Callback for copy-translate hotkey
+        """
+        if not self.keyboard_manager:
+            return
+
+        try:
+            # Get current settings for hotkeys
+            current_settings = config_service.get_settings()
+
+            # Check whether OCR features should be enabled
+            initialize_ocr = bool(getattr(current_settings, "initialize_ocr", False))
+
+            # Register main translation hotkey only if OCR is enabled
+            if initialize_ocr:
+                self.keyboard_manager.register_hotkey(
+                    current_settings.translate_hotkey,
+                    on_translate,
+                    "Main translation (OCR) hotkey",
+                )
+                logger.info(f"Registered OCR-dependent hotkey: {current_settings.translate_hotkey}")
+            else:
+                logger.info("OCR disabled: skipping registration of main translate hotkey")
+
+            # Register quick translate hotkey only if OCR is enabled (OCR-dependent)
+            if initialize_ocr and current_settings.quick_translate_hotkey != current_settings.translate_hotkey:
+                self.keyboard_manager.register_hotkey(
+                    current_settings.quick_translate_hotkey,
+                    on_quick_translate,
+                    "Quick translation hotkey (OCR capture)",
+                )
+                logger.info(f"Registered OCR-dependent hotkey: {current_settings.quick_translate_hotkey}")
+            elif not initialize_ocr:
+                logger.info("OCR disabled: skipping registration of quick translate hotkey")
+
+            # Register activation hotkey if different
+            if (current_settings.activation_hotkey != current_settings.translate_hotkey and
+                current_settings.activation_hotkey != current_settings.quick_translate_hotkey):
+                self.keyboard_manager.register_hotkey(
+                    current_settings.activation_hotkey,
+                    on_activate,
+                    "Application activation hotkey",
+                )
+
+            # Register copy-translate hotkey
+            self.keyboard_manager.register_hotkey(
+                current_settings.copy_translate_hotkey,
+                on_copy_translate,
+                "Copy->Translate hotkey",
+            )
+
+            # Log based on flag
+            translate_status = (
+                current_settings.translate_hotkey if initialize_ocr else "SKIPPED"
+            )
+            quick_status = (
+                current_settings.quick_translate_hotkey
+                if (
+                    initialize_ocr
+                    and current_settings.quick_translate_hotkey
+                    != current_settings.translate_hotkey
+                )
+                else "SKIPPED"
+            )
+            logger.info(
+                f"Registered hotkeys (OCR flag={initialize_ocr}): "
+                f"translate={translate_status}, quick={quick_status}, "
+                f"activation={current_settings.activation_hotkey}, "
+                f"copy_translate={current_settings.copy_translate_hotkey}"
+            )
+
+        except Exception as e:
+            logger.error(f"Failed to register default hotkeys: {e}")
+
     def _register_all_hotkeys(self):
         """Register all enabled hotkeys from the keyboard manager."""
         enabled_hotkeys = self.keyboard_manager.get_enabled_hotkeys()
