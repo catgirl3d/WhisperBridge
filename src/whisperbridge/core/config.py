@@ -230,7 +230,6 @@ def validate_api_key_format(api_key: str, provider: Optional[str] = "openai") ->
 
     try:
         if prov == "openai":
-            # Align with utils.config_utils.validate_api_key_format
             pattern = r"^sk-[A-Za-z0-9_-]{20,}$"
             return bool(re.match(pattern, api_key))
         if prov == "google":

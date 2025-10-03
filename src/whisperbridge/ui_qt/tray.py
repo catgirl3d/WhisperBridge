@@ -235,21 +235,6 @@ class TrayManager(QObject):
         except Exception as e:
             logger.error(f"Error exiting application from tray: {e}")
 
-    def show_notification(self, title: str, message: str):
-        """
-        Show a system notification.
-
-        Args:
-            title: Notification title
-            message: Notification message
-        """
-        try:
-            if self.tray_icon:
-                self.tray_icon.showMessage(title, message, QSystemTrayIcon.MessageIcon.Information, 3000)
-                logger.debug(f"Notification shown: {title}")
-        except Exception as e:
-            logger.error(f"Failed to show notification: {e}")
-
     def is_available(self) -> bool:
         """
         Check if system tray is available.

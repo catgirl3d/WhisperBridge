@@ -8,12 +8,10 @@ configuration management and other services.
 from ..core.settings_manager import SettingsManager
 from .clipboard_service import ClipboardService
 from .config_service import ConfigService, SettingsObserver
-from .paste_service import PasteService
 
 __all__ = [
     "SettingsManager",
     "ConfigService",
     "SettingsObserver",
     "ClipboardService",
-    "PasteService",
 ]

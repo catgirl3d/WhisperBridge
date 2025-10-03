@@ -347,17 +347,3 @@ def get_language_name(code: str) -> str:
     return language_names.get(code.lower(), code.upper())
 
 
-def validate_language_code(code: str) -> bool:
-    """Validate language code format."""
-    if code.lower() == "auto":
-        return True
-
-    # ISO 639-1 format (2 letters)
-    if len(code) == 2 and code.isalpha():
-        return True
-
-    # ISO 639-3 format (3 letters)
-    if len(code) == 3 and code.isalpha():
-        return True
-
-    return False

@@ -502,13 +502,6 @@ class ScreenUtils:
             return 1.0
 
     @staticmethod
-    def invalidate_cache():
-        """Invalidate the monitors cache."""
-        with ScreenUtils._lock:
-            ScreenUtils._monitors_cache = None
-            ScreenUtils._cache_timestamp = 0
-
-    @staticmethod
     def get_screen_capture_bounds() -> Rectangle:
         """Get bounds for screen capture (virtual screen).
 

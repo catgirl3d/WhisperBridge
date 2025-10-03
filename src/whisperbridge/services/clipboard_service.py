@@ -20,12 +20,6 @@ except ImportError:
     pyperclip = None
 
 
-class ClipboardError(Exception):
-    """Exception raised when clipboard operations fail."""
-
-    pass
-
-
 class ClipboardService:
     """Service for managing clipboard operations using pyperclip."""
 

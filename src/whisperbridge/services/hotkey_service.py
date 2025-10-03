@@ -325,21 +325,6 @@ class HotkeyService:
         with self._lock:
             return list(self._hotkeys.keys())
 
-    def get_service_status(self) -> Dict[str, Any]:
-        """Get detailed status of the hotkey service.
-
-        Returns:
-            Dict[str, Any]: Service status information
-        """
-        with self._lock:
-            return {
-                "running": self._running,
-                "platform": self._platform,
-                "registered_hotkeys": len(self._hotkeys),
-                "keyboard_manager_stats": self.keyboard_manager.get_hotkey_statistics(),
-                "pynput_available": PYNPUT_AVAILABLE,
-            }
-
     def _cleanup(self):
         """Clean up resources."""
         try:
