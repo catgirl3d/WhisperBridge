@@ -262,30 +262,23 @@ class OCRService:
         """Called when initialization thread finishes."""
         self._init_thread = None
 
-    def initialize(self, on_complete=None) -> Optional[bool]:
-        """Initialize OCR engine.
+    def initialize(self, on_complete=None) -> None:
+        """Initialize OCR engine (always asynchronous).
 
-        Explicit initialization method.
-        If on_complete is provided, starts background initialization with callback.
-        Otherwise, performs synchronous initialization.
+        Starts background initialization of OCR engines. This method never blocks
+        and always returns immediately. The optional on_complete callback will be
+        invoked from the background thread upon completion; use Qt signals to
+        notify the UI thread if needed.
 
         Args:
-            on_complete: Optional callback for background initialization.
+            on_complete: Optional callback invoked when initialization completes.
 
         Returns:
-            For synchronous mode: True if successful, False otherwise.
-            For asynchronous mode: None (initialization started in background).
+            None
         """
-        if on_complete:
-            logger.info("Starting background OCR initialization")
-            self._start_background_initialization(on_complete)
-            return None
-
-        logger.info("Starting synchronous OCR initialization")
-        success = self._initialize_engines()
-        if success:
-            self._ready_event.set()
-        return success
+        logger.info("Starting background OCR initialization (async-only)")
+        self._start_background_initialization(on_complete)
+        return None
 
     def ensure_ready(self, timeout: Optional[float] = 15.0) -> bool:
         """Ensure OCR engine is initialized and ready for use.

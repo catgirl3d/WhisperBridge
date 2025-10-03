@@ -1,4 +1,4 @@
-# Руководство по потокам и сигналам 
+# Руководство по потокам и сигналам
 
 Короткое практическое руководство по работе с Qt/PySide6 в проекте WhisperBridge.
 Цель — избегать ошибок типа "QObject::setParent: Cannot set parent, new parent is in a different thread".
@@ -49,5 +49,29 @@
 9) Быстрые рецепты
 - Нужно показать окно из background: emit signal -> слот создает/показывает окно.
 - Нужна асинхронная работа: выполнять I/O в asyncio или ThreadPool, возвращать результат через signal.
+
+10) Паттерн QTimer.singleShot для вызова из фоновых потоков
+- `QTimer.singleShot(0, callback)` — это простой способ выполнить код в главном Qt потоке из фонового потока.
+- Таймер с задержкой 0 мс помещает callback в очередь event loop главного потока.
+- Пример использования в [`src/whisperbridge/services/notification_service.py`](src/whisperbridge/services/notification_service.py:78):
+  ```python
+  if app and QThread.currentThread() != app.thread():
+      QTimer.singleShot(0, lambda: self.show(message, title, notification_type, duration))
+      return
+  ```
+
+10.1) Когда использовать QTimer.singleShot, а когда — сигналы?
+- **Использовать QTimer.singleShot для:**
+  - Одноразовых, простых действий (fire-and-forget)
+  - Утилитарных сервисов без четкой ownership структуры
+  - Когда вызывающий код не владеет получателем
+  - Пример: NotificationService — сервис может вызываться из любого места
+
+- **Использовать сигналы для:**
+  - Регулярного взаимодействия между конкретными объектами
+  - Отношений 1-to-many (один сигнал, несколько слотов)
+  - Когда данные передаются в обе стороны
+  - Когда есть четкая структура владения (parent-child, controller-worker)
+  - Пример: worker -> UI controller (как в хоткеях)
 
 Необходимо поддерживать это руководство — добавлять примеры при новых паттернах
