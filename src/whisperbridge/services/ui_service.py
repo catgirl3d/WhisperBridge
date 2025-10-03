@@ -475,19 +475,6 @@ class UIService:
             self.logger.error(f"UIService.handle_ocr_service_ready error: {e}", exc_info=True)
 
 
-    @main_thread_only
-    def update_tray_status(
-        self, is_active: bool = False, has_error: bool = False, is_loading: bool = False
-    ):
-        """Update the tray icon status (kept for parity with QtApp.update_tray_status)."""
-        # Keep behavior minimal (QtApp previously just logged); expose hook for future TrayManager behavior
-        try:
-            self.logger.debug(
-                f"UIService.update_tray_status requested: active={is_active}, error={has_error}, loading={is_loading}"
-            )
-            # Optionally, the tray manager could reflect status here in future
-        except Exception as e:
-            self.logger.error(f"UIService.update_tray_status error: {e}", exc_info=True)
 
     @main_thread_only
     def update_window_opacity(self, opacity: float):
