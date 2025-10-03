@@ -6,10 +6,10 @@ Handles background keyboard monitoring, hotkey activation, and system integratio
 """
 
 import threading
-from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable, Dict, List, Optional
 
 from loguru import logger
+from PySide6.QtCore import QThreadPool, QRunnable, Signal, QObject
 
 try:
     from pynput import keyboard
@@ -22,6 +22,19 @@ except ImportError:
 
 from ..core.keyboard_manager import KeyboardManager
 from ..utils.keyboard_utils import KeyboardUtils
+
+
+class HotkeyRunnable(QRunnable):
+    """QRunnable for executing hotkey handlers in QThreadPool."""
+
+    def __init__(self, func, *args, **kwargs):
+        super().__init__()
+        self.func = func
+        self.args = args
+        self.kwargs = kwargs
+
+    def run(self):
+        self.func(*self.args, **self.kwargs)
 
 
 class HotkeyRegistrationError(Exception):
@@ -47,7 +60,8 @@ class HotkeyService:
         self._running = False
         self._listener: Optional[keyboard.GlobalHotKeys] = None
         self._hotkeys: Dict[str, Callable] = {}
-        self._executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="hotkey")
+        self._executor = QThreadPool()
+        self._executor.setMaxThreadCount(4)
         self._shutdown_event = threading.Event()
 
         # Platform-specific setup
@@ -116,8 +130,7 @@ class HotkeyService:
 
             self._hotkeys.clear()
 
-            # Shutdown executor
-            self._executor.shutdown(wait=True)
+            # QThreadPool will be cleaned up automatically
 
             logger.info("Hotkey service stopped")
 
@@ -224,7 +237,7 @@ class HotkeyService:
         try:
 
             def on_activate():
-                self._executor.submit(self._handle_hotkey_press, combination)
+                self._executor.start(HotkeyRunnable(self._handle_hotkey_press, combination))
 
             # Format for GlobalHotKeys
             normalized_hotkey = KeyboardUtils.normalize_hotkey(combination)

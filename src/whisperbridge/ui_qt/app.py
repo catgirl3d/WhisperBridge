@@ -234,7 +234,7 @@ class QtApp(QObject, SettingsObserver):
             logger.debug(f"OCR service instance: {ocr_service}")
             # Start background initialization and emit signal when complete
             def on_complete():
-                QTimer.singleShot(0, lambda: self.ocr_ready_signal.emit())
+                self.ocr_ready_signal.emit()
             ocr_service.initialize(on_complete=on_complete)
             # Update tray icon to show loading state
             self.update_tray_signal.emit(False, False, True)

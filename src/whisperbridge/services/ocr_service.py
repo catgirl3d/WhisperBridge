@@ -13,10 +13,23 @@ from typing import Any, List, Optional
 
 from loguru import logger
 from PIL import Image
+from PySide6.QtCore import QThread
 
 from ..services.config_service import config_service
 from ..utils.image_utils import preprocess_for_ocr
 import numpy as np
+
+
+class OCREngineInitializer(QThread):
+    """QThread for background OCR engine initialization."""
+
+    def __init__(self, ocr_service, on_complete):
+        super().__init__()
+        self.ocr_service = ocr_service
+        self.on_complete = on_complete
+
+    def run(self):
+        self.ocr_service._background_init_task(self.on_complete)
 
 
 class OCREngine(Enum):
@@ -73,6 +86,7 @@ class OCRService:
         self._lock = threading.RLock()
         self._is_initializing = False
         self._ready_event = threading.Event()
+        self._init_thread: Optional[OCREngineInitializer] = None
 
     def _load_settings(self) -> OCRSettings:
         """Load and validate OCR settings from config service.
@@ -240,13 +254,13 @@ class OCRService:
             if not self._is_initializing:
                 self._is_initializing = True
                 self._ready_event.clear()
-                init_thread = threading.Thread(
-                    target=self._background_init_task,
-                    args=(on_complete,),
-                    daemon=True,
-                    name="OCREngineInitializer",
-                )
-                init_thread.start()
+                self._init_thread = OCREngineInitializer(self, on_complete)
+                self._init_thread.finished.connect(self._on_init_finished)
+                self._init_thread.start()
+
+    def _on_init_finished(self):
+        """Called when initialization thread finishes."""
+        self._init_thread = None
 
     def initialize(self, on_complete=None) -> Optional[bool]:
         """Initialize OCR engine.
