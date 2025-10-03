@@ -143,8 +143,7 @@ class UIService:
     def _create_main_window(self):
         """Create the main window (called lazily in main thread)."""
         try:
-            on_save_cb = getattr(self.app, "_on_settings_saved", None)
-            self.main_window = MainWindow(on_save_callback=on_save_cb)
+            self.main_window = MainWindow()
             # Connect close-to-tray signal
             if self.app and hasattr(self.app, "hide_main_window_to_tray"):
                 try:

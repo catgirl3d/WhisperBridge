@@ -266,12 +266,6 @@ class QtApp(QObject, SettingsObserver):
         except Exception as e:
             logger.warning(f"Failed to initialize translation service: {e}")
 
-    def _on_config_settings_saved(self, saved_settings):
-        """Handle settings saved through config service (e.g., from settings dialog)."""
-        logger.info("Config settings saved, checking for theme changes...")
-
-        # Theme is handled by ThemeService observer
-
     # SettingsObserver methods
     def on_settings_changed(self, key: str, old_value, new_value):
         """Called when a setting value changes."""
@@ -326,7 +320,7 @@ class QtApp(QObject, SettingsObserver):
 
     def on_settings_saved(self, settings):
         """Called when settings are saved."""
-        self._on_config_settings_saved(settings)
+        pass
 
     def _on_translate_hotkey(self):
         """Handle main translation hotkey press."""

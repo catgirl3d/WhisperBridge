@@ -16,15 +16,9 @@ class MainWindow(QMainWindow):
     # Signal emitted when window should be closed to tray instead of exiting
     closeToTrayRequested = Signal()
 
-    def __init__(self, on_save_callback=None):
-        """Initialize the main window.
-
-        Args:
-            on_save_callback: Callback function for settings save events
-        """
+    def __init__(self):
+        """Initialize the main window."""
         super().__init__()
-
-        self.on_save_callback = on_save_callback
 
         # Configure window
         self.setWindowTitle("WhisperBridge")
