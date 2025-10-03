@@ -209,9 +209,6 @@ class QtApp(QObject, SettingsObserver):
             logger.error(f"Failed to initialize Qt application: {e}")
             raise
 
-    def _create_main_window(self):
-        """Create the main settings window."""
-        self.main_window = MainWindow(on_save_callback=self._on_settings_saved)
 
     def _initialize_overlay_service(self):
         """Initialize the overlay service."""
@@ -231,7 +228,13 @@ class QtApp(QObject, SettingsObserver):
             self.hotkey_service = HotkeyService(self.keyboard_manager)
 
             # Register default hotkeys
-            self._register_default_hotkeys()
+            self.hotkey_service.register_application_hotkeys(
+                config_service=config_service,
+                on_translate=self._on_translate_hotkey,
+                on_quick_translate=self._on_quick_translate_hotkey,
+                on_activate=self._on_activation_hotkey,
+                on_copy_translate=self._on_copy_translate_hotkey
+            )
 
             # Start hotkey service
             if not self.hotkey_service.start():
@@ -245,94 +248,6 @@ class QtApp(QObject, SettingsObserver):
             self.keyboard_manager = None
             self.hotkey_service = None
 
-    def _create_tray_manager(self):
-        """Create and initialize the system tray manager."""
-        try:
-            self.tray_manager = TrayManager(
-                on_show_main_window=self.show_main_window,
-                on_toggle_overlay=self.toggle_overlay,
-                on_open_settings=self.open_settings,
-                on_exit_app=self.exit_app,
-                on_activate_ocr=self.activate_ocr,
-            )
-            if not self.tray_manager.create():
-                logger.warning("Failed to initialize system tray")
-        except Exception as e:
-            logger.error(f"Failed to create tray manager: {e}")
-            self.tray_manager = None
-
-    def _register_default_hotkeys(self):
-        """Register default hotkeys for the application."""
-        if not self.keyboard_manager:
-            return
-
-        try:
-            # Get current settings for hotkeys
-            current_settings = config_service.get_settings()
-
-            # Check whether OCR features should be enabled
-            initialize_ocr = bool(getattr(current_settings, "initialize_ocr", False))
-
-            # Register main translation hotkey only if OCR is enabled
-            if initialize_ocr:
-                self.keyboard_manager.register_hotkey(
-                    current_settings.translate_hotkey,
-                    self._on_translate_hotkey,
-                    "Main translation (OCR) hotkey",
-                )
-                logger.info(f"Registered OCR-dependent hotkey: {current_settings.translate_hotkey}")
-            else:
-                logger.info("OCR disabled: skipping registration of main translate hotkey")
-
-            # Register quick translate hotkey only if OCR is enabled (OCR-dependent)
-            if initialize_ocr and current_settings.quick_translate_hotkey != current_settings.translate_hotkey:
-                self.keyboard_manager.register_hotkey(
-                    current_settings.quick_translate_hotkey,
-                    self._on_quick_translate_hotkey,
-                    "Quick translation hotkey (OCR capture)",
-                )
-                logger.info(f"Registered OCR-dependent hotkey: {current_settings.quick_translate_hotkey}")
-            elif not initialize_ocr:
-                logger.info("OCR disabled: skipping registration of quick translate hotkey")
-
-            # Register activation hotkey if different
-            if (current_settings.activation_hotkey != current_settings.translate_hotkey and
-                current_settings.activation_hotkey != current_settings.quick_translate_hotkey):
-                self.keyboard_manager.register_hotkey(
-                    current_settings.activation_hotkey,
-                    self._on_activation_hotkey,
-                    "Application activation hotkey",
-                )
-
-            # Register copy-translate hotkey
-            self.keyboard_manager.register_hotkey(
-                current_settings.copy_translate_hotkey,
-                self._on_copy_translate_hotkey,
-                "Copy->Translate hotkey",
-            )
-
-            # Log based on flag
-            translate_status = (
-                current_settings.translate_hotkey if initialize_ocr else "SKIPPED"
-            )
-            quick_status = (
-                current_settings.quick_translate_hotkey
-                if (
-                    initialize_ocr
-                    and current_settings.quick_translate_hotkey
-                    != current_settings.translate_hotkey
-                )
-                else "SKIPPED"
-            )
-            logger.info(
-                f"Registered hotkeys (OCR flag={initialize_ocr}): "
-                f"translate={translate_status}, quick={quick_status}, "
-                f"activation={current_settings.activation_hotkey}, "
-                f"copy_translate={current_settings.copy_translate_hotkey}"
-            )
-
-        except Exception as e:
-            logger.error(f"Failed to register default hotkeys: {e}")
 
     def _initialize_ocr_service(self):
         """Initialize OCR service in the background."""
@@ -398,17 +313,22 @@ class QtApp(QObject, SettingsObserver):
             "activation_hotkey",
             "copy_translate_hotkey",
         ]
-        if key in hotkey_keys:
-            logger.debug(f"Hotkey setting '{key}' changed from '{old_value}' to '{new_value}'")
+
+        # If a hotkey setting or OCR initialization flag changed, re-register hotkeys
+        if key in hotkey_keys or key == "initialize_ocr":
+            logger.debug(f"Setting '{key}' changed from '{old_value}' to '{new_value}'. Reloading hotkeys.")
             try:
-                # Update KeyboardManager registrations to reflect the new combinations.
-                # KeyboardManager holds the mapping of combinations -> callbacks, so we need
-                # to clear and re-register the callbacks before reloading the HotkeyService.
                 if hasattr(self, "keyboard_manager") and self.keyboard_manager:
                     self.keyboard_manager.clear_all_hotkeys()
-                    self._register_default_hotkeys()
+                    if self.hotkey_service:
+                        self.hotkey_service.register_application_hotkeys(
+                            config_service=config_service,
+                            on_translate=self._on_translate_hotkey,
+                            on_quick_translate=self._on_quick_translate_hotkey,
+                            on_activate=self._on_activation_hotkey,
+                            on_copy_translate=self._on_copy_translate_hotkey
+                        )
 
-                # Reload hotkeys in the running HotkeyService to apply new registrations.
                 if self.hotkey_service and self.hotkey_service.is_running():
                     if self.hotkey_service.reload_hotkeys():
                         logger.info("Hotkeys reloaded successfully after settings change")
@@ -418,6 +338,7 @@ class QtApp(QObject, SettingsObserver):
                 logger.error(f"Error updating hotkeys after settings change: {e}", exc_info=True)
 
         if key == "initialize_ocr":
+            # Handle OCR service initialization/deinitialization
             try:
                 if new_value:
                     self._initialize_ocr_service()
