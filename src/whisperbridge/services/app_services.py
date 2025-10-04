@@ -5,7 +5,7 @@ Encapsulates creation and lifecycle of UI, hotkeys, copy-translate, and backend 
 
 from typing import Optional, Callable
 from loguru import logger
-from PySide6.QtCore import QObject
+from PySide6.QtCore import QObject, Slot
 
 from .ui_service import UIService
 from .hotkey_service import HotkeyService
@@ -16,6 +16,7 @@ from .config_service import config_service
 from .ocr_service import get_ocr_service
 from .translation_service import get_translation_service
 from ..core.api_manager import init_api_manager
+from .clipboard_service import get_clipboard_service
 
 
 class AppServices(QObject):
@@ -29,12 +30,36 @@ class AppServices(QObject):
         self.keyboard_manager: Optional[KeyboardManager] = None
         self.hotkey_service: Optional[HotkeyService] = None
 
+        # Hotkey callbacks
+        self.on_translate: Optional[Callable] = None
+        self.on_quick_translate: Optional[Callable] = None
+        self.on_activate: Optional[Callable] = None
+        self.on_copy_translate: Optional[Callable] = None
+
     def setup_services(self,
-                       on_translate: Callable,
-                       on_quick_translate: Callable,
-                       on_activate: Callable,
-                       on_copy_translate: Callable):
+                        on_translate: Callable,
+                        on_quick_translate: Callable,
+                        on_activate: Callable,
+                        on_copy_translate: Callable):
         logger.info("AppServices: setting up services")
+
+        # Store hotkey callbacks for reloading
+        self.on_translate = on_translate
+        self.on_quick_translate = on_quick_translate
+        self.on_activate = on_activate
+        self.on_copy_translate = on_copy_translate
+
+        # Initialize clipboard service singleton
+        if self.clipboard_service is None:
+            try:
+                self.clipboard_service = get_clipboard_service()
+                if self.clipboard_service:
+                    logger.info("AppServices: ClipboardService initialized and started")
+                else:
+                    logger.warning("AppServices: ClipboardService not available; clipboard-backed features may be limited")
+            except Exception as e:
+                logger.warning(f"AppServices: Failed to initialize ClipboardService: {e}")
+                self.clipboard_service = None
 
         # UI service
         try:
@@ -57,7 +82,7 @@ class AppServices(QObject):
             clipboard_service=self.clipboard_service
         )
         try:
-            self.copy_translate_service.result_ready.connect(self.app._on_copy_translate_result)
+            self.copy_translate_service.result_ready.connect(self.on_copy_translate_result)
         except Exception:
             logger.debug("AppServices: Failed to connect copy_translate result signal")
 
@@ -139,3 +164,38 @@ class AppServices(QObject):
             except Exception:
                 pass
             self.hotkey_service = None
+
+    def reload_hotkeys(self):
+        """Reload hotkeys after settings change."""
+        if not self.keyboard_manager or not self.hotkey_service:
+            logger.warning("AppServices: Cannot reload hotkeys - services not available")
+            return
+
+        try:
+            self.keyboard_manager.clear_all_hotkeys()
+            self.hotkey_service.register_application_hotkeys(
+                config_service=config_service,
+                on_translate=self.on_translate,
+                on_quick_translate=self.on_quick_translate,
+                on_activate=self.on_activate,
+                on_copy_translate=self.on_copy_translate
+            )
+
+            if not self.hotkey_service.is_running():
+                logger.warning("AppServices: Hotkey service not running")
+                return
+
+            success = self.hotkey_service.reload_hotkeys()
+            if success:
+                logger.info("AppServices: Hotkeys reloaded successfully")
+            else:
+                logger.error("AppServices: Failed to reload hotkeys")
+
+        except Exception as e:
+            logger.error(f"AppServices: Error reloading hotkeys: {e}", exc_info=True)
+
+    @Slot(str, str, bool)
+    def on_copy_translate_result(self, clipboard_text: str, translated_text: str, auto_copy: bool):
+        """Slot to handle copy-translate results from background thread."""
+        if self.ui_service:
+            self.ui_service.handle_copy_translate(clipboard_text, translated_text, auto_copy)

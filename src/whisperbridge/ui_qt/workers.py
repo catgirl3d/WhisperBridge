@@ -12,7 +12,7 @@ from PySide6.QtCore import QObject, Signal
 
 from ..core.api_manager import get_api_manager, APIProvider
 from ..core.config import Settings
-from ..services.config_service import config_service
+from ..core.settings_manager import settings_manager
 from ..services.ocr_service import get_ocr_service
 from ..services.ocr_translation_service import get_ocr_translation_coordinator
 from ..services.screen_capture_service import get_capture_service
@@ -103,32 +103,11 @@ class CaptureOcrTranslateWorker(QObject):
         self.finished.emit(text, "", "")
 
 
-class SettingsSaveWorker(QObject):
-    """Worker for saving settings asynchronously."""
-
-    finished = Signal(bool, str)  # success, error_message
-
-    def __init__(self, settings_to_save: Dict[str, Any]):
-        super().__init__()
-        self.settings_to_save = settings_to_save
-
-    def run(self):
-        """Save settings using the settings manager."""
-        try:
-            new_settings = Settings(**self.settings_to_save)
-            if config_service.save_settings(new_settings):
-                self.finished.emit(True, "Settings saved successfully.")
-            else:
-                self.finished.emit(False, "Failed to save settings.")
-        except Exception as e:
-            logger.error(f"Error in SettingsSaveWorker: {e}", exc_info=True)
-            self.finished.emit(False, f"An error occurred: {e}")
-
-
 class ApiTestWorker(QObject):
     """Worker for testing API key asynchronously."""
 
     finished = Signal(bool, str, list, str)  # success, error_message, models, source
+    error = Signal(str)
 
     def __init__(self, provider: str, api_key: str):
         super().__init__()
@@ -146,19 +125,20 @@ class ApiTestWorker(QObject):
                 provider=provider_enum, temp_api_key=self.api_key
             )
             if source in ("error", "unconfigured"):
-                self.finished.emit(False, "API error or invalid key", [], source)
+                self.error.emit("API error or invalid key")
             elif not models:
-                self.finished.emit(False, "No models available for this API key", [], source)
+                self.error.emit("No models available for this API key")
             else:
                 self.finished.emit(True, "", models, source)
         except Exception as e:
-            self.finished.emit(False, f"Ошибка подключения: {str(e)}", [], "error")
+            self.error.emit(f"Ошибка подключения: {str(e)}")
 
 
 class TranslationWorker(QObject):
     """Worker for translating text asynchronously."""
 
     finished = Signal(bool, str)  # success, result_or_error
+    error = Signal(str)
 
     def __init__(self, text_to_translate: str, source_lang: str, target_lang: str):
         super().__init__()
@@ -191,6 +171,6 @@ class TranslationWorker(QObject):
             if resp and getattr(resp, "success", False):
                 self.finished.emit(True, resp.translated_text or "")
             else:
-                self.finished.emit(False, getattr(resp, "error_message", "Translation failed"))
+                self.error.emit(getattr(resp, "error_message", "Translation failed"))
         except Exception as e:
-            self.finished.emit(False, str(e))
+            self.error.emit(str(e))

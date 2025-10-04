@@ -5,7 +5,7 @@ ThemeService extracted from QtApp._get_theme_from_settings/_apply_theme/_apply_d
 from typing import Optional
 
 from loguru import logger as default_logger
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QObject, Signal, QThread, QTimer
 from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import QApplication
 
@@ -15,16 +15,26 @@ from ..services.config_service import (
 from ..services.config_service import config_service as default_config_service
 
 
-class ThemeService(SettingsObserver):
+class ThemeService(QObject, SettingsObserver):
+    # Emitted after theme is applied and internal state is updated
+    theme_changed = Signal(str)
     def __init__(
         self, qt_app: Optional[QApplication] = None, config_service=None, logger=None
     ):
-        super().__init__()
+        # Initialize QObject explicitly due to multiple inheritance
+        QObject.__init__(self)
+        # SettingsObserver may be a plain class, but call for clarity
+        SettingsObserver.__init__(self)
+
         self.qt_app = qt_app or QApplication.instance()
         self.config_service = config_service or default_config_service
         self.logger = logger or default_logger
+
+        # Initialize current theme from settings and subscribe for changes
         self._current_theme = self.get_theme_from_settings()
         self.config_service.add_observer(self)
+
+        # Apply theme on startup
         self.apply_theme()
 
     def get_theme_from_settings(self) -> str:
@@ -42,9 +52,22 @@ class ThemeService(SettingsObserver):
         return mapped_theme
 
     def apply_theme(self, theme: Optional[str] = None) -> None:
-        """Apply the current theme to the application."""
+        """Apply the current theme to the application; guarantees execution on Qt main thread."""
         if theme is None:
             theme = self.get_theme_from_settings()
+        self._apply_theme_safe(theme)
+
+    def _apply_theme_safe(self, theme: str) -> None:
+        """Ensure theme application runs on the Qt main thread."""
+        app = QApplication.instance()
+        if app is not None and QThread.currentThread() != app.thread():
+            # Defer to main thread
+            QTimer.singleShot(0, lambda t=theme: self._apply_theme_impl(t))
+            return
+        self._apply_theme_impl(theme)
+
+    def _apply_theme_impl(self, theme: str) -> None:
+        """Apply theme palette and notify listeners (executes in main thread)."""
         if theme == "dark":
             self._apply_dark_theme()
         elif theme == "light":
@@ -52,7 +75,15 @@ class ThemeService(SettingsObserver):
         else:
             # System theme - for now default to dark
             self._apply_dark_theme()
+
         self._current_theme = theme
+
+        # Notify listeners that theme has changed
+        try:
+            self.theme_changed.emit(theme)
+        except Exception:
+            # If used outside of a Qt signal context, avoid crashing
+            pass
 
     def _apply_dark_theme(self) -> None:
         """Apply dark theme."""
@@ -83,7 +114,6 @@ class ThemeService(SettingsObserver):
             self.logger.debug(f"Theme setting changed from {old_value} to {new_value}")
             new_theme = self.get_theme_from_settings()
             if new_theme != self._current_theme:
-                self._current_theme = new_theme
                 self.apply_theme(new_theme)
 
     def on_settings_saved(self, settings):
@@ -91,7 +121,6 @@ class ThemeService(SettingsObserver):
         # Re-check and apply theme if changed
         new_theme = self.get_theme_from_settings()
         if new_theme != self._current_theme:
-            self._current_theme = new_theme
             self.apply_theme(new_theme)
 
     def on_settings_loaded(self, settings):

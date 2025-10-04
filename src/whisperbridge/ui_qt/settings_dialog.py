@@ -493,7 +493,7 @@ class SettingsDialog(QDialog, SettingsObserver):
             logger.debug(f"Saving settings with theme: '{settings_to_save.theme}'")
 
             # Save settings asynchronously
-            self.app.save_settings_async(settings_to_save.model_dump())
+            config_service.save_settings_async(settings_to_save)
 
             # Assume success and close the dialog immediately
             # The user will be notified of the result via a tray notification
@@ -585,20 +585,9 @@ class SettingsDialog(QDialog, SettingsObserver):
         self.test_api_button.setEnabled(False)
         self.test_api_button.setText("Testing...")
 
-        # Create and start worker thread
+        # Create and start worker
         self.test_worker = ApiTestWorker(provider, api_key)
-        self.test_thread = QThread()
-
-        self.test_worker.moveToThread(self.test_thread)
-        self.test_worker.finished.connect(self._on_test_finished)
-        self.test_thread.started.connect(self.test_worker.run)
-
-        # Clean up thread when done
-        self.test_worker.finished.connect(self.test_thread.quit)
-        self.test_worker.finished.connect(self.test_worker.deleteLater)
-        self.test_thread.finished.connect(self.test_thread.deleteLater)
-
-        self.test_thread.start()
+        self.app.create_and_run_worker(self.test_worker, self._on_test_finished, self._on_test_error)
 
     def _on_test_finished(self, success: bool, error_msg: str, models: list, source: str):
         """Handle API test completion (models already fetched in worker to avoid second network call)."""
@@ -617,6 +606,13 @@ class SettingsDialog(QDialog, SettingsObserver):
                 QMessageBox.warning(self, "Model Apply Failed", f"API key is valid, but could not apply models: {e}")
         else:
             QMessageBox.warning(self, "Test Failed", f"API test failed: {error_msg}")
+
+    def _on_test_error(self, error_message: str):
+        """Handle API test error."""
+        # Re-enable button
+        self.test_api_button.setEnabled(True)
+        self.test_api_button.setText("Test API")
+        QMessageBox.warning(self, "Test Failed", f"API test failed: {error_message}")
 
     def _load_models(self, provider_name: str = None, model_to_select: str = None):
         """Load available models for the current provider."""

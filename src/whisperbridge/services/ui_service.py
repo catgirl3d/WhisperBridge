@@ -83,9 +83,6 @@ class UIService:
         self.logger = logger or _default_logger
         self.app = app
 
-        # Worker threads (holds (thread, worker) pairs to prevent garbage collection)
-        self._worker_threads: list = []
-
         # Initialize UI components
         self._initialize_ui_components()
 
@@ -512,6 +509,48 @@ class UIService:
             self.logger.error(f"UIService.update_theme error: {e}", exc_info=True)
 
     @main_thread_only
+    @Slot(str)
+    def on_theme_changed(self, theme: str):
+        """React to ThemeService notifications by refreshing widget visuals."""
+        self.logger.info(f"UIService: on_theme_changed -> {theme}")
+        try:
+            app = QApplication.instance()
+            if not app:
+                return
+
+            # Collect known widgets to refresh
+            widgets = []
+            if self.main_window:
+                widgets.append(self.main_window)
+            if self.settings_dialog:
+                widgets.append(self.settings_dialog)
+            if self.selection_overlay:
+                widgets.append(self.selection_overlay)
+            widgets.extend(list(self.overlay_windows.values()))
+
+            # Re-apply palette and force re-polish/repaint
+            for w in widgets:
+                try:
+                    w.setPalette(app.palette())
+                    try:
+                        s = w.style()
+                        # Some styles need explicit unpolish/polish to pick up palette/stylesheet changes
+                        s.unpolish(w)
+                        s.polish(w)
+                    except Exception:
+                        pass
+                    w.update()
+                except Exception:
+                    pass
+
+            # Tray can be updated here if theme-specific assets are used (placeholder hook)
+            # if self.tray_manager: self.tray_manager.update_theme(theme)
+
+            self.logger.debug(f"UIService: Applied theme change to widgets: {theme}")
+        except Exception as e:
+            self.logger.error(f"UIService.on_theme_changed error: {e}", exc_info=True)
+
+    @main_thread_only
     def shutdown_ui(self):
         """Shutdown/cleanup UI-specific resources: tray, overlays, main window."""
         try:
@@ -581,38 +620,8 @@ class UIService:
         try:
             self.logger.info(f"Starting OCR worker for region: {region}")
 
-            # Create worker
             worker = CaptureOcrTranslateWorker(region=region)
-            thread = QThread()
-
-            # Move worker to thread
-            worker.moveToThread(thread)
-
-            # Connect signals with QueuedConnection to ensure slots run in main thread
-            if self.app:
-                try:
-                    worker.finished.connect(self.app._handle_worker_finished, Qt.ConnectionType.QueuedConnection)
-                except Exception:
-                    worker.finished.connect(self.handle_worker_finished, Qt.ConnectionType.QueuedConnection)
-                try:
-                    worker.error.connect(self._handle_worker_error, Qt.ConnectionType.QueuedConnection)
-                except Exception:
-                    worker.error.connect(self._handle_worker_error, Qt.ConnectionType.QueuedConnection)
-            else:
-                worker.finished.connect(self.handle_worker_finished, Qt.ConnectionType.QueuedConnection)
-                worker.error.connect(self._handle_worker_error, Qt.ConnectionType.QueuedConnection)
-
-            # Connect thread lifecycle
-            thread.started.connect(worker.run)
-            worker.finished.connect(thread.quit)
-            worker.finished.connect(worker.deleteLater)
-            thread.finished.connect(thread.deleteLater)
-
-            # Start thread
-            thread.start()
-
-            # Keep reference to prevent garbage collection
-            self._worker_threads.append((thread, worker))
+            self.app.create_and_run_worker(worker, self.app._handle_worker_finished, self._handle_worker_error)
 
             self.logger.info("OCR worker started successfully")
 
