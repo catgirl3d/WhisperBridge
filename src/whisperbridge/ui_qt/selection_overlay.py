@@ -2,8 +2,10 @@ from PySide6.QtCore import QPoint, QRect, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QPainter, QPen
 from PySide6.QtWidgets import QApplication, QWidget
 
+from .base_window import BaseWindow
 
-class SelectionOverlayQt(QWidget):
+
+class SelectionOverlayQt(QWidget, BaseWindow):
     selectionCompleted = Signal(QRect)
     selectionCanceled = Signal()
 
@@ -105,7 +107,11 @@ class SelectionOverlayQt(QWidget):
             self.selectionCanceled.emit()
             self.close()
 
+    def dismiss(self):
+        """Dismiss the selection overlay by closing it."""
+        self.close()
+
     def closeEvent(self, event):
-        self.releaseMouse()
-        self.releaseKeyboard()
-        super().closeEvent(event)
+        """Стандартизованный closeEvent, вызывающий dismiss()."""
+        self.dismiss()
+        event.accept()  # Для selection overlay закрытие нормально

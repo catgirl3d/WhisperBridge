@@ -4,7 +4,6 @@ Settings Dialog for WhisperBridge Qt UI.
 Provides a comprehensive settings interface with tabs for different configuration categories.
 """
 from pathlib import Path
-from textwrap import dedent
 from PySide6.QtWidgets import (
     QDialog,
     QVBoxLayout,
@@ -32,7 +31,10 @@ from loguru import logger
 from .workers import ApiTestWorker
 
 
-class SettingsDialog(QDialog, SettingsObserver):
+from .base_window import BaseWindow
+
+
+class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
     """Settings dialog with tabbed interface for configuration."""
 
     def __init__(self, app, parent=None):
@@ -81,6 +83,10 @@ class SettingsDialog(QDialog, SettingsObserver):
         # Load current values
         self._load_settings()
 
+    def dismiss(self):
+        """Dismiss the settings dialog by hiding it."""
+        self.hide()
+
     def _init_settings_map(self):
         """Initialize the map between settings and widgets."""
         self.settings_map = {
@@ -108,125 +114,17 @@ class SettingsDialog(QDialog, SettingsObserver):
         }
 
     def _apply_stylesheet(self):
-        """Apply a custom stylesheet"""
-        icon_base_path = (Path(__file__).resolve().parent.parent / "assets" / "icons").as_posix()
-        stylesheet = dedent("""
-            QDialog {
-                background-color: #ffffff;
-            }
-            QTabWidget::pane {
-                border-top: 0px solid #f0f0f0;
-            }
-            QTabBar::tab {
-                background: #f0f0f0;
-                color: #111111;
-                padding: 6px 16px;
-                border-radius: 2px;
-                border-bottom: none;
-                margin-bottom: 2px;
-                border-left: 2px solid #fff;
-            }
-            QTabBar::tab:selected {
-                background: #356bd0;
-                border: 0px solid #d0d0d0;
-                border-bottom: 0px solid #ffffff; /* Match pane background */
-                color:white;
-            }
-            QTabBar::tab:!selected:hover {
-                background: #e8e8e8;
-            }
-            QGroupBox {
-                font-weight: bold;
-                border: 1px solid rgba(0,0,0,0.08);
-                border-radius: 4px;
-                margin-top: 10px;
-            }
-            QGroupBox::title {
-                subcontrol-origin: margin;
-                subcontrol-position: top left;
-                padding: 0 5px;
-                left: 10px;
-            }
-            QLabel {
-                color: #111111;
-                border: none;
-            }
-            QLineEdit, QTextEdit, QSpinBox, QDoubleSpinBox {
-                background-color: #ffffff;
-                color: #111111;
-                border: 1px solid rgba(0,0,0,0.12);
-                border-radius: 4px;
-                padding: 6px;
-            }
-            QPushButton {
-                color: #111111;
-                padding: 8px 16px;
-                border: none;
-                border-radius: 4px;
-                background-color: #f0f0f0;
-            }
-            QPushButton:hover {
-                background-color: #e8e8e8;
-            }
-            QPushButton#save_button {
-                background-color: #356bd0;
-                color: #ffffff;
-                font-weight: 600;
-            }
-            QPushButton#save_button:hover {
-                background-color: #2f5db3;
-            }
-            QComboBox {
-                border: 1px solid rgba(0,0,0,0.12);
-                border-radius: 4px;
-                padding: 6px 8px;
-                background-color: #ffffff;
-                color: #111111;
-            }
-            QComboBox::drop-down {
-                subcontrol-origin: padding;
-                subcontrol-position: top right;
-                width: 22px;
-                border-left: 1px solid rgba(0,0,0,0.08);
-                border-top-right-radius: 3px;
-                border-bottom-right-radius: 3px;
-                background-color: transparent;
-            }
-            QComboBox::down-arrow {
-                image: url("__ICON_PATH__/chevron-down-solid-full.svg");
-                width: 12px;
-                height: 12px;
-            }
-            QComboBox QAbstractItemView {
-                border: 1px solid rgba(0,0,0,0.12);
-                background-color: #ffffff;
-                color: #111111;
-                selection-background-color: #0078d7;
-            }
-            QSpinBox::up-button {
-                subcontrol-origin: border;
-                subcontrol-position: top right;
-                width: 22px;
-                border-left: 1px solid rgba(0,0,0,0.08);
-            }
-            QSpinBox::down-button {
-                subcontrol-origin: border;
-                subcontrol-position: bottom right;
-                width: 22px;
-                border-left: 1px solid rgba(0,0,0,0.08);
-            }
-            QSpinBox::up-arrow {
-                image: url("__ICON_PATH__/chevron-up-solid-full.svg");
-                width: 12px;
-                height: 12px;
-            }
-            QSpinBox::down-arrow {
-                image: url("__ICON_PATH__/chevron-down-solid-full.svg");
-                width: 12px;
-                height: 12px;
-            }
-        """)
-        self.setStyleSheet(stylesheet.replace("__ICON_PATH__", icon_base_path))
+        """Apply the main stylesheet"""
+        # Load the main stylesheet
+        style_path = Path(__file__).resolve().parent.parent / "assets" / "style.qss"
+        with open(style_path, 'r', encoding='utf-8') as f:
+            stylesheet = f.read()
+
+        # Replace assets_path placeholder with actual path
+        assets_path = (Path(__file__).resolve().parent.parent / "assets").as_posix()
+        stylesheet = stylesheet.replace("{assets_path}", assets_path)
+
+        self.setStyleSheet(stylesheet)
 
     def _create_api_tab(self):
         """Create API settings tab."""

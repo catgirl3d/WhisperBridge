@@ -3,7 +3,6 @@ Overlay window implementation for Qt-based UI.
 """
 
 from PySide6.QtWidgets import (
-    QWidget,
     QVBoxLayout,
     QLabel,
     QTextEdit,
@@ -18,12 +17,8 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import (
     Qt,
-    QPoint,
-    QRect,
     QTimer,
     QThread,
-    Signal,
-    QObject,
     QSize,
     QEvent,
 )
@@ -35,7 +30,6 @@ from pathlib import Path
 from loguru import logger
 from ..services.config_service import config_service
 from ..utils.language_utils import get_language_name, detect_language
-from .minibar_overlay import MiniBarOverlay
 from .workers import TranslationWorker
 
 
@@ -64,55 +58,33 @@ class TranslatorSettingsDialog(QDialog):
         layout.addWidget(close_button, alignment=Qt.AlignmentFlag.AlignRight)
 
 
-class OverlayWindow(QWidget):
+from .styled_overlay_base import StyledOverlayWindow
+
+
+class OverlayWindow(StyledOverlayWindow):
     """Overlay window for displaying translation results."""
 
     def __init__(self):
         """Initialize the overlay window."""
-        super().__init__()
+        super().__init__(title="Translator")
 
         self._translator_settings_dialog = None
 
-        # Configure window properties — frameless window with resize capability
-        self.setWindowFlags(
-            Qt.WindowType.Window
-            | Qt.WindowType.WindowStaysOnTopHint
-            | Qt.WindowType.FramelessWindowHint
-        )
-        # Set object name for CSS styling
-        self.setObjectName("OverlayWindow")
-        # Enable styled background for proper CSS rendering
-        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        # Enable window resizing
-        self.setWindowFlag(Qt.WindowType.WindowMaximizeButtonHint, True)
-        # No title bar, so no window title needed
-        # Default size (width x height). Height set to 430px
-        self.resize(480, 430)
-        self.setMouseTracking(True)
-        self.setMinimumSize(
-            320, 220
-        )  # Increased minimum height to accommodate footer layout with resize grip
+        # Using StyledOverlayWindow for window properties (frameless, resizable, always on top)
+        logger.debug("OverlayWindow initialized using StyledOverlayWindow base")
 
         logger.debug("Overlay window configured as regular translator window")
 
-        # Main vertical layout
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(10, 7, 10, 10)  # left-top-right-bottom
-        layout.setSpacing(6)
-
-        # Header: title
-        # Use a horizontal layout-like composition
-        title_label = QLabel("Translator")
-        title_label.setFont(QFont("Arial", 11, QFont.Bold))
-        layout.addWidget(title_label)
+        # Use base content layout for body widgets
+        layout = self.content_layout
 
         # Original text label and widget
         self.original_label = QLabel("Original:")
-        self.original_label.setFont(QFont("Arial", 10, QFont.Bold))
+        self.original_label.setFont(QFont("Arial", 10, QFont.Weight.Bold))
 
         # Row: detected language + auto-swap checkbox
         info_row = QHBoxLayout()
-        info_row.addItem(QSpacerItem(10, 10, QSizePolicy.Expanding, QSizePolicy.Minimum))
+        info_row.addItem(QSpacerItem(10, 10, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum))
 
         # Detected language label (short)
         self.detected_lang_label = QLabel("Language: —")
@@ -141,7 +113,7 @@ class OverlayWindow(QWidget):
         language_row.addWidget(self.original_label)
 
         # Add a spacer to push language controls to the right
-        language_row.addItem(QSpacerItem(10, 10, QSizePolicy.Expanding, QSizePolicy.Minimum))
+        language_row.addItem(QSpacerItem(10, 10, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum))
 
         # Source combo
         self.source_combo = QComboBox()
@@ -272,7 +244,7 @@ class OverlayWindow(QWidget):
         self.original_text.setAcceptRichText(False)
         # Allow vertical expansion within layout
         # Make the text area expand in both directions
-        self.original_text.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.original_text.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         # Placeholder test text for manual verification and visibility
         self.original_text.setPlaceholderText("Recognized text will appear here...")
         # Ensure explicit black text color and white background on the widget (override app palette)
@@ -287,23 +259,13 @@ class OverlayWindow(QWidget):
 
         # Buttons row for original text (positioned under the field)
         btn_row_orig = QHBoxLayout()
-        btn_row_orig.addItem(QSpacerItem(10, 10, QSizePolicy.Expanding, QSizePolicy.Minimum))
+        btn_row_orig.addItem(QSpacerItem(10, 10, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum))
  
         # Translate button under the original field
         self.translate_btn = QPushButton("  Translate")
         self.translate_btn.setObjectName("translateButton") # Set object name for specific styling
         self.translate_btn.setFixedHeight(28)
         self.translate_btn.setFixedWidth(120)
-        try:
-            img_path = Path(__file__).parent.parent / "assets" / "icons" / "translation-icon.png"
-            pixmap = QPixmap(str(img_path))
-            if not pixmap.isNull():
-                self.translate_btn.setIcon(QIcon(pixmap))
-            else:
-                self.translate_btn.setIcon(qta.icon("fa5s.language", color="white"))
-        except Exception:
-            self.translate_btn.setIcon(qta.icon("fa5s.language", color="white"))
-        self.translate_btn.setIconSize(QSize(14, 14))
         self.translate_btn.clicked.connect(self._on_translate_clicked)
         btn_row_orig.addWidget(self.translate_btn)
 
@@ -340,7 +302,7 @@ class OverlayWindow(QWidget):
 
         # Translated text label and widget
         self.translated_label = QLabel("Translation:")
-        self.translated_label.setFont(QFont("Arial", 10, QFont.Bold))
+        self.translated_label.setFont(QFont("Arial", 10, QFont.Weight.Bold))
         self.translated_label.setStyleSheet("padding-bottom: 6px;")
         layout.addWidget(self.translated_label)
 
@@ -349,7 +311,7 @@ class OverlayWindow(QWidget):
         self.translated_text.setReadOnly(False)
         self.translated_text.setAcceptRichText(False)
         # Allow vertical expansion within layout
-        self.translated_text.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.translated_text.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         # Placeholder test text for manual verification
         self.translated_text.setPlaceholderText("Translation will appear here...")
         try:
@@ -373,7 +335,7 @@ class OverlayWindow(QWidget):
 
         # Buttons row for translated text (positioned under the field)
         btn_row_tr = QHBoxLayout()
-        btn_row_tr.addItem(QSpacerItem(10, 10, QSizePolicy.Expanding, QSizePolicy.Minimum))
+        btn_row_tr.addItem(QSpacerItem(10, 10, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum))
 
         # Clear translated button
         self.clear_translated_btn = QPushButton("")
@@ -414,175 +376,16 @@ class OverlayWindow(QWidget):
         layout.addLayout(footer_row)
 
         # Close and collapse buttons in top-right corner
-        self.close_btn_top = QPushButton(self)
-        self.close_btn_top.setObjectName("closeBtnTop")
-        self.close_btn_top.setFixedSize(22, 22)
+        # Add settings button via base helper; close/collapse provided by base
         try:
-            self.close_btn_top.setIcon(qta.icon("fa5s.times", color="black"))
+            self.add_settings_button(self._open_translator_settings)
         except Exception:
-            self.close_btn_top.setText("X")
-        self.close_btn_top.setIconSize(QSize(20, 16))
-        self.close_btn_top.clicked.connect(self.hide_overlay)
+            pass
 
-        # Collapse button (to left of close)
-        self.collapse_btn_top = QPushButton(self)
-        self.collapse_btn_top.setObjectName("collapseBtnTop")
-        self.collapse_btn_top.setFixedSize(22, 22)
-        self.collapse_btn_top.setIcon(qta.icon("fa5s.compress-alt", color="black"))
-        self.collapse_btn_top.setIconSize(QSize(20, 16))
-        self.collapse_btn_top.clicked.connect(self.collapse_to_minibar)
+        # All styling is now handled by the base StyledOverlayWindow class
+        # Lifecycle helpers handled by standardized base; no destroyed flag or pending timers needed
 
-        # Settings button (to left of collapse)
-        self.settings_btn_top = QPushButton(self)
-        self.settings_btn_top.setObjectName("settingsBtnTop")
-        self.settings_btn_top.setFixedSize(22, 22)
-        try:
-            self.settings_btn_top.setIcon(qta.icon("fa5s.cog", color="black"))
-        except Exception:
-            self.settings_btn_top.setText("⚙")
-        self.settings_btn_top.setIconSize(QSize(18, 16))
-        self.settings_btn_top.setToolTip("Translator settings")
-        self.settings_btn_top.clicked.connect(self._open_translator_settings)
-
-        # Position buttons initially
-        self._position_top_buttons()
-
-        # Set background and styling — solid card with readable text
-        self.setStyleSheet(
-            """
-            OverlayWindow {
-                background-color: #ffffff;
-                border: 1px solid #f5f5f5;
-            }
-            QLabel {
-                color: #111111;
-                border: none;
-            }
-            QTextEdit {
-                background-color: #ffffff;
-                color: #111111;
-                border: 1px solid rgba(0,0,0,0.08);
-                border-radius: 2px;
-                padding: 4px 4px;
-            }
-            QPushButton {
-                color: #111111;
-                padding: 6px 10px;
-                border: none;
-                border-radius: 4px;
-                background-color: #f0f0f0;
-            }
-            QPushButton:hover {
-                background-color: #e8e8e8;
-            }
-            QPushButton#translateButton {
-                background-color: #356bd0;
-                color: #ffffff;
-                font-weight: 600;
-            }
-            QPushButton#translateButton:hover {
-                background-color: #2f5db3;
-            }
-            QPushButton#closeButton:hover {
-                background-color: #d02d2d; /* Red background on hover */
-                color: #ffffff;
-            }
-            QPushButton#closeBtnTop {
-                color: #111111;
-                padding: 3px 6px;
-                border-radius: 3px;
-                background-color: #fff;
-            }
-            QPushButton#closeBtnTop:hover {
-                background-color: #ff6b6b;
-            }
-            QPushButton#collapseBtnTop {
-                color: #111111;
-                padding: 3px 6px;
-                border: none;
-                border-radius: 3px;
-                background-color: #fff;
-            }
-            QPushButton#collapseBtnTop:hover {
-                background-color: #e8e8e8;
-            }
-            QPushButton#settingsBtnTop {
-                color: #111111;
-                padding: 3px 6px;
-                border: none;
-                border-radius: 3px;
-                background-color: #fff;
-            }
-            QPushButton#settingsBtnTop:hover {
-                background-color: #e8e8e8;
-            }
-
-            /* ComboBox styling */
-            QComboBox {
-                border: 1px solid rgba(0,0,0,0.12);
-                border-radius: 4px;
-                padding: 0px 0px 0px 8px;
-                background-color: #ffffff;
-                color: #111111;
-                selection-background-color: #0078d7;
-            }
-            QComboBox::drop-down {
-                subcontrol-origin: padding;
-                subcontrol-position: top right;
-                width: 22px;
-                border-left: 1px solid rgba(0,0,0,0.08);
-                border-top-right-radius: 3px;
-                border-bottom-right-radius: 3px;
-                background-color: transparent;
-            }
-            QComboBox::down-arrow {
-                image: url("c:/git/WhisperBridge/src/whisperbridge/assets/icons/chevron-down-solid-full.svg");
-                width: 12px;
-                height: 12px;
-            }
-            /* Popup list */
-            QComboBox QAbstractItemView {
-                border: 1px solid rgba(0,0,0,0.12);
-                background-color: #ffffff;
-                color: #111111;
-                selection-background-color: #0078d7;
-                selection-color: #ffffff;
-                outline: none;
-                padding: 4px;
-            }
-            QComboBox QAbstractItemView::item {
-                min-height: 22px;
-                padding: 4px 8px;
-            }
-            QComboBox QAbstractItemView::item:selected {
-                background: #0078d7;
-                color: #ffffff;
-            }
-        """
-        )
-        # Lifecycle helpers expected by overlay service
-        # Public flag used by services to determine if window was destroyed
-        self.is_destroyed = False
-        # Hold pending timers/callbacks so we can cancel them if requested
-        self._pending_timers: list[QTimer] = []
-
-        # Dragging support for frameless window
-        self._dragging = False
-        self._drag_start_pos = QPoint()
-
-        # Resizing support
-        self._resizing = False
-        self._resize_start_pos = QPoint()
-        self._resize_start_geometry = QRect()
-        self._resize_margin = 8
-        self._resize_mode = None
-
-        # Mini-bar integration state
-        self._minibar: MiniBarOverlay | None = None
-        self._expanded_geometry: QRect | None = None
-
-        # Padding for top-right control buttons
-        self._top_button_padding = {"top": 3, "right": 4, "bottom": 0, "left": 2}
+        # Drag/resize/minibar now handled by StyledOverlayWindow base
 
     def show_loading(self, position: tuple | None = None):
         """Show a minimal loading state at an optional absolute position."""
@@ -600,44 +403,9 @@ class OverlayWindow(QWidget):
         except Exception as e:
             logger.error(f"Error in show_loading: {e}")
 
-    def _close_window(self):
-        """Close/hide the widget and mark as destroyed for services."""
-        try:
-            logger.info("OverlayWindow: _close_window called — hiding and marking destroyed")
-            # Cancel any pending callbacks/timers
-            self._cancel_pending_callbacks()
-            # Ensure minibar is closed so no orphan window remains
-            try:
-                if hasattr(self, "_minibar") and self._minibar:
-                    self._minibar.close()
-            except Exception:
-                pass
-            try:
-                self._minibar = None
-            except Exception:
-                pass
-            # Hide the widget instead of closing the app
-            try:
-                self.hide()
-            except Exception:
-                pass
-            # Mark destroyed so services won't reuse it
-            self.is_destroyed = True
-        except Exception as e:
-            logger.error(f"Error during _close_window: {e}")
+# deprecated _close_window removed; cleanup handled by standardized base
 
-    def _cancel_pending_callbacks(self):
-        """Cancel any pending QTimer callbacks — no-op if none."""
-        try:
-            for t in list(self._pending_timers):
-                try:
-                    t.stop()
-                except Exception:
-                    pass
-            self._pending_timers.clear()
-            logger.debug("Cancelled pending overlay timers/callbacks")
-        except Exception as e:
-            logger.warning(f"Error cancelling pending callbacks: {e}")
+# deprecated _cancel_pending_callbacks removed; no pending timers in standardized base
 
     def geometry_string(self) -> str:
         """Return a geometry string similar to Tkinter 'WxH+X+Y' for logs."""
@@ -655,115 +423,10 @@ class OverlayWindow(QWidget):
         else:
             super().keyPressEvent(event)
 
-    def mousePressEvent(self, event):
-        """Handle mouse press for window dragging and resizing."""
-        if event.button() == Qt.MouseButton.LeftButton:
-            # Determine resize mode on press to support immediate edge press
-            pos = event.position().toPoint()
-            mode = self._hit_test_resize(pos)
-            if mode is not None:
-                self._resize_mode = mode
-                self._resizing = True
-                self._resize_start_pos = event.globalPosition().toPoint()
-                self._resize_start_geometry = self.geometry()
-                self._update_cursor_for_mode(mode)
-                event.accept()
-                return
-            # Otherwise start window drag
-            self._dragging = True
-            self._drag_start_pos = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
-            event.accept()
 
-    def mouseMoveEvent(self, event):
-        """Handle mouse move for window dragging and resizing."""
-        if self._dragging and event.buttons() & Qt.MouseButton.LeftButton:
-            self.move(event.globalPosition().toPoint() - self._drag_start_pos)
-            event.accept()
-            return
 
-        if self._resizing and event.buttons() & Qt.MouseButton.LeftButton:
-            # Compute new geometry based on original geometry (immutable baseline)
-            delta = event.globalPosition().toPoint() - self._resize_start_pos
-            dx, dy = delta.x(), delta.y()
 
-            s_geo = self._resize_start_geometry
-            s_left, s_top, s_w, s_h = s_geo.left(), s_geo.top(), s_geo.width(), s_geo.height()
-            min_w, min_h = self.minimumWidth(), self.minimumHeight()
 
-            new_left, new_top, new_w, new_h = s_left, s_top, s_w, s_h
-            mode = self._resize_mode or ""
-
-            # Horizontal
-            if "left" in mode:
-                new_w = max(min_w, s_w - dx)
-                new_left = s_left + (s_w - new_w)
-            elif "right" in mode:
-                new_w = max(min_w, s_w + dx)
-
-            # Vertical
-            if "top" in mode:
-                new_h = max(min_h, s_h - dy)
-                new_top = s_top + (s_h - new_h)
-            elif "bottom" in mode:
-                new_h = max(min_h, s_h + dy)
-
-            self.setGeometry(QRect(new_left, new_top, new_w, new_h))
-            event.accept()
-            return
-
-        # Update hover cursor/mode when not dragging/resizing
-        pos = event.position().toPoint()
-        mode = self._hit_test_resize(pos)
-        self._resize_mode = mode
-        self._update_cursor_for_mode(mode)
-
-    def mouseReleaseEvent(self, event):
-        """Handle mouse release to stop dragging and resizing."""
-        if event.button() == Qt.MouseButton.LeftButton:
-            self._dragging = False
-            self._resizing = False
-            self._resize_mode = None
-            # Update cursor according to current hover position
-            try:
-                pos = event.position().toPoint()
-                self._update_cursor_for_mode(self._hit_test_resize(pos))
-            except Exception:
-                self.setCursor(Qt.ArrowCursor)
-            event.accept()
-
-    def mouseDoubleClickEvent(self, event):
-        """Handle double-click to collapse to minibar."""
-        if event.button() == Qt.MouseButton.LeftButton:
-            self.collapse_to_minibar()
-            event.accept()
-        else:
-            super().mouseDoubleClickEvent(event)
-
-    def _position_top_buttons(self):
-        """Position the top-right control buttons (collapse + close) with padding."""
-        padding = getattr(
-            self, "_top_button_padding", {"top": 0, "right": 0, "bottom": 0, "left": 0}
-        )
-
-        buttons = [
-            getattr(self, "close_btn_top", None),
-            getattr(self, "collapse_btn_top", None),
-            getattr(self, "settings_btn_top", None),
-        ]
-
-        top_offset = padding.get("top", 0)
-        right_offset = padding.get("right", 0)
-        spacing = padding.get("left", 2)
-
-        current_x = self.width() - right_offset
-
-        for button in buttons:
-            if not button:
-                continue
-            size = button.size()
-            current_x -= size.width()
-            button.move(max(0, current_x), top_offset)
-            current_x -= spacing
 
     def _open_translator_settings(self):
         """Show the translator-specific settings dialog."""
@@ -783,126 +446,10 @@ class OverlayWindow(QWidget):
         except Exception as e:
             logger.error(f"Failed to open translator settings dialog: {e}")
 
-    def _hit_test_resize(self, pos: QPoint):
-        """Return resize mode string given a position in widget coords, or None if not on edge."""
-        r = self.rect()
-        margin = getattr(self, "_resize_margin", 8)
 
-        left = pos.x() <= margin
-        right = pos.x() >= r.width() - margin
-        top = pos.y() <= margin
-        bottom = pos.y() >= r.height() - margin
 
-        if left and bottom:
-            return "bottom-left"
-        if right and bottom:
-            return "bottom-right"
-        if left and top:
-            return "top-left"
-        if right and top:
-            return "top-right"
-        if left:
-            return "left"
-        if right:
-            return "right"
-        if top:
-            return "top"
-        if bottom:
-            return "bottom"
-        return None
 
-    def _update_cursor_for_mode(self, mode: str | None):
-        """Set cursor shape for given resize mode."""
-        if mode == "bottom-left":
-            self.setCursor(Qt.SizeBDiagCursor)
-        elif mode == "bottom-right":
-            self.setCursor(Qt.SizeFDiagCursor)
-        elif mode == "top-left":
-            self.setCursor(Qt.SizeFDiagCursor)
-        elif mode == "top-right":
-            self.setCursor(Qt.SizeBDiagCursor)
-        elif mode in ("left", "right"):
-            self.setCursor(Qt.SizeHorCursor)
-        elif mode in ("top", "bottom"):
-            self.setCursor(Qt.SizeVerCursor)
-        else:
-            self.setCursor(Qt.ArrowCursor)
 
-    def resizeEvent(self, event):
-        """Handle window resize to reposition the top buttons."""
-        super().resizeEvent(event)
-        self._position_top_buttons()
-
-    def collapse_to_minibar(self):
-        """Collapse the main overlay to a detachable MiniBar."""
-        try:
-            # Save current geometry to restore later
-            try:
-                self._expanded_geometry = QRect(self.geometry())
-            except Exception:
-                self._expanded_geometry = self.geometry()
-            # Create MiniBar if not existing
-            if self._minibar is None:
-                self._minibar = MiniBarOverlay(self, self.restore_from_minibar)
-                # Ensure layout is calculated for accurate width
-                self._minibar.adjustSize()
-            # Position minibar so its right edge aligns with overlay's right edge
-            g = self.geometry()
-            minibar_x = g.x() + g.width() - self._minibar.width()
-            minibar_y = g.y()
-            self._minibar.show_at((minibar_x, minibar_y))
-            # Hide main overlay (do NOT mark destroyed)
-            self.hide()
-        except Exception as e:
-            logger.error(f"Failed to collapse to minibar: {e}")
-
-    def restore_from_minibar(self):
-        """Restore the overlay from the MiniBar to its last geometry and bring to front.
-
-        Position is restored so that the overlay's top-right aligns with the MiniBar's top-right.
-        """
-        try:
-            # Determine minibar geometry for alignment
-            minibar_geom = None
-            try:
-                if self._minibar:
-                    try:
-                        minibar_geom = self._minibar.frameGeometry()
-                    except Exception:
-                        minibar_geom = self._minibar.geometry()
-            except Exception:
-                minibar_geom = None
-
-            if self._expanded_geometry is not None:
-                g = QRect(self._expanded_geometry)
-                if minibar_geom is not None:
-                    # Align overlay's top-right with minibar's top-right
-                    minibar_right = minibar_geom.x() + minibar_geom.width()
-                    minibar_top = minibar_geom.y()
-                    overlay_left = minibar_right - g.width()
-                    g.moveTopLeft(QPoint(overlay_left, minibar_top))
-                self.setGeometry(g)
-            elif minibar_geom is not None:
-                # If we don't know previous size, position so right aligns
-                minibar_right = minibar_geom.x() + minibar_geom.width()
-                minibar_top = minibar_geom.y()
-                overlay_left = minibar_right - self.width()
-                self.move(overlay_left, minibar_top)
-        except Exception:
-            pass
-        # Show and raise overlay
-        self.show()
-        try:
-            self.raise_()
-            self.activateWindow()
-        except Exception:
-            pass
-        # Hide minibar if present
-        if self._minibar:
-            try:
-                self._minibar.hide()
-            except Exception:
-                pass
 
     def _copy_text_to_clipboard(self, text_widget: QTextEdit, button: QPushButton, text_name: str):
         """Copy text from a QTextEdit to clipboard and provide visual feedback on a button."""
@@ -1272,46 +819,21 @@ class OverlayWindow(QWidget):
     def hide_overlay(self):
         """Hide the overlay window."""
         logger.info("Hiding overlay window")
-        # Close minibar if present to avoid orphan window
-        try:
-            if hasattr(self, "_minibar") and self._minibar:
-                self._minibar.close()
-                self._minibar = None
-        except Exception:
-            pass
-
         # Close settings dialog if open
         try:
             if self._translator_settings_dialog:
                 self._translator_settings_dialog.close()
         except Exception:
             pass
-
-        self.hide()
+        # Delegate hiding/minibar handling to base dismiss
+        super().dismiss()
         logger.debug("Overlay window hidden")
 
-    def closeEvent(self, event):
-        """Intercept window close (X) and hide the overlay instead of exiting the app.
+    # Using BaseWindow closeEvent from StyledOverlayWindow
 
-        Additionally ensure any MiniBar is closed to avoid orphan windows.
-        """
-        try:
-            # Close minibar if present to avoid orphan window
-            try:
-                if hasattr(self, "_minibar") and self._minibar:
-                    self._minibar.close()
-                    self._minibar = None
-            except Exception:
-                pass
-
-            logger.info("Overlay closeEvent triggered — hiding overlay instead of closing application")
-            # Hide the overlay and ignore the close so application keeps running
-            self.hide_overlay()
-            event.ignore()
-        except Exception as e:
-            logger.error(f"Error handling closeEvent on overlay: {e}")
-            # As a fallback, accept the event to avoid leaving the app in inconsistent state
-            event.accept()
+    def dismiss(self):
+        """Dismiss the overlay window."""
+        self.hide_overlay()
 
     def is_overlay_visible(self) -> bool:
         """Check if overlay is currently visible.

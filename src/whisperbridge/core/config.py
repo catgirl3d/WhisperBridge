@@ -93,6 +93,7 @@ class Settings(BaseSettings):
     window_width: int = Field(default=400, description="Default window width")
     window_height: int = Field(default=300, description="Default window height")
     window_geometry: Optional[List[int]] = Field(default=None, description="Window geometry [x, y, width, height]")
+    overlay_window_geometry: Optional[List[int]] = Field(default=None, description="Overlay window geometry [x, y, width, height]")
 
     # General Settings
     show_notifications: bool = Field(default=True, description="Show notifications")

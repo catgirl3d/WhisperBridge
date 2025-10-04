@@ -270,7 +270,7 @@ class UIService:
             self.logger.info(f"Position: {position}, Overlay ID: {overlay_id}")
 
             # Create overlay window if missing
-            if overlay_id not in self.overlay_windows or getattr(self.overlay_windows.get(overlay_id), "is_destroyed", False):
+            if overlay_id not in self.overlay_windows:
                 try:
                     self.overlay_windows[overlay_id] = OverlayWindow()
                     self.logger.debug(f"UIService: Created OverlayWindow for id '{overlay_id}'")

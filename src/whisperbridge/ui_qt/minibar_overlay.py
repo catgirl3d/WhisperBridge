@@ -7,7 +7,10 @@ from PySide6.QtGui import QFont
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QWidget
 
 
-class MiniBarOverlay(QWidget):
+from .base_window import BaseWindow
+
+
+class MiniBarOverlay(QWidget, BaseWindow):
     """
     Detachable mini companion window for the OverlayWindow.
 
@@ -45,9 +48,20 @@ class MiniBarOverlay(QWidget):
         layout.setContentsMargins(10, 0, 4, 0)
         layout.setSpacing(2)
 
-        # Title
-        self.title_label = QLabel("Translator", self)
-        self.title_label.setFont(QFont("Arial", 10, QFont.Bold))
+        # Title (initialized from owner if available, no hardcoded text)
+        self.title_label = QLabel(self)
+        self.title_label.setFont(QFont("Arial", 10, QFont.Weight.Bold))
+        try:
+            getter = getattr(owner_overlay, "get_title", None)
+            if callable(getter):
+                title = getter()
+                try:
+                    # Ensure a string is passed to setText
+                    self.title_label.setText(title if isinstance(title, str) else str(title))
+                except Exception:
+                    pass
+        except Exception:
+            pass
         layout.addWidget(self.title_label)
 
         # Spacer-like stretch is implicit with layout spacing; keep compact
@@ -130,6 +144,13 @@ class MiniBarOverlay(QWidget):
         self.raise_()
         self.activateWindow()
 
+    def set_title(self, text: str) -> None:
+        """Update the minibar title label."""
+        try:
+            self.title_label.setText(text)
+        except Exception:
+            pass
+
     # --- Internal handlers ---
 
     def _handle_expand_clicked(self):
@@ -141,11 +162,22 @@ class MiniBarOverlay(QWidget):
             pass
 
     def _handle_close_clicked(self):
-        """Handle close button click: close minibar and hide overlay."""
+        """Handle close button click: close minibar and hide/dismiss owner."""
         try:
             self.close()
-            if self._owner_ref():
-                self._owner_ref().hide_overlay()
+            owner = self._owner_ref()
+            if owner:
+                hide = getattr(owner, "hide_overlay", None)
+                dismiss = getattr(owner, "dismiss", None)
+                if callable(hide):
+                    hide()
+                elif callable(dismiss):
+                    dismiss()
+                else:
+                    try:
+                        owner.hide()
+                    except Exception:
+                        pass
         except Exception:
             pass
 
@@ -191,5 +223,9 @@ class MiniBarOverlay(QWidget):
     # --- Qt lifecycle ---
 
     def closeEvent(self, event):
-        """Do not interfere with app shutdown; just close."""
-        super().closeEvent(event)
+        """Accept close to avoid BaseWindow.closeEvent ignore behavior."""
+        event.accept()
+
+    def dismiss(self):
+        """Dismiss the mini bar by closing it."""
+        self.close()

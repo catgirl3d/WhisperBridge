@@ -8,9 +8,10 @@ from PySide6.QtGui import QFont
 from PySide6.QtWidgets import QLabel, QMainWindow, QPushButton, QVBoxLayout, QWidget
 
 from ..services.config_service import config_service
+from .base_window import BaseWindow
 
 
-class MainWindow(QMainWindow):
+class MainWindow(QMainWindow, BaseWindow):
     """Main application window for Qt UI."""
 
     # Signal emitted when window should be closed to tray instead of exiting
@@ -34,7 +35,7 @@ class MainWindow(QMainWindow):
         # Add placeholder content
         title_label = QLabel("WhisperBridge Qt UI")
         title_label.setAlignment(Qt.AlignCenter)
-        title_label.setFont(QFont("Arial", 16, QFont.Bold))
+        title_label.setFont(QFont("Arial", 16, QFont.Weight.Bold))
         layout.addWidget(title_label)
 
         self.status_label = QLabel("Qt-based interface is under development")
@@ -47,8 +48,7 @@ class MainWindow(QMainWindow):
         self.test_button.clicked.connect(self._on_button_clicked)
         layout.addWidget(self.test_button)
 
-        # Connect close event
-        self.closeEvent = self._on_close
+        # Close behavior is standardized via BaseWindow.closeEvent and dismiss()
 
         # Restore geometry on initialization
         self.restore_geometry()
@@ -63,6 +63,15 @@ class MainWindow(QMainWindow):
         event.ignore()
         self.hide()
         logger.debug("Main window hidden to tray")
+
+    def closeEvent(self, event):
+        """Стандартизованный closeEvent, вызывающий dismiss()."""
+        self.dismiss()
+        event.ignore()
+
+    def dismiss(self):
+        """Dismiss the main window by hiding it to tray."""
+        self._on_close(None)  # Trigger the close logic without event
 
     def restore_geometry(self):
         """Restore window geometry from settings."""

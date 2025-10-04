@@ -2,6 +2,7 @@
 ThemeService extracted from QtApp._get_theme_from_settings/_apply_theme/_apply_dark_theme/_apply_light_theme. Centralizes theme management.
 """
 
+import os
 from typing import Optional
 
 from loguru import logger as default_logger
@@ -76,6 +77,9 @@ class ThemeService(QObject, SettingsObserver):
             # System theme - for now default to dark
             self._apply_dark_theme()
 
+        # Load CSS styles from file
+        self._load_stylesheet()
+
         self._current_theme = theme
 
         # Notify listeners that theme has changed
@@ -107,6 +111,33 @@ class ThemeService(QObject, SettingsObserver):
     def _apply_light_theme(self) -> None:
         """Apply light theme."""
         self.qt_app.setPalette(self.qt_app.style().standardPalette())
+
+    def _load_stylesheet(self) -> None:
+        """Load and apply CSS stylesheet from file."""
+        try:
+            # Path to the assets directory
+            assets_path = os.path.abspath(os.path.join(
+                os.path.dirname(__file__), "..", "assets"
+            ))
+            # Path for URL needs forward slashes
+            assets_url_path = assets_path.replace(os.sep, '/')
+
+            # Path to the stylesheet file
+            style_path = os.path.join(assets_path, "style.qss")
+
+            if os.path.exists(style_path):
+                with open(style_path, 'r', encoding='utf-8') as f:
+                    stylesheet_template = f.read()
+
+                # Replace the placeholder with the actual path
+                stylesheet = stylesheet_template.replace("{assets_path}", assets_url_path)
+
+                self.qt_app.setStyleSheet(stylesheet)
+                self.logger.debug(f"Loaded stylesheet from: {style_path}")
+            else:
+                self.logger.warning(f"Stylesheet file not found: {style_path}")
+        except Exception as e:
+            self.logger.error(f"Failed to load stylesheet: {e}")
 
     def on_settings_changed(self, key: str, old_value, new_value):
         """Called when a setting value changes."""
