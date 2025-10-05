@@ -95,6 +95,9 @@ class Settings(BaseSettings):
     window_geometry: Optional[List[int]] = Field(default=None, description="Window geometry [x, y, width, height]")
     overlay_window_geometry: Optional[List[int]] = Field(default=None, description="Overlay window geometry [x, y, width, height]")
 
+    # Translator UI Settings
+    compact_view: bool = Field(default=False, description="Compact view for translator window (hides labels and buttons)")
+
     # General Settings
     show_notifications: bool = Field(default=True, description="Show notifications")
 
