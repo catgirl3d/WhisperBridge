@@ -64,8 +64,6 @@ QPushButton#translateButton {
     background-color: #356bd0;
     color: #ffffff;
     font-weight: 600;
-    qproperty-icon: url("{assets_path}/icons/translation-icon.png");
-    qproperty-iconSize: 14px 14px;
 }
 QPushButton#translateButton:hover {
     background-color: #2f5db3;
