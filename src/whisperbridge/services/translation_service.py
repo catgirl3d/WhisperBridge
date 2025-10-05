@@ -170,26 +170,44 @@ class TranslationService:
 
         return model
 
+    async def _determine_languages(self, text: str, ui_source_lang: Optional[str], ui_target_lang: Optional[str]) -> tuple[str, str]:
+        """Determines the effective source and target languages for translation."""
+        detected_lang = await self._detect_language_async(text) or "auto"
+
+        settings = config_service.get_settings()
+        swap_enabled = getattr(settings, "ocr_auto_swap_en_ru", False)
+
+        # 1. Check for auto-swap feature
+        if swap_enabled and detected_lang in ["en", "ru"]:
+            source = detected_lang
+            target = "ru" if detected_lang == "en" else "en"
+            logger.debug(f"Applied auto-swap: {source} -> {target}")
+            return source, target
+
+        # 2. Use UI selection if auto-swap doesn't apply
+        source = ui_source_lang or "auto"
+        if source == "auto":
+            source = detected_lang
+
+        target = ui_target_lang or getattr(settings, "ui_target_language", "en")
+
+        logger.debug(f"Languages determined from UI/settings: {source} -> {target}")
+        return source, target
+
     async def translate_text_async(
         self,
         text: str,
-        source_lang: Optional[str] = None,
-        target_lang: Optional[str] = None,
+        ui_source_lang: Optional[str] = None,
+        ui_target_lang: Optional[str] = None,
         use_cache: bool = True,
     ) -> TranslationResponse:
         """Translate text asynchronously using API."""
-        # Normalize defaults once
-        source_lang = source_lang or "auto"
-        target_lang = target_lang or "en"
-        
+
         logger.info(f"Starting translation for text: '{text[:30]}...'")
-        
+
         try:
-            # Auto-detect source language if needed
-            if source_lang == "auto":
-                detected_lang = await self._detect_language_async(text)
-                source_lang = detected_lang or "en"
-                logger.debug(f"Auto-detected source language: {source_lang}")
+            # Determine languages using the new helper
+            source_lang, target_lang = await self._determine_languages(text, ui_source_lang, ui_target_lang)
 
             # Get model and cache settings once
             intended_model = self._get_active_model()
@@ -220,7 +238,7 @@ class TranslationService:
                 system_prompt=current_settings.system_prompt,
                 model=intended_model,
             )
-            
+
             response = await self._call_gpt_api_async(request)
 
             # Validate response

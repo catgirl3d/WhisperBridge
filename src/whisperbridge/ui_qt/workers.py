@@ -140,11 +140,11 @@ class TranslationWorker(QObject):
     finished = Signal(bool, str)  # success, result_or_error
     error = Signal(str)
 
-    def __init__(self, text_to_translate: str, source_lang: str, target_lang: str):
+    def __init__(self, text_to_translate: str, ui_source_lang: str, ui_target_lang: str):
         super().__init__()
         self.text = text_to_translate
-        self.source_lang = source_lang
-        self.target_lang = target_lang
+        self.ui_source_lang = ui_source_lang
+        self.ui_target_lang = ui_target_lang
 
     def run(self):
         try:
@@ -158,8 +158,8 @@ class TranslationWorker(QObject):
                 resp = loop.run_until_complete(
                     service.translate_text_async(
                         self.text,
-                        source_lang=self.source_lang,
-                        target_lang=self.target_lang,
+                        ui_source_lang=self.ui_source_lang,
+                        ui_target_lang=self.ui_target_lang,
                     )
                 )
             finally:

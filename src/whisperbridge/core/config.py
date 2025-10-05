@@ -97,6 +97,7 @@ class Settings(BaseSettings):
 
     # Translator UI Settings
     compact_view: bool = Field(default=False, description="Compact view for translator window (hides labels and buttons)")
+    overlay_side_buttons_autohide: bool = Field(default=False, description="Auto-hide right-side buttons in compact mode (show on hover)")
 
     # General Settings
     show_notifications: bool = Field(default=True, description="Show notifications")

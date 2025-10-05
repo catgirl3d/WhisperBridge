@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDialog,
+    QFrame,
     QHBoxLayout,
     QLabel,
     QLayout,
@@ -47,26 +48,26 @@ class TranslatorSettingsDialog(QDialog):
         self.setMinimumWidth(320)
 
         layout = QVBoxLayout(self)
+        settings = config_service.get_settings()
 
         # Compact view checkbox
         self.compact_view_checkbox = QCheckBox("Compact view")
         self.compact_view_checkbox.setToolTip("Hides labels and buttons for a more compact translator window")
-        self.compact_view_checkbox.setChecked(self._safe_get_setting("compact_view", False))
-
+        self.compact_view_checkbox.setChecked(getattr(settings, "compact_view", False))
         self.compact_view_checkbox.stateChanged.connect(self._on_compact_view_changed)
         layout.addWidget(self.compact_view_checkbox)
+
+        # Side buttons auto-hide checkbox
+        self.autohide_buttons_checkbox = QCheckBox("Hide right-side buttons (show on hover)")
+        self.autohide_buttons_checkbox.setToolTip("If enabled, the narrow buttons on the right appear only on hover")
+        self.autohide_buttons_checkbox.setChecked(getattr(settings, "overlay_side_buttons_autohide", False))
+        self.autohide_buttons_checkbox.stateChanged.connect(self._on_autohide_buttons_changed)
+        layout.addWidget(self.autohide_buttons_checkbox)
 
         close_button = QPushButton("Close")
         close_button.setFixedHeight(26)
         close_button.clicked.connect(self.close)
         layout.addWidget(close_button, alignment=Qt.AlignmentFlag.AlignRight)
-
-    def _safe_get_setting(self, key, default):
-        try:
-            settings = config_service.get_settings()
-            return getattr(settings, key, default)
-        except Exception:
-            return default
 
     def _on_compact_view_changed(self, state):
         """Persist compact view setting."""
@@ -74,13 +75,23 @@ class TranslatorSettingsDialog(QDialog):
             enabled = bool(state)
             config_service.set_setting("compact_view", enabled)
             logger.info(f"Compact view setting updated: {enabled}")
-            # If parent overlay is visible, apply immediately
             parent = self.parent()
-            if parent and hasattr(parent, "apply_compact_view"):
-                # Use getattr to avoid static attribute errors from type checkers
-                getattr(parent, "apply_compact_view")(enabled)
+            if parent and hasattr(parent, "_update_layout"):
+                getattr(parent, "_update_layout")()
         except Exception as e:
             logger.error(f"Failed to save compact view setting: {e}")
+
+    def _on_autohide_buttons_changed(self, state):
+        """Persist side-buttons auto-hide setting and apply policy immediately."""
+        try:
+            enabled = bool(state)
+            config_service.set_setting("overlay_side_buttons_autohide", enabled)
+            logger.info(f"Side buttons auto-hide updated: {enabled}")
+            parent = self.parent()
+            if parent and hasattr(parent, "_update_layout"):
+                getattr(parent, "_update_layout")()
+        except Exception as e:
+            logger.error(f"Failed to save side buttons auto-hide setting: {e}")
 
 
 class OverlayWindow(StyledOverlayWindow):
@@ -91,7 +102,6 @@ class OverlayWindow(StyledOverlayWindow):
         super().__init__(title="Translator")
         self._translator_settings_dialog = None
         self._programmatic_combo_change = False
-        self.active_buttons = None  # For unified compact button hiding
 
         self._init_compact_buttons()
         self._init_ui()
@@ -99,23 +109,6 @@ class OverlayWindow(StyledOverlayWindow):
         self._connect_signals()
 
         logger.debug("OverlayWindow initialized")
-
-    def _safe_get_setting(self, key, default):
-        """Safely get a setting from config_service."""
-        try:
-            settings = config_service.get_settings()
-            return getattr(settings, key, default)
-        except Exception:
-            return default
-
-    def _safe_set_setting(self, key, value):
-        """Safely set a setting in config_service."""
-        try:
-            config_service.set_setting(key, value)
-            return True
-        except Exception as e:
-            logger.error(f"Failed to set setting '{key}': {e}")
-            return False
 
     def _init_ui(self):
         """Initialize the main UI widgets."""
@@ -130,6 +123,9 @@ class OverlayWindow(StyledOverlayWindow):
         self.original_text = self._create_text_edit("Recognized text will appear here...")
         self.translated_text = self._create_text_edit("Translation will appear here...")
 
+        self.original_container = self._create_text_panel(self.original_text, self.original_compact_buttons)
+        self.translated_container = self._create_text_panel(self.translated_text, self.translated_compact_buttons)
+
         self.translated_label = QLabel("Translation:")
         self.translated_label.setFont(QFont("Arial", 10, QFont.Weight.Bold))
         self.translated_label.setStyleSheet("padding-bottom: 6px;")
@@ -143,21 +139,53 @@ class OverlayWindow(StyledOverlayWindow):
         layout = self.content_layout
         layout.addLayout(info_row)
         layout.addLayout(language_row)
-        layout.addWidget(self.original_text)
+        layout.addWidget(self.original_container)
         layout.addSpacing(6)
         layout.addLayout(self.btn_row_orig)
         layout.addWidget(self.translated_label)
-        layout.addWidget(self.translated_text)
+        layout.addWidget(self.translated_container)
         layout.addSpacing(6)
         layout.addLayout(self.btn_row_tr)
         layout.addLayout(self.footer_row)
 
         # Set stretch factors
-        layout.setStretch(layout.indexOf(self.original_text), 1)
-        layout.setStretch(layout.indexOf(self.translated_text), 1)
+        layout.setStretch(layout.indexOf(self.original_container), 1)
+        layout.setStretch(layout.indexOf(self.translated_container), 1)
 
         self.hideable_elements.extend([info_row, language_row, self.original_label, self.btn_row_orig, self.translated_label, self.btn_row_tr, self.footer_row])
         self.add_settings_button(self._open_translator_settings)
+
+    def _create_text_panel(self, text_edit: QTextEdit, buttons: list[QPushButton]) -> QFrame:
+        """Creates a container with a text edit area and a side panel of buttons."""
+        container = QFrame()
+        container.setFrameStyle(QFrame.Shape.NoFrame)
+        layout = QHBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(text_edit, 1)
+
+        buttons_widget = QFrame()
+        buttons_widget.setFrameStyle(QFrame.Shape.NoFrame)
+        buttons_widget.setFixedWidth(28)
+        buttons_layout = QVBoxLayout(buttons_widget)
+        buttons_layout.setSpacing(3)
+        buttons_layout.setContentsMargins(0, 0, 0, 0)
+        buttons_layout.addStretch()
+        for btn in buttons:
+            buttons_layout.addWidget(btn, alignment=Qt.AlignmentFlag.AlignHCenter)
+        buttons_layout.addStretch()
+        layout.addWidget(buttons_widget)
+
+        if text_edit is self.original_text:
+            self.original_buttons_widget = buttons_widget
+        else:
+            self.translated_buttons_widget = buttons_widget
+
+        container.setMouseTracking(True)
+        container.installEventFilter(self)
+        buttons_widget.setMouseTracking(True)
+        buttons_widget.installEventFilter(self)
+
+        return container
 
     def _connect_signals(self):
         """Connect all UI signals to their slots."""
@@ -172,7 +200,7 @@ class OverlayWindow(StyledOverlayWindow):
         self.copy_original_btn.clicked.connect(self._copy_original_to_clipboard)
         self.clear_translated_btn.clicked.connect(self._clear_translated_text)
         self.copy_translated_btn.clicked.connect(self._copy_translated_to_clipboard)
-        self.close_btn.clicked.connect(self.hide_overlay)
+        self.close_btn.clicked.connect(self.dismiss)
         self.close_btn.installEventFilter(self)
 
         # Connect compact buttons
@@ -181,12 +209,6 @@ class OverlayWindow(StyledOverlayWindow):
         self.compact_copy_original_btn.clicked.connect(self._copy_original_to_clipboard)
         self.compact_clear_translated_btn.clicked.connect(self._clear_translated_text)
         self.compact_copy_translated_btn.clicked.connect(self._copy_translated_to_clipboard)
-
-        # Compact button event filters are installed in their factory
-        self.original_text.viewport().setMouseTracking(True)
-        self.translated_text.viewport().setMouseTracking(True)
-        self.original_text.installEventFilter(self)
-        self.translated_text.installEventFilter(self)
 
     def _create_info_row(self):
         """Create the top info row with language detection and auto-swap checkbox."""
@@ -286,18 +308,13 @@ class OverlayWindow(StyledOverlayWindow):
             self._create_compact_button(qta.icon("fa5.copy", color="black"), "Copy original text"),
         ]
         self.original_compact_buttons[0].setStyleSheet(
-            "QPushButton { background-color: #4CAF50; color: white; border: none; border-radius: 4px; font-weight: bold; } QPushButton:hover { background-color: #45a049; }"
+            "QPushButton { background-color: #4CAF50; color: white; border: none; border-radius: 4px; font-weight: bold; padding: 0px; margin: 0px; } QPushButton:hover { background-color: #45a049; }"
         )
 
         self.translated_compact_buttons = [
             self._create_compact_button(qta.icon("fa5s.eraser", color="black"), "Clear translated text"),
             self._create_compact_button(qta.icon("fa5.copy", color="black"), "Copy translated text"),
         ]
-
-        # Single timer for all compact button groups
-        self.hide_timer = QTimer()
-        self.hide_timer.setSingleShot(True)
-        self.hide_timer.timeout.connect(self._hide_active_buttons)
 
         # Assign to instance for easy access
         self.compact_translate_btn = self.original_compact_buttons[0]
@@ -310,8 +327,7 @@ class OverlayWindow(StyledOverlayWindow):
         """Factory for creating a compact button."""
         btn = self._create_button(parent=self, text="", icon=icon, size=(24, 24), tooltip=tooltip)
         btn.setIconSize(QSize(12, 12))
-        btn.setVisible(False)
-        btn.installEventFilter(self)
+        btn.setStyleSheet("QPushButton { padding: 0px; margin: 0px; }")
         return btn
 
     def _init_language_controls(self):
@@ -336,11 +352,12 @@ class OverlayWindow(StyledOverlayWindow):
                 return True
             return False
 
-        ui_source_language = self._safe_get_setting("ui_source_language", "en")
+        settings = config_service.get_settings()
+        ui_source_language = getattr(settings, "ui_source_language", "en")
         if not _set_combo_by_data(self.source_combo, ui_source_language):
             _set_combo_by_data(self.source_combo, "en")
 
-        ui_target_language = self._safe_get_setting("ui_target_language", "en")
+        ui_target_language = getattr(settings, "ui_target_language", "en")
         if not _set_combo_by_data(self.target_combo, ui_target_language):
             _set_combo_by_data(self.target_combo, "en")
 
@@ -375,8 +392,8 @@ class OverlayWindow(StyledOverlayWindow):
     def keyPressEvent(self, event: QKeyEvent):
         """Handle key press events."""
         if event.key() == Qt.Key.Key_Escape:
-            logger.info("Escape key pressed, hiding overlay")
-            self.hide_overlay()
+            logger.info("Escape key pressed, dismissing overlay")
+            self.dismiss()
         else:
             super().keyPressEvent(event)
 
@@ -396,89 +413,67 @@ class OverlayWindow(StyledOverlayWindow):
         except Exception as e:
             logger.error(f"Failed to open translator settings dialog: {e}")
 
-    def apply_compact_view(self, enabled: bool):
-        """Apply compact view by hiding/showing elements."""
-        # Hide/show main elements
+    def _update_layout(self):
+        """Updates the entire UI layout based on current view settings."""
+        settings = config_service.get_settings()
+        compact = getattr(settings, "compact_view", False)
+        autohide = getattr(settings, "overlay_side_buttons_autohide", False)
+
         for element in self.hideable_elements:
             if isinstance(element, QLayout):
                 for i in range(element.count()):
                     item = element.itemAt(i)
                     if item and item.widget():
-                        item.widget().setVisible(not enabled)
+                        item.widget().setVisible(not compact)
             else:
-                element.setVisible(not enabled)
+                element.setVisible(not compact)
 
-        # Hide all compact buttons when toggling the view
-        for group in [self.original_compact_buttons, self.translated_compact_buttons]:
-            for btn in group:
-                if btn:
-                    btn.setVisible(False)
-
-        # Stop timer when view is disabled
-        if not enabled:
-            self.hide_timer.stop()
-
-        logger.debug(f"Compact view applied: {enabled}")
-
-    # --- Unified compact button helpers ---
-
-    def _hide_active_buttons(self):
-        """Hide the currently active compact button group."""
-        if self.active_buttons:
-            for w in self.active_buttons:
-                if w:
-                    w.setVisible(False)
-            self.active_buttons = None
-
-    def _show_compact_buttons_for_group(self, buttons, show, timer):
-        """Unified logic for showing/hiding compact buttons for a group."""
-        if show:
-            # Hide any currently active buttons from previous group
-            if self.active_buttons and self.active_buttons != buttons:
-                for btn in self.active_buttons:
+        if not compact:
+            self.original_buttons_widget.setFixedWidth(0)
+            self.translated_buttons_widget.setFixedWidth(0)
+        else:
+            if autohide:
+                self.original_buttons_widget.setFixedWidth(1)
+                self.translated_buttons_widget.setFixedWidth(1)
+                for btn in self.original_compact_buttons + self.translated_compact_buttons:
                     if btn:
                         btn.setVisible(False)
-            self.active_buttons = buttons
-            timer.stop()
-            for btn in buttons:
-                if btn:
-                    btn.setVisible(True)
-                    btn.raise_()
-        else:
-            self.active_buttons = buttons
-            timer.start(100)
-
-    def _position_compact_buttons_for_group(self, text_widget, buttons, right_margin=5, spacing=1):
-        """Unified logic for positioning compact buttons for a group."""
-        if not text_widget:
-            return
-        try:
-            geo = text_widget.geometry()
-            top_right = geo.topRight()
-
-            current_x = top_right.x() - right_margin
-
-            # Position buttons from right to left
-            for btn in reversed(buttons):
-                if btn:
-                    button_width = btn.width()
-                    current_x -= button_width
-                    btn.move(current_x, top_right.y() + 5)
-
-                    if btn.isVisible():
-                        btn.raise_()
-
-                    current_x -= spacing
-        except Exception as e:
-            logger.debug(f"_position_compact_buttons_for_group error: {e}")
+            else:
+                self.original_buttons_widget.setFixedWidth(28)
+                self.translated_buttons_widget.setFixedWidth(28)
+                for btn in self.original_compact_buttons + self.translated_compact_buttons:
+                    if btn:
+                        btn.setVisible(True)
+        logger.debug(f"Layout updated: compact={compact}, autohide={autohide}")
 
     def eventFilter(self, obj, event):
         """Handle events for child widgets, including hover for compact buttons."""
         if not hasattr(self, "original_text"):
             return super().eventFilter(obj, event)
 
-        if self.compact_view_enabled():
-            self._handle_compact_button_hover(obj, event)
+        settings = config_service.get_settings()
+        compact = getattr(settings, "compact_view", False)
+        autohide = getattr(settings, "overlay_side_buttons_autohide", False)
+
+        if compact and autohide:
+            panel, buttons, container = None, None, None
+            if obj is self.original_container or obj is self.original_buttons_widget:
+                panel, buttons, container = self.original_buttons_widget, self.original_compact_buttons, self.original_container
+            elif obj is self.translated_container or obj is self.translated_buttons_widget:
+                panel, buttons, container = self.translated_buttons_widget, self.translated_compact_buttons, self.translated_container
+
+            if panel and buttons and container:
+                if event.type() == QEvent.Type.Enter:
+                    panel.setFixedWidth(28)
+                    for btn in buttons:
+                        if btn:
+                            btn.setVisible(True)
+                elif event.type() == QEvent.Type.Leave:
+                    if not panel.underMouse() and not container.underMouse():
+                        panel.setFixedWidth(1)
+                        for btn in buttons:
+                            if btn:
+                                btn.setVisible(False)
 
         if obj == self.close_btn:
             if event.type() == QEvent.Type.Enter:
@@ -486,56 +481,21 @@ class OverlayWindow(StyledOverlayWindow):
             elif event.type() == QEvent.Type.Leave:
                 self.close_btn.setIcon(self.close_icon_normal)
 
-        if event.type() == QEvent.Type.Resize and obj in [self.original_text, self.translated_text]:
-            self._position_all_compact_buttons()
-
         return super().eventFilter(obj, event)
 
-    def _handle_compact_button_hover(self, obj, event):
-        """Handle hover events for compact button groups."""
-        if obj == self.original_text:
-            buttons = self.original_compact_buttons
-        elif obj == self.translated_text:
-            buttons = self.translated_compact_buttons
-        else:
-            return
-
-        if event.type() == QEvent.Type.Enter:
-            self._show_compact_buttons_for_group(buttons, True, self.hide_timer)
-        elif event.type() == QEvent.Type.Leave:
-            self._show_compact_buttons_for_group(buttons, False, self.hide_timer)
-
-    def compact_view_enabled(self):
-        """Check if compact view is enabled."""
-        return self._safe_get_setting("compact_view", False)
-
-    def _position_all_compact_buttons(self):
-        """Position all compact button groups."""
-        self._position_compact_buttons_for_group(self.original_text, self.original_compact_buttons, right_margin=5, spacing=3)
-        self._position_compact_buttons_for_group(self.translated_text, self.translated_compact_buttons, right_margin=5, spacing=3)
-
     def show_overlay(self, original_text: str = "", translated_text: str = "", position: tuple[int, int] | None = None):
-        """Show the overlay with specified content.
-
-        Args:
-            original_text: Original text to display
-            translated_text: Translated text to display
-            position: (x, y) position for the window (ignored for fullscreen)
-        """
+        """Show the overlay with specified content."""
         logger.info("Showing overlay window")
 
-        # Update auto-swap checkbox state from settings each time the window is shown
-        current_state = self._safe_get_setting("ocr_auto_swap_en_ru", True)
+        settings = config_service.get_settings()
+        current_state = getattr(settings, "ocr_auto_swap_en_ru", True)
         self.auto_swap_checkbox.setChecked(current_state)
 
-        # Apply compact view
-        compact_enabled = self._safe_get_setting("compact_view", False)
-        self.apply_compact_view(compact_enabled)
+        self._update_layout()
 
         self.original_text.setPlainText(original_text)
         self.translated_text.setPlainText(translated_text)
 
-        # For fullscreen overlay, position is ignored
         self.show()
         self.raise_()
         self.activateWindow()
@@ -554,8 +514,7 @@ class OverlayWindow(StyledOverlayWindow):
             try:
                 button.setIcon(qta.icon("fa5s.check", color="green"))
             except Exception:
-                pass  # Fallback to existing icon
-
+                pass
             button.setText("")
             QTimer.singleShot(
                 1200,
@@ -575,10 +534,7 @@ class OverlayWindow(StyledOverlayWindow):
         """Clear original text area and reset language label."""
         try:
             self.original_text.clear()
-            try:
-                self.detected_lang_label.setText("Language: —")
-            except Exception:
-                pass
+            self.detected_lang_label.setText("Language: —")
         except Exception as e:
             logger.error(f"Failed to clear original text: {e}")
 
@@ -601,20 +557,17 @@ class OverlayWindow(StyledOverlayWindow):
             logger.debug(f"Clear focused text failed: {e}")
 
     def _on_original_text_changed(self):
-        """Update detected language label when original text changes and auto-update Source if needed."""
+        """Update detected language label when original text changes."""
         try:
             text = self.original_text.toPlainText().strip()
             if not text:
                 self.detected_lang_label.setText("Language: —")
                 return
 
-            # Detect language (may return codes like 'en', 'ru', etc.)
             lang_code = detect_language(text)
             if lang_code:
                 lang_name = get_language_name(lang_code)
-                # Show short name in Russian UI, e.g., "Язык: English"
                 self.detected_lang_label.setText(f"Language: {lang_name}")
-
             else:
                 self.detected_lang_label.setText("Language: —")
         except Exception as e:
@@ -623,10 +576,8 @@ class OverlayWindow(StyledOverlayWindow):
     def _on_auto_swap_changed(self, state):
         """Persist OCR auto-swap checkbox state to settings when changed."""
         enabled = bool(state)
-        if self._safe_set_setting("ocr_auto_swap_en_ru", enabled):
+        if config_service.set_setting("ocr_auto_swap_en_ru", enabled):
             logger.info(f"OCR auto-swap setting updated: {enabled}")
-
-    # --- New handlers for language controls ---
 
     def _find_index_by_data(self, combo: QComboBox, data_value: str) -> int:
         for i in range(combo.count()):
@@ -639,7 +590,7 @@ class OverlayWindow(StyledOverlayWindow):
         if self._programmatic_combo_change:
             return
         code = self.source_combo.currentData()
-        if self._safe_set_setting("ui_source_language", code):
+        if config_service.set_setting("ui_source_language", code):
             logger.info(f"UI source language updated: {code}")
 
     def _on_target_changed(self, index: int):
@@ -663,29 +614,23 @@ class OverlayWindow(StyledOverlayWindow):
         tgt_data = self.target_combo.currentData()
 
         if src_data == "auto":
-            # Special case: move target to source, keep target unchanged
             new_source = tgt_data
-            new_target = tgt_data  # Keep as is
+            new_target = tgt_data
             self._set_combo_data(self.source_combo, new_source)
-            updates = {
-                "ui_source_language": new_source,
-                "ui_target_mode": "explicit",
-                "ui_target_language": new_target,
-            }
             logger.info(f"Swap with 'auto' source: source set to '{new_source}'")
         else:
-            # Standard swap
             new_source = tgt_data
             new_target = src_data
             self._set_combo_data(self.source_combo, new_source)
             self._set_combo_data(self.target_combo, new_target)
-            updates = {
-                "ui_source_language": new_source,
-                "ui_target_mode": "explicit",
-                "ui_target_language": new_target,
-            }
             logger.info(f"Swapped languages: source='{new_source}', target='{new_target}'")
 
+        # Common settings update logic
+        updates = {
+            "ui_source_language": new_source,
+            "ui_target_mode": "explicit",
+            "ui_target_language": new_target,
+        }
         try:
             config_service.update_settings(updates)
         except Exception as e:
@@ -707,32 +652,30 @@ class OverlayWindow(StyledOverlayWindow):
         """Swap button behavior"""
         self._perform_language_swap()
 
-    def _setup_translation_worker(self, text, source_lang, target_lang, prev_text):
+    def _setup_translation_worker(self, text, ui_source_lang, ui_target_lang, prev_text):
         """Set up and start the translation worker in a background thread."""
-        self._translation_worker = TranslationWorker(text, source_lang, target_lang)
+        self._translation_worker = TranslationWorker(text, ui_source_lang, ui_target_lang)
         self._translation_thread = QThread()
         self._translation_worker.moveToThread(self._translation_thread)
 
-        # Connect signals
         self._translation_prev_text = prev_text
         self._translation_worker.finished.connect(self._on_translation_finished)
         self._translation_thread.started.connect(self._translation_worker.run)
 
-        # Cleanup
         self._translation_worker.finished.connect(self._translation_thread.quit)
         self._translation_worker.finished.connect(self._translation_worker.deleteLater)
         self._translation_thread.finished.connect(self._translation_thread.deleteLater)
 
         self._translation_thread.start()
 
+
     def _on_translate_clicked(self):
-        """Translate the text from the original_text field and put result into translated_text using a background thread."""
+        """Translate the text from the original_text field."""
         text = self.original_text.toPlainText().strip()
         if not text:
             logger.info("Translate button clicked with empty original_text")
             return
 
-        # Disable button and provide feedback
         if self.translate_btn:
             self.translate_btn.setEnabled(False)
             prev_text = self.translate_btn.text()
@@ -741,55 +684,29 @@ class OverlayWindow(StyledOverlayWindow):
         else:
             prev_text = "Translate"
 
-        # Determine detected language from input
-        detected = detect_language(text) or "auto"
+        # Collect UI language preferences
+        ui_source_lang = self.source_combo.currentData()
+        ui_target_lang = self.target_combo.currentData()
 
-        # Read all relevant settings
-        swap_enabled = self._safe_get_setting("ocr_auto_swap_en_ru", False)
+        logger.debug(f"Translate clicked with UI languages: source='{ui_source_lang}', target='{ui_target_lang}'")
 
-        # Determine effective source language from Source combo
-        source_lang = self.source_combo.currentData() or detected
-        if source_lang == "auto":
-            source_lang = detected
-
-        # Determine effective target language with checkbox priority
-        ui_target_language = self.target_combo.currentData()
-        if ui_target_language is None:
-            ui_target_language = self._safe_get_setting("ui_target_language", "en")
-
-        if swap_enabled:
-            if detected == "en":
-                target_lang = "ru"
-            elif detected == "ru":
-                target_lang = "en"
-            else:
-                target_lang = ui_target_language
-        else:
-            target_lang = ui_target_language
-
-        logger.debug(f"Translate clicked with detected='{detected}', source='{source_lang}', target='{target_lang}'")
-
-        self._setup_translation_worker(text, source_lang, target_lang, prev_text)
+        self._setup_translation_worker(text, ui_source_lang, ui_target_lang, prev_text)
 
     def _on_translation_finished(self, success: bool, result: str):
         """Handle completion of background translation."""
         try:
             if success:
-                # This slot runs in the main (GUI) thread — safe to update widgets
                 self.translated_text.setPlainText(result)
                 logger.info("Translation completed and inserted into translated_text")
             else:
                 from PySide6.QtWidgets import QMessageBox
-
                 QMessageBox.warning(self, "Translation failed", f"Translation error: {result}")
                 logger.error(f"Translation failed: {result}")
         finally:
-            # Use stored prev_text (set when translation started)
             prev_text = getattr(self, "_translation_prev_text", "Translate")
             if self.translate_btn:
                 self.translate_btn.setEnabled(True)
                 self.translate_btn.setText(prev_text)
-            # Clean up stored value
             if hasattr(self, "_translation_prev_text"):
                 delattr(self, "_translation_prev_text")
 
@@ -798,37 +715,21 @@ class OverlayWindow(StyledOverlayWindow):
         self._copy_text_to_clipboard(self.translated_text, self.copy_translated_btn, "Translated")
 
     def show_result(self, original_text: str, translated_text: str | None = None):
-        """Show the overlay with OCR result.
-
-        Args:
-            original_text: OCR text to display
-            translated_text: Translated text to display (optional)
-        """
+        """Show the overlay with OCR result."""
         self.show_overlay(original_text, translated_text or "")
 
-    def hide_overlay(self):
-        """Hide the overlay window."""
-        logger.info("Hiding overlay window")
-        # Close settings dialog if open
-        try:
-            if self._translator_settings_dialog:
+    def dismiss(self) -> None:
+        """Dismiss the overlay window, ensuring child dialogs are closed first."""
+        logger.info("Dismissing overlay window")
+        if self._translator_settings_dialog:
+            try:
                 self._translator_settings_dialog.close()
-        except Exception:
-            pass
-        # Delegate hiding/minibar handling to base dismiss
+            except Exception as e:
+                logger.warning(f"Could not close translator settings dialog: {e}")
+        
         super().dismiss()
-        logger.debug("Overlay window hidden")
-
-    # Using BaseWindow closeEvent from StyledOverlayWindow
-
-    def dismiss(self):
-        """Dismiss the overlay window."""
-        self.hide_overlay()
+        logger.debug("Overlay window dismissed")
 
     def is_overlay_visible(self) -> bool:
-        """Check if overlay is currently visible.
-
-        Returns:
-            bool: True if overlay is visible
-        """
+        """Check if overlay is currently visible."""
         return self.isVisible()
