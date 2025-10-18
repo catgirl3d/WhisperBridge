@@ -5,13 +5,21 @@ Enhanced language detection with homoglyph handling and confidence scoring.
 
 import re
 from dataclasses import dataclass
-from typing import Optional, Dict, Tuple
+from typing import Optional, Dict, Tuple, List
+
+
+@dataclass
+class Language:
+    """Represents a supported language with its metadata."""
+    code: str
+    name: str
+    icon_name: str
 
 
 @dataclass
 class LanguageDetectionResult:
     """Result of language detection with confidence score.
-    
+
     Attributes:
         language: Detected language code (e.g., 'en', 'ru', 'ua') or None if detection failed
         confidence: Confidence score from 0.0 to 1.0
@@ -20,6 +28,20 @@ class LanguageDetectionResult:
     language: Optional[str]
     confidence: float
     mixed_scripts: bool = False
+
+
+# Supported languages with their metadata
+SUPPORTED_LANGUAGES: List[Language] = [
+    Language(code="en", name="English", icon_name="en.png"),
+    Language(code="ru", name="Russian", icon_name="ru.png"),
+    Language(code="ua", name="Ukrainian", icon_name="ua.png"),
+    Language(code="de", name="German", icon_name="de.png"),
+]
+
+
+def get_supported_languages() -> List[Language]:
+    """Returns a list of supported languages with their metadata."""
+    return SUPPORTED_LANGUAGES
 
 
 # Homoglyph mapping: Cyrillic -> Latin

@@ -13,7 +13,7 @@ from PySide6.QtCore import (
     QThread,
     QTimer,
 )
-from PySide6.QtGui import QFont, QIcon, QKeyEvent, QPixmap
+from PySide6.QtGui import QFont, QIcon, QKeyEvent, QPixmap, QPainter, QPen, QColor
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -31,7 +31,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..services.config_service import config_service
-from ..utils.language_utils import detect_language, get_language_name
+from ..utils.language_utils import detect_language, get_language_name, get_supported_languages
 from .styled_overlay_base import StyledOverlayWindow
 from .workers import TranslationWorker
 
@@ -174,7 +174,7 @@ class OverlayWindow(StyledOverlayWindow):
         layout.setStretch(layout.indexOf(self.original_container), 1)
         layout.setStretch(layout.indexOf(self.translated_container), 1)
 
-        self.hideable_elements.extend([info_row, language_row, self.original_label, self.translated_label, self.footer_row])
+        self.hideable_elements.extend([info_row, self.original_label, self.translated_label, self.footer_row])
         self.add_settings_button(self._open_translator_settings)
 
     def _create_text_panel(self, text_edit: QTextEdit) -> QFrame:
@@ -229,8 +229,10 @@ class OverlayWindow(StyledOverlayWindow):
         self.source_combo = QComboBox()
         self.target_combo = QComboBox()
         for combo in [self.source_combo, self.target_combo]:
-            combo.setFixedSize(120, 28)
+            combo.setFixedSize(125, 28)
+            combo.setIconSize(QSize(25, 25))
             combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
+            combo.setStyleSheet("QComboBox { background-color: #fff; color: #111111; padding: 0px; padding-left: 8px; }")
 
         self.swap_btn = QPushButton()
         self.swap_btn.setFixedSize(35, 28)
@@ -241,6 +243,11 @@ class OverlayWindow(StyledOverlayWindow):
         language_row.addWidget(self.source_combo)
         language_row.addWidget(self.swap_btn)
         language_row.addWidget(self.target_combo)
+
+        # Spacer for compact mode button panel
+        self.language_spacer = QSpacerItem(0, 0, QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Minimum)
+        language_row.addItem(self.language_spacer)
+
         return language_row
 
     def _create_text_edit(self, placeholder):
@@ -332,16 +339,54 @@ class OverlayWindow(StyledOverlayWindow):
         return widget
 
 
+    def _create_bordered_icon(self, icon_path: Path) -> QIcon:
+        """Creates an icon with a 1px border drawn around it."""
+        if not icon_path.exists():
+            return QIcon()
+
+        original_pixmap = QPixmap(str(icon_path))
+        if original_pixmap.isNull():
+            return QIcon()
+
+        border_width = 1
+
+        # New pixmap size is original + border on all 4 sides
+        new_size = original_pixmap.size() + QSize(border_width * 2, border_width * 2)
+        bordered_pixmap = QPixmap(new_size)
+        bordered_pixmap.fill(Qt.GlobalColor.transparent)
+
+        painter = QPainter(bordered_pixmap)
+
+        # Draw the original pixmap, offset by the border width
+        painter.drawPixmap(border_width, border_width, original_pixmap)
+
+        # Draw the border rectangle around the original pixmap's area
+        pen = QPen(QColor("#cccccc"))  # Light gray border
+        pen.setWidth(border_width)
+        painter.setPen(pen)
+
+        rect = bordered_pixmap.rect()
+        # Adjust to be inside the pixmap. The pen is centered on the line.
+        rect.adjust(0, 0, -border_width, -border_width)
+        painter.drawRect(rect)
+
+        painter.end()
+
+        return QIcon(bordered_pixmap)
+
     def _init_language_controls(self):
         """Populate and configure language selection combos."""
-        codes_set = ["en", "ru", "ua", "de"]
-        display_overrides = {}
+        supported_languages = get_supported_languages()
+        flags_path = Path(__file__).parent.parent / "assets" / "icons" / "flags"
 
         self.source_combo.insertItem(0, "Auto", userData="auto")
-        for code in codes_set:
-            display = display_overrides.get(code, get_language_name(code))
-            self.source_combo.addItem(display, userData=code)
-            self.target_combo.addItem(display, userData=code)
+
+        for lang in supported_languages:
+            icon_path = flags_path / lang.icon_name
+            icon = self._create_bordered_icon(icon_path)
+
+            self.source_combo.addItem(icon, lang.name, userData=lang.code)
+            self.target_combo.addItem(icon, lang.name, userData=lang.code)
 
         settings = config_service.get_settings()
         ui_source_language = getattr(settings, "ui_source_language", "en")
@@ -418,6 +463,13 @@ class OverlayWindow(StyledOverlayWindow):
             else:
                 element.setVisible(not compact)
 
+        # Adjust language row spacer for compact mode
+        if hasattr(self, 'language_spacer'):
+            if compact:
+                self.language_spacer.changeSize(34, 10, QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Minimum)
+            else:
+                self.language_spacer.changeSize(0, 10, QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Minimum)
+
         # Handle buttons
         if compact:
             # Remove horizontal rows if exist and move buttons to side
@@ -440,17 +492,21 @@ class OverlayWindow(StyledOverlayWindow):
             if not self.original_side_buttons:
                 self.original_side_buttons = self._create_side_buttons_widget()
                 orig_layout = self.original_container.layout()
-                orig_layout.addWidget(self.original_side_buttons)
+                if orig_layout:
+                    orig_layout.addWidget(self.original_side_buttons)
                 side_layout = self.original_side_buttons.layout()
-                for btn in self.original_buttons:
-                    side_layout.insertWidget(side_layout.count() - 1, btn, alignment=Qt.AlignmentFlag.AlignHCenter)
+                if isinstance(side_layout, QVBoxLayout):
+                    for btn in self.original_buttons:
+                        side_layout.insertWidget(side_layout.count() - 1, btn, alignment=Qt.AlignmentFlag.AlignHCenter)
             if not self.translated_side_buttons:
                 self.translated_side_buttons = self._create_side_buttons_widget()
                 trans_layout = self.translated_container.layout()
-                trans_layout.addWidget(self.translated_side_buttons)
+                if trans_layout:
+                    trans_layout.addWidget(self.translated_side_buttons)
                 side_layout = self.translated_side_buttons.layout()
-                for btn in self.translated_buttons:
-                    side_layout.insertWidget(side_layout.count() - 1, btn, alignment=Qt.AlignmentFlag.AlignHCenter)
+                if isinstance(side_layout, QVBoxLayout):
+                    for btn in self.translated_buttons:
+                        side_layout.insertWidget(side_layout.count() - 1, btn, alignment=Qt.AlignmentFlag.AlignHCenter)
 
             # Set widths and visibility
             self.original_side_buttons.setFixedWidth(28 if not autohide else 1)
@@ -463,23 +519,23 @@ class OverlayWindow(StyledOverlayWindow):
             # Remove side buttons if exist and move buttons to rows
             if self.original_side_buttons:
                 side_layout = self.original_side_buttons.layout()
-                for btn in self.original_buttons:
-                    side_layout.removeWidget(btn)
+                if side_layout:
+                    for btn in self.original_buttons:
+                        side_layout.removeWidget(btn)
                 orig_layout = self.original_container.layout()
-                idx = orig_layout.indexOf(self.original_side_buttons)
-                if idx != -1:
-                    orig_layout.takeAt(idx)
+                if orig_layout:
+                    orig_layout.removeWidget(self.original_side_buttons)
                 # delete panel safely; buttons have parent=self so they won't be deleted
                 self.original_side_buttons.deleteLater()
                 self.original_side_buttons = None
             if self.translated_side_buttons:
                 side_layout = self.translated_side_buttons.layout()
-                for btn in self.translated_buttons:
-                    side_layout.removeWidget(btn)
+                if side_layout:
+                    for btn in self.translated_buttons:
+                        side_layout.removeWidget(btn)
                 trans_layout = self.translated_container.layout()
-                idx = trans_layout.indexOf(self.translated_side_buttons)
-                if idx != -1:
-                    trans_layout.takeAt(idx)
+                if trans_layout:
+                    trans_layout.removeWidget(self.translated_side_buttons)
                 # delete panel safely; buttons have parent=self so they won't be deleted
                 self.translated_side_buttons.deleteLater()
                 self.translated_side_buttons = None
