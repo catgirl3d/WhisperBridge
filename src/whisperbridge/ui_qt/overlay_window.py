@@ -139,13 +139,22 @@ class OverlayWindow(StyledOverlayWindow):
         self.translate_btn.setIconSize(QSize(14, 14))
         # preserve original display text for restore
         self._translate_original_text = self.translate_btn.text()
+        self.reader_mode_btn = self._create_button(text="", tooltip="Open text in reader mode for comfortable reading")
+        # Set icon for reader mode button
+        img_path = Path(__file__).parent.parent / "assets" / "icons" / "book_black.png"
+        self.reader_mode_btn.setIcon(QIcon(QPixmap(str(img_path))))
+        self.reader_mode_btn.setIconSize(QSize(14, 14))
+        # preserve original display text for restore
+        self._reader_original_text = self.reader_mode_btn.text()
+        self.reader_mode_btn.setEnabled(False)  # Disable by default if no translated text
+        self.reader_mode_btn.clicked.connect(self._on_reader_mode_clicked)
         self.clear_original_btn = self._create_button(text="", icon=qta.icon("fa5s.eraser", color="black"), size=(40, 28), tooltip="Clear text")
         self.copy_original_btn = self._create_button(text="", icon=qta.icon("fa5.copy", color="black"), size=(40, 28), tooltip="Copy text")
         self.clear_translated_btn = self._create_button(text="", icon=qta.icon("fa5s.eraser", color="black"), size=(40, 28), tooltip="Clear text")
         self.copy_translated_btn = self._create_button(text="", icon=qta.icon("fa5.copy", color="black"), size=(40, 28), tooltip="Copy text")
 
         self.original_buttons = [self.translate_btn, self.clear_original_btn, self.copy_original_btn]
-        self.translated_buttons = [self.clear_translated_btn, self.copy_translated_btn]
+        self.translated_buttons = [self.reader_mode_btn, self.clear_translated_btn, self.copy_translated_btn]
 
         self.original_container = self._create_text_panel(self.original_text)
         self.translated_container = self._create_text_panel(self.translated_text)
@@ -188,6 +197,7 @@ class OverlayWindow(StyledOverlayWindow):
         self.target_combo.currentIndexChanged.connect(self._on_target_changed)
         self.swap_btn.clicked.connect(self._on_swap_clicked)
         self.original_text.textChanged.connect(self._on_original_text_changed)
+        self.translated_text.textChanged.connect(self._update_reader_button_state)
         if self.translate_btn:
             self.translate_btn.clicked.connect(self._on_translate_clicked)
         self.clear_original_btn.clicked.connect(self._clear_original_text)
@@ -267,6 +277,11 @@ class OverlayWindow(StyledOverlayWindow):
             if button == self.translate_btn:
                 button.setIconSize(QSize(12, 12))
                 button.setStyleSheet("QPushButton { background-color: #4CAF50; color: white; border: none; border-radius: 4px; font-weight: bold; padding: 0px; margin: 0px; } QPushButton:hover { background-color: #45a049; }")
+            elif button == self.reader_mode_btn:
+                button.setFixedSize(24, 24)
+                button.setIconSize(QSize(17, 17))
+                button.setStyleSheet("QPushButton { background-color: #2196F3; color: white; border: none; border-radius: 4px; font-weight: bold; padding: 0px; margin: 0px; } QPushButton:hover { background-color: #1976D2; }")
+                button.setIcon(QIcon(QPixmap(str(Path(__file__).parent.parent / "assets" / "icons" / "book_white.png"))))
             else:
                 button.setStyleSheet("QPushButton { padding: 0px; margin: 0px; }")
         else:
@@ -274,6 +289,12 @@ class OverlayWindow(StyledOverlayWindow):
                 button.setText(self._translate_original_text if hasattr(self, "_translate_original_text") else "  Translate")
                 button.setFixedSize(120, 28)
                 button.setIconSize(QSize(14, 14))
+                button.setStyleSheet("")
+            elif button == self.reader_mode_btn:
+                button.setText(self._reader_original_text if hasattr(self, "_reader_original_text") else "Reader")
+                button.setFixedSize(40, 28)
+                button.setIconSize(QSize(19, 19))
+                button.setIcon(QIcon(QPixmap(str(Path(__file__).parent.parent / "assets" / "icons" / "book_black.png"))))
                 button.setStyleSheet("")
             else:
                 button.setFixedSize(40, 28)
@@ -284,6 +305,8 @@ class OverlayWindow(StyledOverlayWindow):
         """Create the footer row with the close button."""
         footer_row = QHBoxLayout()
         footer_row.setContentsMargins(0, 0, 0, 0)
+        footer_row.addStretch()
+
         close_btn = QPushButton("Close")
         close_btn.setFixedSize(86, 28)
         close_btn.setObjectName("closeButton")
@@ -474,6 +497,7 @@ class OverlayWindow(StyledOverlayWindow):
             if not self.btn_row_tr:
                 self.btn_row_tr = QHBoxLayout()
                 self.btn_row_tr.addStretch(1)
+                self.btn_row_tr.addWidget(self.reader_mode_btn)
                 self.btn_row_tr.addWidget(self.clear_translated_btn)
                 self.btn_row_tr.addWidget(self.copy_translated_btn)
                 # Insert after translated_container
@@ -534,6 +558,9 @@ class OverlayWindow(StyledOverlayWindow):
 
         self.original_text.setPlainText(original_text)
         self.translated_text.setPlainText(translated_text)
+
+        # Update reader button state after setting text
+        self._update_reader_button_state()
 
         self.show()
         self.raise_()
@@ -611,6 +638,14 @@ class OverlayWindow(StyledOverlayWindow):
                 self.detected_lang_label.setText("Language: —")
         except Exception as e:
             logger.debug(f"Failed to update detected language label: {e}")
+
+    def _update_reader_button_state(self):
+        """Update the reader mode button state based on translated text presence."""
+        try:
+            translated_text = self.translated_text.toPlainText().strip()
+            self.reader_mode_btn.setEnabled(bool(translated_text))
+        except Exception as e:
+            logger.debug(f"Failed to update reader button state: {e}")
 
     def _on_auto_swap_changed(self, state):
         """Persist OCR auto-swap checkbox state to settings when changed."""
@@ -756,6 +791,24 @@ class OverlayWindow(StyledOverlayWindow):
     def _copy_translated_to_clipboard(self):
         """Copy translated text to clipboard."""
         self._copy_text_to_clipboard(self.translated_text, self.copy_translated_btn, "Translated")
+
+    def _on_reader_mode_clicked(self):
+        """Handle reader mode button click."""
+        try:
+            translated_text = self.translated_text.toPlainText().strip()
+            if not translated_text:
+                logger.info("Reader mode clicked with empty translated text")
+                return
+
+            from ..services.ui_service import get_ui_service
+            ui_service = get_ui_service()
+            if ui_service:
+                ui_service.show_reader_window(translated_text)
+                logger.info("Reader mode activated with translated text")
+            else:
+                logger.error("UI service not available")
+        except Exception as e:
+            logger.error(f"Failed to open reader mode: {e}")
 
     def show_result(self, original_text: str, translated_text: str | None = None):
         """Show the overlay with OCR result."""

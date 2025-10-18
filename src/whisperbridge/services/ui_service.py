@@ -15,6 +15,7 @@ from PySide6.QtWidgets import QApplication
 # UI widgets (import from ui_qt package)
 from ..ui_qt.main_window import MainWindow
 from ..ui_qt.overlay_window import OverlayWindow
+from ..ui_qt.reader_window import ReaderWindow
 from ..ui_qt.selection_overlay import SelectionOverlayQt
 from ..ui_qt.settings_dialog import SettingsDialog
 from ..ui_qt.tray import TrayManager
@@ -77,6 +78,7 @@ class UIService:
         self.settings_dialog = None
         # Use provided dict or initialize empty dict
         self.overlay_windows: Dict[str, OverlayWindow] = overlay_windows if overlay_windows is not None else {}
+        self.reader_window = None
         # Clipboard service may be None; fallback to get_clipboard_service() inside methods
         self._clipboard_service = clipboard_service
         # Logger fallback
@@ -371,6 +373,34 @@ class UIService:
             )
 
     @main_thread_only
+    def show_reader_window(self, text: str):
+        """Show the reader window with the provided text."""
+        self.logger.info("UIService: show_reader_window() called")
+        try:
+            # Create reader window if it doesn't exist
+            if self.reader_window is None:
+                try:
+                    self.reader_window = ReaderWindow()
+                    self.logger.debug("UIService: ReaderWindow created")
+                except Exception as e:
+                    self.logger.error(f"UIService: Failed to create ReaderWindow: {e}", exc_info=True)
+                    notification_service = get_notification_service()
+                    notification_service.error(f"Reader window creation failed: {e}", "WhisperBridge")
+                    return
+
+            # Show text in reader window
+            try:
+                self.reader_window.show_text(text)
+                self.logger.info("Reader window displayed successfully by UIService")
+            except Exception as e:
+                self.logger.error(f"UIService: Failed to show reader window: {e}", exc_info=True)
+                notification_service = get_notification_service()
+                notification_service.error(f"Reader window display error: {e}", "WhisperBridge")
+
+        except Exception as e:
+            self.logger.error(f"Unexpected error in UIService.show_reader_window: {e}", exc_info=True)
+
+    @main_thread_only
     def activate_ocr(self):
         """Activate OCR selection overlay in the main Qt thread."""
         try:
@@ -637,3 +667,18 @@ class UIService:
         self.logger.error(f"Worker error: {error_message}")
         notification_service = get_notification_service()
         notification_service.error(f"Processing error: {error_message}", "WhisperBridge")
+
+
+# Global UI service instance (set by AppServices)
+_ui_service_instance: Optional[UIService] = None
+
+
+def get_ui_service() -> Optional[UIService]:
+    """Get the global UI service instance."""
+    return _ui_service_instance
+
+
+def set_ui_service(ui_service: UIService) -> None:
+    """Set the global UI service instance."""
+    global _ui_service_instance
+    _ui_service_instance = ui_service

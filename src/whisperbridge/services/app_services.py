@@ -64,6 +64,9 @@ class AppServices(QObject):
         # UI service
         try:
             self.ui_service = UIService(app=self.app, clipboard_service=self.clipboard_service)
+            # Set global UI service instance for access from UI components
+            from .ui_service import set_ui_service
+            set_ui_service(self.ui_service)
         except Exception as e:
             logger.error(f"AppServices: Failed to instantiate UIService: {e}", exc_info=True)
             raise
