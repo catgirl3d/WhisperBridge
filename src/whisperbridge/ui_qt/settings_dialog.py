@@ -21,6 +21,9 @@ from PySide6.QtWidgets import (
     QGroupBox,
     QMessageBox,
     QTextEdit,
+    QTableWidget,
+    QTableWidgetItem,
+    QHeaderView,
 )
 from PySide6.QtCore import QThread, Signal, QObject
 
@@ -70,6 +73,7 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
         self._create_ocr_tab()
         self._create_hotkeys_tab()
         self._create_general_tab()
+        self._create_stylist_tab()
 
         # Create buttons
         self._create_buttons(layout)
@@ -111,6 +115,8 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
             "theme": (self.theme_combo, "currentText", "setCurrentText"),
             "log_level": (self.log_level_combo, "currentText", "setCurrentText"),
             "show_notifications": (self.show_notifications_check, "isChecked", "setChecked"),
+            "stylist_cache_enabled": (self.stylist_cache_checkbox, "isChecked", "setChecked"),
+            "translation_cache_enabled": (self.translation_cache_checkbox, "isChecked", "setChecked"),
         }
 
     def _apply_stylesheet(self):
@@ -319,10 +325,150 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
         self.show_notifications_check = QCheckBox("Show notifications")
         ui_layout.addRow(self.show_notifications_check)
 
+        # Text Stylist caching
+        self.stylist_cache_checkbox = QCheckBox("Enable caching for Text Stylist mode")
+        self.stylist_cache_checkbox.setToolTip("If enabled, Text Stylist results will be cached to avoid repeated API calls for the same text and style.")
+        ui_layout.addRow(self.stylist_cache_checkbox)
+
+        # Translation caching
+        self.translation_cache_checkbox = QCheckBox("Enable caching for translations")
+        self.translation_cache_checkbox.setToolTip("If enabled, translation results will be cached to avoid repeated API calls for the same text and language pair.")
+        ui_layout.addRow(self.translation_cache_checkbox)
+
         layout.addWidget(ui_group)
         layout.addStretch()
 
         self.tab_widget.addTab(tab, "General")
+
+    def _create_stylist_tab(self):
+        """Create Text Stylist presets management tab."""
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+
+        group = QGroupBox("Text Stylist Presets")
+        gl = QVBoxLayout(group)
+
+        # Table with two columns: Name, Prompt
+        self.styles_table = QTableWidget()
+        self.styles_table.setColumnCount(2)
+        self.styles_table.setHorizontalHeaderLabels(["Name", "Prompt"])
+        header = self.styles_table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        self.styles_table.setWordWrap(True)
+        self.styles_table.setSelectionBehavior(self.styles_table.SelectionBehavior.SelectRows)
+        self.styles_table.setSelectionMode(self.styles_table.SelectionMode.ExtendedSelection)
+        self.styles_table.setEditTriggers(self.styles_table.EditTrigger.AllEditTriggers)
+
+        gl.addWidget(self.styles_table)
+
+        # Buttons row
+        btn_row = QHBoxLayout()
+        self.add_style_btn = QPushButton("Add")
+        self.del_style_btn = QPushButton("Delete Selected")
+        self.reset_style_btn = QPushButton("Reset to Defaults")
+
+        self.add_style_btn.clicked.connect(self._on_add_style)
+        self.del_style_btn.clicked.connect(self._on_delete_selected_styles)
+        self.reset_style_btn.clicked.connect(self._on_reset_styles_defaults)
+
+        btn_row.addWidget(self.add_style_btn)
+        btn_row.addWidget(self.del_style_btn)
+        btn_row.addStretch()
+        btn_row.addWidget(self.reset_style_btn)
+
+        gl.addLayout(btn_row)
+        layout.addWidget(group)
+        layout.addStretch()
+
+        self.tab_widget.addTab(tab, "Stylist")
+
+    def _load_text_styles(self, settings):
+        """Populate styles_table from settings.text_styles."""
+        if not hasattr(self, "styles_table"):
+            return
+        try:
+            self.styles_table.setRowCount(0)
+            styles = getattr(settings, "text_styles", []) or []
+            if not isinstance(styles, list):
+                styles = []
+            for s in styles:
+                name = ""
+                prompt = ""
+                if isinstance(s, dict):
+                    name = (s.get("name") or "").strip()
+                    prompt = (s.get("prompt") or "").strip()
+                else:
+                    # Fallback if stored differently
+                    name = str(s).strip()
+                    prompt = ""
+                row = self.styles_table.rowCount()
+                self.styles_table.insertRow(row)
+                self.styles_table.setItem(row, 0, QTableWidgetItem(name))
+                self.styles_table.setItem(row, 1, QTableWidgetItem(prompt))
+        except Exception as e:
+            logger.error(f"Failed to load styles into table: {e}")
+
+    def _collect_text_styles_from_ui(self) -> list:
+        """Collect styles from the table as a list of dicts."""
+        styles = []
+        try:
+            rows = self.styles_table.rowCount() if hasattr(self, "styles_table") else 0
+            for r in range(rows):
+                name_item = self.styles_table.item(r, 0)
+                prompt_item = self.styles_table.item(r, 1)
+                name = (name_item.text() if name_item else "").strip()
+                prompt = (prompt_item.text() if prompt_item else "").strip()
+                if name and prompt:
+                    styles.append({"name": name, "prompt": prompt})
+        except Exception as e:
+            logger.error(f"Failed to collect styles from UI: {e}")
+        return styles
+
+    def _on_add_style(self):
+        """Add an empty style row for inline editing."""
+        try:
+            row = self.styles_table.rowCount()
+            self.styles_table.insertRow(row)
+            self.styles_table.setItem(row, 0, QTableWidgetItem("New Style"))
+            self.styles_table.setItem(row, 1, QTableWidgetItem("Describe how to rewrite the text. Only return the rewritten text."))
+            # Focus first cell for convenience
+            self.styles_table.setCurrentCell(row, 0)
+            self.styles_table.editItem(self.styles_table.item(row, 0))
+        except Exception as e:
+            logger.error(f"Failed to add style row: {e}")
+
+    def _on_delete_selected_styles(self):
+        """Delete selected style rows."""
+        try:
+            selected = sorted({idx.row() for idx in self.styles_table.selectedIndexes()}, reverse=True)
+            if not selected:
+                return
+            for r in selected:
+                self.styles_table.removeRow(r)
+        except Exception as e:
+            logger.error(f"Failed to delete selected styles: {e}")
+
+    def _on_reset_styles_defaults(self):
+        """Reset styles to application defaults."""
+        try:
+            default_styles = []
+            try:
+                default_styles = type(config_service.get_settings())().text_styles
+            except Exception:
+                from ..core.config import Settings as _S
+                default_styles = _S().text_styles
+
+            self.styles_table.setRowCount(0)
+            for s in default_styles or []:
+                name = (s.get("name") or "").strip()
+                prompt = (s.get("prompt") or "").strip()
+                row = self.styles_table.rowCount()
+                self.styles_table.insertRow(row)
+                self.styles_table.setItem(row, 0, QTableWidgetItem(name))
+                self.styles_table.setItem(row, 1, QTableWidgetItem(prompt))
+        except Exception as e:
+            logger.error(f"Failed to reset styles to defaults: {e}")
 
     def _create_buttons(self, layout):
         """Create dialog buttons."""
@@ -365,6 +511,12 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
         model_to_select = getattr(settings, f"{provider_name.lower()}_model", None)
         self._load_models(provider_name=provider_name, model_to_select=model_to_select)
 
+        # Load Text Stylist presets
+        try:
+            self._load_text_styles(settings)
+        except Exception as e:
+            logger.warning(f"Failed to load text styles into UI: {e}")
+
     def _on_save(self):
         """Handle save button click."""
         try:
@@ -387,6 +539,13 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
 
             setattr(settings_to_save, f"{provider}_api_key", api_key_text)
             setattr(settings_to_save, f"{provider}_model", model_text)
+
+            # Collect Text Stylist presets from UI
+            try:
+                styles = self._collect_text_styles_from_ui()
+                setattr(settings_to_save, "text_styles", styles)
+            except Exception as e:
+                logger.warning(f"Failed to collect text styles from UI: {e}")
 
             logger.debug(f"Saving settings with theme: '{settings_to_save.theme}'")
 

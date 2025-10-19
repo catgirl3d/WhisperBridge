@@ -13,7 +13,7 @@ from PySide6.QtCore import (
     QThread,
     QTimer,
 )
-from PySide6.QtGui import QFont, QIcon, QKeyEvent, QPixmap, QPainter, QPen, QColor
+from PySide6.QtGui import QFont, QIcon, QKeyEvent, QPixmap, QPainter, QColor, QPainterPath
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -22,7 +22,6 @@ from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
-    QLayout,
     QPushButton,
     QSizePolicy,
     QSpacerItem,
@@ -32,8 +31,12 @@ from PySide6.QtWidgets import (
 
 from ..services.config_service import config_service
 from ..utils.language_utils import detect_language, get_language_name, get_supported_languages
+from typing import List, Optional
 from .styled_overlay_base import StyledOverlayWindow
-from .workers import TranslationWorker
+from .workers import TranslationWorker, StyleWorker
+
+# Base path for assets
+_ASSETS_BASE = Path(__file__).parent.parent / "assets"
 
 
 class TranslatorSettingsDialog(QDialog):
@@ -94,6 +97,109 @@ class TranslatorSettingsDialog(QDialog):
             logger.error(f"Failed to save side buttons auto-hide setting: {e}")
 
 
+class PanelWidget(QFrame):
+    """Reusable panel with a text area and an optional side or bottom button area."""
+
+    def __init__(self, text_edit: QTextEdit, buttons: List[QPushButton], apply_button_style_cb, parent=None):
+        super().__init__(parent)
+        self.text_edit = text_edit
+        self.buttons = buttons
+        self._apply_btn_style = apply_button_style_cb
+        self.side_panel: Optional[QFrame] = None
+        self.btn_row: Optional[QHBoxLayout] = None
+        self._autohide = False
+
+        self.setFrameStyle(QFrame.Shape.NoFrame)
+        self.setMouseTracking(True)
+        self.installEventFilter(self)
+
+        # Main structure: top (text + optional side panel), bottom (optional btn row)
+        self._main_v = QVBoxLayout(self)
+        self._main_v.setContentsMargins(0, 0, 0, 0)
+        self._main_v.setSpacing(4)
+
+        self._top_h = QHBoxLayout()
+        self._top_h.setContentsMargins(0, 0, 0, 0)
+        self._top_h.addWidget(self.text_edit, 1)
+        self._main_v.addLayout(self._top_h, 1)
+
+    def _ensure_side_panel(self):
+        if self.side_panel is None:
+            panel = QFrame()
+            panel.setFrameStyle(QFrame.Shape.NoFrame)
+            panel.setFixedWidth(28)
+            v = QVBoxLayout(panel)
+            v.setSpacing(3)
+            v.setContentsMargins(0, 0, 0, 0)
+            v.addStretch()
+            v.addStretch()
+            panel.setMouseTracking(True)
+            panel.installEventFilter(self)
+            # Insert buttons above the bottom stretch
+            for btn in self.buttons:
+                v.insertWidget(v.count() - 1, btn, alignment=Qt.AlignmentFlag.AlignHCenter)
+            self._top_h.addWidget(panel)
+            self.side_panel = panel
+
+    def _remove_side_panel(self):
+        if self.side_panel is not None:
+            layout = self.side_panel.layout()
+            if layout:
+                for btn in self.buttons:
+                    layout.removeWidget(btn)
+            self._top_h.removeWidget(self.side_panel)
+            self.side_panel.deleteLater()
+            self.side_panel = None
+
+    def _ensure_btn_row(self):
+        if self.btn_row is None:
+            row = QHBoxLayout()
+            row.setContentsMargins(0, 0, 0, 0)
+            row.addStretch(1)
+            for btn in self.buttons:
+                row.addWidget(btn)
+            self._main_v.addLayout(row)
+            self.btn_row = row
+
+    def _remove_btn_row(self):
+        if self.btn_row is not None:
+            for btn in self.buttons:
+                self.btn_row.removeWidget(btn)
+            self._main_v.removeItem(self.btn_row)
+            self.btn_row = None
+
+    def configure(self, compact: bool, autohide: bool):
+        """Switch between compact (side panel) and full (bottom row) modes."""
+        self._autohide = autohide
+        if compact:
+            self._remove_btn_row()
+            self._ensure_side_panel()
+            if self.side_panel:
+                self.side_panel.setFixedWidth(28 if not autohide else 1)
+            for b in self.buttons:
+                b.setVisible(not autohide)
+                self._apply_btn_style(b, True)
+        else:
+            self._remove_side_panel()
+            self._ensure_btn_row()
+            for b in self.buttons:
+                self._apply_btn_style(b, False)
+
+    def eventFilter(self, obj, event):
+        # Hover-based autohide for compact mode
+        if self._autohide and self.side_panel and obj in (self, self.side_panel):
+            if event.type() == QEvent.Type.Enter:
+                self.side_panel.setFixedWidth(28)
+                for b in self.buttons:
+                    b.setVisible(True)
+            elif event.type() == QEvent.Type.Leave:
+                if not self.side_panel.underMouse() and not self.underMouse():
+                    self.side_panel.setFixedWidth(1)
+                    for b in self.buttons:
+                        b.setVisible(False)
+        return False
+
+
 class OverlayWindow(StyledOverlayWindow):
     """Overlay window for displaying translation results."""
 
@@ -101,11 +207,10 @@ class OverlayWindow(StyledOverlayWindow):
         """Initialize the overlay window."""
         super().__init__(title="Translator")
         self._translator_settings_dialog = None
-        self._programmatic_combo_change = False
-        self.original_side_buttons = None
-        self.translated_side_buttons = None
-        self.btn_row_orig = None
-        self.btn_row_tr = None
+        # Removed redundant flag
+
+        # Status tracking
+        self._translation_start_time = None
 
         self._init_ui()
         self._init_language_controls()
@@ -113,10 +218,29 @@ class OverlayWindow(StyledOverlayWindow):
 
         logger.debug("OverlayWindow initialized")
 
+    def _set_bold_font(self, label: QLabel):
+        """Set the font of a QLabel to bold."""
+        font = QFont("Arial", 10)
+        font.setBold(True)
+        label.setFont(font)
+
+    def _load_icon(self, icon_name: str) -> QIcon:
+        """Load icon from assets."""
+        return QIcon(QPixmap(str(_ASSETS_BASE / "icons" / icon_name)))
+
     def _init_ui(self):
         """Initialize the main UI widgets."""
+        # Cache all icons to avoid redundant loading
+        self.icon_translation = self._load_icon("translation-icon.png")
+        self.icon_book_black = self._load_icon("book_black.png")
+        self.icon_book_white = self._load_icon("book_white.png")
+        self.icon_arrows_exchange = self._load_icon("arrows-exchange.png")
+        self.icon_eraser = qta.icon("fa5s.eraser", color="black")
+        self.icon_copy = qta.icon("fa5.copy", color="black")
+        self.icon_check_green = qta.icon("fa5s.check", color="green")
+
         self.original_label = QLabel("Original:")
-        self.original_label.setFont(QFont("Arial", 10, QFont.Weight.Bold))
+        self._set_bold_font(self.original_label)
 
         self.hideable_elements = []
 
@@ -127,68 +251,63 @@ class OverlayWindow(StyledOverlayWindow):
         self.translated_text = self._create_text_edit("Translation will appear here...")
 
         self.translated_label = QLabel("Translation:")
-        self.translated_label.setFont(QFont("Arial", 10, QFont.Weight.Bold))
-        self.translated_label.setStyleSheet("padding-bottom: 6px;")
+        self._set_bold_font(self.translated_label)
 
         self.translate_btn = self._create_button(text="  Translate", size=(120, 28))
         # Ensure stylesheet targeting and identity remain intact
         self.translate_btn.setObjectName("translateButton")
         # Set icon for translate button
-        img_path = Path(__file__).parent.parent / "assets" / "icons" / "translation-icon.png"
-        self.translate_btn.setIcon(QIcon(QPixmap(str(img_path))))
+        self.translate_btn.setIcon(self.icon_translation)
         self.translate_btn.setIconSize(QSize(14, 14))
         # preserve original display text for restore
         self._translate_original_text = self.translate_btn.text()
         self.reader_mode_btn = self._create_button(text="", tooltip="Open text in reader mode for comfortable reading")
         # Set icon for reader mode button
-        img_path = Path(__file__).parent.parent / "assets" / "icons" / "book_black.png"
-        self.reader_mode_btn.setIcon(QIcon(QPixmap(str(img_path))))
+        self.reader_mode_btn.setIcon(self.icon_book_black)
         self.reader_mode_btn.setIconSize(QSize(14, 14))
         # preserve original display text for restore
         self._reader_original_text = self.reader_mode_btn.text()
         self.reader_mode_btn.setEnabled(False)  # Disable by default if no translated text
         self.reader_mode_btn.clicked.connect(self._on_reader_mode_clicked)
-        self.clear_original_btn = self._create_button(text="", icon=qta.icon("fa5s.eraser", color="black"), size=(40, 28), tooltip="Clear text")
-        self.copy_original_btn = self._create_button(text="", icon=qta.icon("fa5.copy", color="black"), size=(40, 28), tooltip="Copy text")
-        self.clear_translated_btn = self._create_button(text="", icon=qta.icon("fa5s.eraser", color="black"), size=(40, 28), tooltip="Clear text")
-        self.copy_translated_btn = self._create_button(text="", icon=qta.icon("fa5.copy", color="black"), size=(40, 28), tooltip="Copy text")
+        self.clear_original_btn = self._create_button(text="", icon=self.icon_eraser, size=(40, 28), tooltip="Clear text")
+        self.copy_original_btn = self._create_button(text="", icon=self.icon_copy, size=(40, 28), tooltip="Copy text")
+        self.clear_translated_btn = self._create_button(text="", icon=self.icon_eraser, size=(40, 28), tooltip="Clear text")
+        self.copy_translated_btn = self._create_button(text="", icon=self.icon_copy, size=(40, 28), tooltip="Copy text")
 
         self.original_buttons = [self.translate_btn, self.clear_original_btn, self.copy_original_btn]
         self.translated_buttons = [self.reader_mode_btn, self.clear_translated_btn, self.copy_translated_btn]
 
-        self.original_container = self._create_text_panel(self.original_text)
-        self.translated_container = self._create_text_panel(self.translated_text)
+        # Use reusable panel widgets instead of ad-hoc containers
+        self.original_panel = PanelWidget(self.original_text, self.original_buttons, self._apply_button_style, parent=self)
+        self.translated_panel = PanelWidget(self.translated_text, self.translated_buttons, self._apply_button_style, parent=self)
 
-        self.footer_row, self.close_btn = self._create_footer()
+        self.footer_widget, self.close_btn = self._create_footer()
 
         # Assemble layout
         layout = self.content_layout
-        layout.addLayout(info_row)
+        layout.setSpacing(6)
+        # Keep a reference to the info row widget
+        self.info_row_widget = info_row
+        layout.addWidget(self.info_row_widget)
         layout.addLayout(language_row)
-        layout.addWidget(self.original_container)
+        # Apply initial mode visibility now that all controls exist
+        if hasattr(self, "mode_combo"):
+            try:
+                self._apply_mode_visibility(self.mode_combo.currentText())
+            except Exception:
+                pass
+        layout.addWidget(self.original_panel)
         layout.addWidget(self.translated_label)
-        layout.addWidget(self.translated_container)
-        layout.addLayout(self.footer_row)
+        layout.addWidget(self.translated_panel)
+        layout.addWidget(self.footer_widget)
 
         # Set stretch factors
-        layout.setStretch(layout.indexOf(self.original_container), 1)
-        layout.setStretch(layout.indexOf(self.translated_container), 1)
+        layout.setStretch(layout.indexOf(self.original_panel), 1)
+        layout.setStretch(layout.indexOf(self.translated_panel), 1)
 
-        self.hideable_elements.extend([info_row, self.original_label, self.translated_label, self.footer_row])
+        self.hideable_elements.extend([self.info_row_widget, self.original_label, self.translated_label, self.footer_widget])
         self.add_settings_button(self._open_translator_settings)
 
-    def _create_text_panel(self, text_edit: QTextEdit) -> QFrame:
-        """Creates a container with a text edit area."""
-        container = QFrame()
-        container.setFrameStyle(QFrame.Shape.NoFrame)
-        layout = QHBoxLayout(container)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(text_edit, 1)
-
-        container.setMouseTracking(True)
-        container.installEventFilter(self)
-
-        return container
 
     def _connect_signals(self):
         """Connect all UI signals to their slots."""
@@ -198,6 +317,8 @@ class OverlayWindow(StyledOverlayWindow):
         self.swap_btn.clicked.connect(self._on_swap_clicked)
         self.original_text.textChanged.connect(self._on_original_text_changed)
         self.translated_text.textChanged.connect(self._update_reader_button_state)
+        if hasattr(self, "mode_combo"):
+            self.mode_combo.currentIndexChanged.connect(self._on_mode_changed)
         if self.translate_btn:
             self.translate_btn.clicked.connect(self._on_translate_clicked)
         self.clear_original_btn.clicked.connect(self._clear_original_text)
@@ -209,35 +330,63 @@ class OverlayWindow(StyledOverlayWindow):
 
 
     def _create_info_row(self):
-        """Create the top info row with language detection and auto-swap checkbox."""
-        info_row = QHBoxLayout()
+        """Create the top info row with mode selector, style presets, language detection and auto-translate."""
+        container = QFrame()
+        container.setFrameStyle(QFrame.Shape.NoFrame)
+
+        info_row = QHBoxLayout(container)
+        info_row.setContentsMargins(0, 0, 0, 0)
+
+        # Left: Mode selector + Style presets (when Style mode is active)
+        mode_label = QLabel("Mode:")
+        info_row.addWidget(mode_label)
+
+        self.mode_combo = QComboBox()
+        self.mode_combo.setFixedSize(95, 28)
+        self.mode_combo.addItem("Translate")
+        self.mode_combo.addItem("Style")
+        info_row.addWidget(self.mode_combo)
+
+        # Style presets combo
+        self.style_combo = QComboBox()
+        self.style_combo.setFixedSize(95, 28)
+        self._populate_styles()
+        info_row.addWidget(self.style_combo)
+        # Hidden by default; shown only in Style mode via _apply_mode_visibility
+        self.style_combo.setVisible(False)
+
+        # Middle: stretch to push detection + auto-swap to the right
         info_row.addItem(QSpacerItem(10, 10, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum))
+
+        # Right: Detected language label + Auto-translate toggle
         self.detected_lang_label = QLabel("Language: —")
         self.detected_lang_label.setFixedWidth(120)
         info_row.addWidget(self.detected_lang_label)
+
         self.auto_swap_checkbox = QCheckBox("Auto-translate EN ↔ RU")
         self.auto_swap_checkbox.setToolTip("If enabled, English will be translated to Russian, and Russian to English")
         info_row.addWidget(self.auto_swap_checkbox)
-        return info_row
+
+        # Return the container widget so it can be managed uniformly (hideable_elements)
+        return container
 
     def _create_language_row(self):
         """Create the language selection row."""
         language_row = QHBoxLayout()
-        language_row.addWidget(self.original_label)
-        language_row.addItem(QSpacerItem(10, 10, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum))
+        language_row.addWidget(self.original_label, alignment=Qt.AlignmentFlag.AlignBottom)
+        language_row.addItem(QSpacerItem(0, 0, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum))
 
         self.source_combo = QComboBox()
         self.target_combo = QComboBox()
         for combo in [self.source_combo, self.target_combo]:
             combo.setFixedSize(125, 28)
-            combo.setIconSize(QSize(25, 25))
+            combo.setIconSize(QSize(28, 28))
             combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
             combo.setStyleSheet("QComboBox { background-color: #fff; color: #111111; padding: 0px; padding-left: 8px; }")
 
         self.swap_btn = QPushButton()
         self.swap_btn.setFixedSize(35, 28)
-        img_path = Path(__file__).parent.parent / "assets" / "icons" / "arrows-exchange.png"
-        self.swap_btn.setIcon(QIcon(QPixmap(str(img_path))))
+        self.swap_btn.setIcon(self.icon_arrows_exchange)
         self.swap_btn.setIconSize(QSize(20, 24))
 
         language_row.addWidget(self.source_combo)
@@ -249,6 +398,74 @@ class OverlayWindow(StyledOverlayWindow):
         language_row.addItem(self.language_spacer)
 
         return language_row
+
+
+    def _populate_styles(self):
+        """Populate style presets from settings into style_combo."""
+        try:
+            self.style_combo.clear()
+            settings = config_service.get_settings()
+            styles = getattr(settings, "text_styles", []) or []
+            if not styles:
+                self.style_combo.addItem("Improve")  # fallback display
+                return
+            for s in styles:
+                name = (s.get("name") or "").strip() if isinstance(s, dict) else str(s)
+                if name:
+                    self.style_combo.addItem(name)
+        except Exception as e:
+            logger.warning(f"Failed to populate styles: {e}")
+
+    def _apply_mode_visibility(self, mode_text: str | None = None):
+        """Show/hide controls based on selected mode."""
+        try:
+            mode = (mode_text or "").strip() or (self.mode_combo.currentText() if hasattr(self, "mode_combo") else "Translate")
+            is_style = (mode.lower() == "style")
+
+            # Update window title based on mode
+            self.set_title("Styler" if is_style else "Translator")
+
+            # Language-related widgets
+            for w in [self.source_combo, self.target_combo, self.swap_btn, self.auto_swap_checkbox, self.detected_lang_label]:
+                if w:
+                    w.setVisible(not is_style)
+
+            # Style presets widget
+            if hasattr(self, "style_combo") and self.style_combo:
+                self.style_combo.setVisible(is_style)
+
+            # Labels/buttons text adjustments
+            if hasattr(self, "translated_label") and self.translated_label:
+                self.translated_label.setText("Result:" if is_style else "Translation:")
+
+            if hasattr(self, "translate_btn") and self.translate_btn:
+                # keep icon; only change text in non-compact mode; compact handled by _apply_button_style
+                try:
+                    if not getattr(self._cached_settings, "compact_view", False):
+                        self.translate_btn.setText("  Style" if is_style else (self._translate_original_text if hasattr(self, "_translate_original_text") else "  Translate"))
+                except Exception:
+                    pass
+
+            # Add bottom spacer to info row in Style mode
+            if hasattr(self, "info_row_widget") and self.info_row_widget:
+                if is_style:
+                    if not hasattr(self, '_style_spacer'):
+                        self._style_spacer = QSpacerItem(0, 13, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
+                        idx = self.content_layout.indexOf(self.info_row_widget) + 1
+                        self.content_layout.insertItem(idx, self._style_spacer)
+                else:
+                    if hasattr(self, '_style_spacer'):
+                        self.content_layout.removeItem(self._style_spacer)
+                        delattr(self, '_style_spacer')
+        except Exception as e:
+            logger.debug(f"Failed to apply mode visibility: {e}")
+
+    def _on_mode_changed(self, index: int):
+        """Handle mode switch between Translate and Style."""
+        try:
+            self._apply_mode_visibility(self.mode_combo.currentText())
+        except Exception as e:
+            logger.debug(f"Mode change failed: {e}")
 
     def _create_text_edit(self, placeholder):
         """Create a QTextEdit widget."""
@@ -276,42 +493,80 @@ class OverlayWindow(StyledOverlayWindow):
         return btn
 
     def _apply_button_style(self, button: QPushButton, compact: bool):
-        """Apply styling to a button based on compact mode."""
-        if compact:
-            button.setText("")
-            button.setFixedSize(24, 24)
-            button.setIconSize(QSize(15, 15))
-            if button == self.translate_btn:
-                button.setIconSize(QSize(12, 12))
-                button.setStyleSheet("QPushButton { background-color: #4CAF50; color: white; border: none; border-radius: 4px; font-weight: bold; padding: 0px; margin: 0px; } QPushButton:hover { background-color: #45a049; }")
-            elif button == self.reader_mode_btn:
-                button.setFixedSize(24, 24)
-                button.setIconSize(QSize(17, 17))
-                button.setStyleSheet("QPushButton { background-color: #2196F3; color: white; border: none; border-radius: 4px; font-weight: bold; padding: 0px; margin: 0px; } QPushButton:hover { background-color: #1976D2; }")
-                button.setIcon(QIcon(QPixmap(str(Path(__file__).parent.parent / "assets" / "icons" / "book_white.png"))))
-            else:
-                button.setStyleSheet("QPushButton { padding: 0px; margin: 0px; }")
-        else:
-            if button == self.translate_btn:
-                button.setText(self._translate_original_text if hasattr(self, "_translate_original_text") else "  Translate")
-                button.setFixedSize(120, 28)
-                button.setIconSize(QSize(14, 14))
-                button.setStyleSheet("")
-            elif button == self.reader_mode_btn:
-                button.setText(self._reader_original_text if hasattr(self, "_reader_original_text") else "Reader")
-                button.setFixedSize(40, 28)
-                button.setIconSize(QSize(19, 19))
-                button.setIcon(QIcon(QPixmap(str(Path(__file__).parent.parent / "assets" / "icons" / "book_black.png"))))
-                button.setStyleSheet("")
-            else:
-                button.setFixedSize(40, 28)
-                button.setIconSize(QSize(16, 16))
-                button.setStyleSheet("")
+        """Apply styling to a button based on compact mode using configuration dictionary."""
+        button_configs = {
+            self.translate_btn: {
+                'compact': {
+                    'text': '',
+                    'size': (24, 24),
+                    'icon_size': (12, 12),
+                    'stylesheet': "QPushButton { background-color: #4CAF50; color: white; border: none; border-radius: 4px; font-weight: bold; padding: 0px; margin: 0px; } QPushButton:hover { background-color: #45a049; }",
+                    'icon': None
+                },
+                'full': {
+                    'text': self._translate_original_text if hasattr(self, "_translate_original_text") else "  Translate",
+                    'size': (120, 28),
+                    'icon_size': (14, 14),
+                    'stylesheet': "",
+                    'icon': None
+                }
+            },
+            self.reader_mode_btn: {
+                'compact': {
+                    'text': '',
+                    'size': (24, 24),
+                    'icon_size': (17, 17),
+                    'stylesheet': "QPushButton { background-color: #2196F3; color: white; border: none; border-radius: 4px; font-weight: bold; padding: 0px; margin: 0px; } QPushButton:hover { background-color: #1976D2; }",
+                    'icon': self.icon_book_white
+                },
+                'full': {
+                    'text': self._reader_original_text if hasattr(self, "_reader_original_text") else "Reader",
+                    'size': (40, 28),
+                    'icon_size': (19, 19),
+                    'stylesheet': "",
+                    'icon': self.icon_book_black
+                }
+            }
+        }
+
+        # Default styles for other buttons
+        default_compact = {
+            'text': '',
+            'size': (24, 24),
+            'icon_size': (15, 15),
+            'stylesheet': "QPushButton { padding: 0px; margin: 0px; }",
+            'icon': None
+        }
+        default_full = {
+            'text': '',
+            'size': (40, 28),
+            'icon_size': (16, 16),
+            'stylesheet': "",
+            'icon': None
+        }
+
+        mode = 'compact' if compact else 'full'
+        config = button_configs.get(button, {}).get(mode, default_compact if compact else default_full)
+
+        button.setText(config['text'])
+        button.setFixedSize(*config['size'])
+        button.setIconSize(QSize(*config['icon_size']))
+        button.setStyleSheet(config['stylesheet'])
+        if config.get('icon') is not None:
+            button.setIcon(config['icon'])
 
     def _create_footer(self):
-        """Create the footer row with the close button."""
-        footer_row = QHBoxLayout()
+        """Create the footer row with status label and close button."""
+        footer_widget = QFrame()
+        footer_widget.setFrameStyle(QFrame.Shape.NoFrame)
+        footer_row = QHBoxLayout(footer_widget)
         footer_row.setContentsMargins(0, 0, 0, 0)
+
+        # Status label in the bottom-left corner
+        self.status_label = QLabel("")
+        self.status_label.setStyleSheet("color: #666; font-size: 10px;")
+        footer_row.addWidget(self.status_label)
+
         footer_row.addStretch()
 
         close_btn = QPushButton("Close")
@@ -322,68 +577,19 @@ class OverlayWindow(StyledOverlayWindow):
         close_btn.setIcon(self.close_icon_normal)
         close_btn.setIconSize(QSize(16, 16))
         footer_row.addWidget(close_btn, alignment=Qt.AlignmentFlag.AlignRight)
-        return footer_row, close_btn
+        return footer_widget, close_btn
 
-    def _create_side_buttons_widget(self):
-        """Create a side panel widget with vertical layout for buttons."""
-        widget = QFrame()
-        widget.setFrameStyle(QFrame.Shape.NoFrame)
-        widget.setFixedWidth(28)
-        layout = QVBoxLayout(widget)
-        layout.setSpacing(3)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.addStretch()
-        layout.addStretch()
-        widget.setMouseTracking(True)
-        widget.installEventFilter(self)
-        return widget
-
-
-    def _create_bordered_icon(self, icon_path: Path) -> QIcon:
-        """Creates an icon with a 1px border drawn around it."""
-        if not icon_path.exists():
-            return QIcon()
-
-        original_pixmap = QPixmap(str(icon_path))
-        if original_pixmap.isNull():
-            return QIcon()
-
-        border_width = 1
-
-        # New pixmap size is original + border on all 4 sides
-        new_size = original_pixmap.size() + QSize(border_width * 2, border_width * 2)
-        bordered_pixmap = QPixmap(new_size)
-        bordered_pixmap.fill(Qt.GlobalColor.transparent)
-
-        painter = QPainter(bordered_pixmap)
-
-        # Draw the original pixmap, offset by the border width
-        painter.drawPixmap(border_width, border_width, original_pixmap)
-
-        # Draw the border rectangle around the original pixmap's area
-        pen = QPen(QColor("#cccccc"))  # Light gray border
-        pen.setWidth(border_width)
-        painter.setPen(pen)
-
-        rect = bordered_pixmap.rect()
-        # Adjust to be inside the pixmap. The pen is centered on the line.
-        rect.adjust(0, 0, -border_width, -border_width)
-        painter.drawRect(rect)
-
-        painter.end()
-
-        return QIcon(bordered_pixmap)
 
     def _init_language_controls(self):
         """Populate and configure language selection combos."""
         supported_languages = get_supported_languages()
-        flags_path = Path(__file__).parent.parent / "assets" / "icons" / "flags"
+        flags_path = _ASSETS_BASE / "icons" / "flags"
 
         self.source_combo.insertItem(0, "Auto", userData="auto")
 
         for lang in supported_languages:
             icon_path = flags_path / lang.icon_name
-            icon = self._create_bordered_icon(icon_path)
+            icon = QIcon(QPixmap(str(icon_path)))
 
             self.source_combo.addItem(icon, lang.name, userData=lang.code)
             self.target_combo.addItem(icon, lang.name, userData=lang.code)
@@ -453,115 +659,19 @@ class OverlayWindow(StyledOverlayWindow):
         compact = getattr(settings, "compact_view", False)
         autohide = getattr(settings, "overlay_side_buttons_autohide", False)
 
-        # Hide/show main elements
+        # Cache settings for use in other methods
+        self._cached_settings = settings
+
         for element in self.hideable_elements:
-            if isinstance(element, QLayout):
-                for i in range(element.count()):
-                    item = element.itemAt(i)
-                    if item and item.widget():
-                        item.widget().setVisible(not compact)
-            else:
-                element.setVisible(not compact)
+            element.setVisible(not compact)
 
-        # Adjust language row spacer for compact mode
         if hasattr(self, 'language_spacer'):
-            if compact:
-                self.language_spacer.changeSize(34, 10, QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Minimum)
-            else:
-                self.language_spacer.changeSize(0, 10, QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Minimum)
+            size = 34 if compact else 0
+            self.language_spacer.changeSize(size, 10, QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Minimum)
 
-        # Handle buttons
-        if compact:
-            # Remove horizontal rows if exist and move buttons to side
-            if self.btn_row_orig:
-                for btn in self.original_buttons:
-                    self.btn_row_orig.removeWidget(btn)
-                idx = self.content_layout.indexOf(self.btn_row_orig) 
-                if idx != -1:
-                    self.content_layout.takeAt(idx)
-                self.btn_row_orig = None
-            if self.btn_row_tr:
-                for btn in self.translated_buttons:
-                    self.btn_row_tr.removeWidget(btn)
-                idx = self.content_layout.indexOf(self.btn_row_tr)
-                if idx != -1:
-                    self.content_layout.takeAt(idx)
-                self.btn_row_tr = None
-
-            # Create side buttons if not exist and add buttons
-            if not self.original_side_buttons:
-                self.original_side_buttons = self._create_side_buttons_widget()
-                orig_layout = self.original_container.layout()
-                if orig_layout:
-                    orig_layout.addWidget(self.original_side_buttons)
-                side_layout = self.original_side_buttons.layout()
-                if isinstance(side_layout, QVBoxLayout):
-                    for btn in self.original_buttons:
-                        side_layout.insertWidget(side_layout.count() - 1, btn, alignment=Qt.AlignmentFlag.AlignHCenter)
-            if not self.translated_side_buttons:
-                self.translated_side_buttons = self._create_side_buttons_widget()
-                trans_layout = self.translated_container.layout()
-                if trans_layout:
-                    trans_layout.addWidget(self.translated_side_buttons)
-                side_layout = self.translated_side_buttons.layout()
-                if isinstance(side_layout, QVBoxLayout):
-                    for btn in self.translated_buttons:
-                        side_layout.insertWidget(side_layout.count() - 1, btn, alignment=Qt.AlignmentFlag.AlignHCenter)
-
-            # Set widths and visibility
-            self.original_side_buttons.setFixedWidth(28 if not autohide else 1)
-            self.translated_side_buttons.setFixedWidth(28 if not autohide else 1)
-            for btn in self.original_buttons + self.translated_buttons:
-                btn.setVisible(not autohide)
-                self._apply_button_style(btn, True)
-
-        else:
-            # Remove side buttons if exist and move buttons to rows
-            if self.original_side_buttons:
-                side_layout = self.original_side_buttons.layout()
-                if side_layout:
-                    for btn in self.original_buttons:
-                        side_layout.removeWidget(btn)
-                orig_layout = self.original_container.layout()
-                if orig_layout:
-                    orig_layout.removeWidget(self.original_side_buttons)
-                # delete panel safely; buttons have parent=self so they won't be deleted
-                self.original_side_buttons.deleteLater()
-                self.original_side_buttons = None
-            if self.translated_side_buttons:
-                side_layout = self.translated_side_buttons.layout()
-                if side_layout:
-                    for btn in self.translated_buttons:
-                        side_layout.removeWidget(btn)
-                trans_layout = self.translated_container.layout()
-                if trans_layout:
-                    trans_layout.removeWidget(self.translated_side_buttons)
-                # delete panel safely; buttons have parent=self so they won't be deleted
-                self.translated_side_buttons.deleteLater()
-                self.translated_side_buttons = None
-
-            # Create horizontal rows if not exist
-            if not self.btn_row_orig:
-                self.btn_row_orig = QHBoxLayout()
-                self.btn_row_orig.addStretch(1)
-                self.btn_row_orig.addWidget(self.translate_btn)
-                self.btn_row_orig.addWidget(self.clear_original_btn)
-                self.btn_row_orig.addWidget(self.copy_original_btn)
-                # Insert after original_container
-                idx = self.content_layout.indexOf(self.original_container) + 1
-                self.content_layout.insertLayout(idx, self.btn_row_orig)
-            if not self.btn_row_tr:
-                self.btn_row_tr = QHBoxLayout()
-                self.btn_row_tr.addStretch(1)
-                self.btn_row_tr.addWidget(self.reader_mode_btn)
-                self.btn_row_tr.addWidget(self.clear_translated_btn)
-                self.btn_row_tr.addWidget(self.copy_translated_btn)
-                # Insert after translated_container
-                idx = self.content_layout.indexOf(self.translated_container) + 1
-                self.content_layout.insertLayout(idx, self.btn_row_tr)
-
-            for btn in self.original_buttons + self.translated_buttons:
-                self._apply_button_style(btn, False)
+        # Configure panel widgets instead of manual per-panel logic
+        self.original_panel.configure(compact, autohide)
+        self.translated_panel.configure(compact, autohide)
 
         logger.debug(f"Layout updated: compact={compact}, autohide={autohide}")
 
@@ -570,29 +680,7 @@ class OverlayWindow(StyledOverlayWindow):
         if not hasattr(self, "original_text"):
             return super().eventFilter(obj, event)
 
-        settings = config_service.get_settings()
-        compact = getattr(settings, "compact_view", False)
-        autohide = getattr(settings, "overlay_side_buttons_autohide", False)
-
-        if compact and autohide:
-            panel, buttons, container = None, None, None
-            if obj is self.original_container or obj is self.original_side_buttons:
-                panel, buttons, container = self.original_side_buttons, self.original_buttons, self.original_container
-            elif obj is self.translated_container or obj is self.translated_side_buttons:
-                panel, buttons, container = self.translated_side_buttons, self.translated_buttons, self.translated_container
-
-            if panel and buttons and container:
-                if event.type() == QEvent.Type.Enter:
-                    panel.setFixedWidth(28)
-                    for btn in buttons:
-                        if btn:
-                            btn.setVisible(True)
-                elif event.type() == QEvent.Type.Leave:
-                    if not panel.underMouse() and not container.underMouse():
-                        panel.setFixedWidth(1)
-                        for btn in buttons:
-                            if btn:
-                                btn.setVisible(False)
+        # PanelWidget handles its own hover-based autohide; no-op here
 
         if obj == self.close_btn:
             if event.type() == QEvent.Type.Enter:
@@ -623,18 +711,14 @@ class OverlayWindow(StyledOverlayWindow):
         self.activateWindow()
         logger.debug("Overlay window shown and activated")
 
-    def _copy_text_to_clipboard(self, text_widget: QTextEdit, button: QPushButton, text_name: str):
-        """Copy text from a QTextEdit to clipboard and provide visual feedback on a button."""
+    def _show_button_feedback(self, button: QPushButton):
+        """Show visual feedback on a button by displaying a green checkmark for 1.2 seconds."""
         try:
-            clipboard = QApplication.clipboard()
-            clipboard.setText(text_widget.toPlainText())
-            logger.info(f"{text_name} text copied to clipboard")
-
             prev_icon = button.icon()
             prev_text = button.text()
 
             try:
-                button.setIcon(qta.icon("fa5s.check", color="green"))
+                button.setIcon(self.icon_check_green)
             except Exception:
                 pass
             button.setText("")
@@ -646,37 +730,42 @@ class OverlayWindow(StyledOverlayWindow):
                 ),
             )
         except Exception as e:
+            logger.error(f"Failed to show button feedback: {e}")
+
+    def _copy_text_to_clipboard(self, text_widget: QTextEdit, button: QPushButton, text_name: str):
+        """Copy text from a QTextEdit to clipboard and provide visual feedback on a button."""
+        try:
+            clipboard = QApplication.clipboard()
+            clipboard.setText(text_widget.toPlainText())
+            logger.info(f"{text_name} text copied to clipboard")
+            self._show_button_feedback(button)
+        except Exception as e:
             logger.error(f"Failed to copy {text_name} text: {e}")
 
     def _copy_original_to_clipboard(self):
         """Copy original text to clipboard."""
         self._copy_text_to_clipboard(self.original_text, self.copy_original_btn, "Original")
 
+    def _clear_text(self, text_widget: QTextEdit, button: QPushButton, label_to_reset: Optional[QLabel] = None):
+        """Clear text from a QTextEdit widget and optionally reset a label, with visual feedback on button."""
+        try:
+            text_widget.clear()
+            if label_to_reset:
+                label_to_reset.setText("Language: —")
+            self._show_button_feedback(button)
+        except Exception as e:
+            logger.error(f"Failed to clear text: {e}")
+
     def _clear_original_text(self):
         """Clear original text area and reset language label."""
-        try:
-            self.original_text.clear()
-            self.detected_lang_label.setText("Language: —")
-        except Exception as e:
-            logger.error(f"Failed to clear original text: {e}")
+        self._clear_text(self.original_text, self.clear_original_btn, self.detected_lang_label)
+        self.status_label.setText("")
 
     def _clear_translated_text(self):
         """Clear translated text area."""
-        try:
-            self.translated_text.clear()
-        except Exception as e:
-            logger.error(f"Failed to clear translated text: {e}")
+        self._clear_text(self.translated_text, self.clear_translated_btn)
+        self.status_label.setText("")
 
-    def _clear_focused_text(self):
-        """Clear text in the currently focused text area (if any)."""
-        try:
-            w = QApplication.focusWidget()
-            if w is self.original_text:
-                self._clear_original_text()
-            elif w is self.translated_text:
-                self._clear_translated_text()
-        except Exception as e:
-            logger.debug(f"Clear focused text failed: {e}")
 
     def _on_original_text_changed(self):
         """Update detected language label when original text changes."""
@@ -711,16 +800,12 @@ class OverlayWindow(StyledOverlayWindow):
 
     def _on_source_changed(self, index: int):
         """User changed Source combo -> persist ui_source_language."""
-        if self._programmatic_combo_change:
-            return
         code = self.source_combo.currentData()
         if config_service.set_setting("ui_source_language", code):
             logger.info(f"UI source language updated: {code}")
 
     def _on_target_changed(self, index: int):
         """User changed Target combo -> persist ui_target_mode/ui_target_language."""
-        if self._programmatic_combo_change:
-            return
         data = self.target_combo.currentData()
         updates = {"ui_target_mode": "explicit", "ui_target_language": data}
         try:
@@ -762,66 +847,89 @@ class OverlayWindow(StyledOverlayWindow):
 
     def _set_combo_data(self, combo, data_value):
         """Set combo to the index matching the data value, with signal blocking."""
-        self._programmatic_combo_change = True
+        combo.blockSignals(True)
         try:
-            combo.blockSignals(True)
             for i in range(combo.count()):
                 if combo.itemData(i) == data_value:
                     combo.setCurrentIndex(i)
                     break
         finally:
             combo.blockSignals(False)
-            self._programmatic_combo_change = False
 
     def _on_swap_clicked(self):
         """Swap button behavior"""
         self._perform_language_swap()
 
-    def _setup_translation_worker(self, text, ui_source_lang, ui_target_lang, prev_text):
-        """Set up and start the translation worker in a background thread."""
-        self._translation_worker = TranslationWorker(text, ui_source_lang, ui_target_lang)
-        self._translation_thread = QThread()
-        self._translation_worker.moveToThread(self._translation_thread)
+    def _setup_worker(self, worker_class, *args):
+        """Generic method to set up and start a worker in a background thread."""
+        worker = worker_class(*args)
+        thread = QThread()
+        worker.moveToThread(thread)
 
-        self._translation_prev_text = prev_text
-        self._translation_worker.finished.connect(self._on_translation_finished)
-        self._translation_thread.started.connect(self._translation_worker.run)
+        worker.finished.connect(self._on_translation_finished)
+        thread.started.connect(worker.run)
 
-        self._translation_worker.finished.connect(self._translation_thread.quit)
-        self._translation_worker.finished.connect(self._translation_worker.deleteLater)
-        self._translation_thread.finished.connect(self._translation_thread.deleteLater)
+        worker.finished.connect(thread.quit)
+        worker.finished.connect(worker.deleteLater)
+        thread.finished.connect(thread.deleteLater)
 
-        self._translation_thread.start()
+        thread.start()
+        return worker, thread
+
 
 
     def _on_translate_clicked(self):
-        """Translate the text from the original_text field."""
+        """Translate or Style the text from the original_text field based on mode."""
         text = self.original_text.toPlainText().strip()
         if not text:
-            logger.info("Translate button clicked with empty original_text")
+            logger.info("Translate/Style button clicked with empty original_text")
             return
 
-        settings = config_service.get_settings()
+        # Record start time and update status
+        import time
+        self._translation_start_time = time.time()
+        self.status_label.setText("Request sent...")
+
+        settings = self._cached_settings
         compact = getattr(settings, "compact_view", False)
+        is_style = hasattr(self, "mode_combo") and (self.mode_combo.currentText().strip().lower() == "style")
 
         if self.translate_btn:
             self.translate_btn.setEnabled(False)
-            if compact:
-                prev_text = self.translate_btn.text()
-            else:
-                prev_text = self.translate_btn.text()
-                self.translate_btn.setText("  Translating...")
+            prev_text = self.translate_btn.text()
+            if not compact:
+                self.translate_btn.setText("  Styling..." if is_style else "  Translating...")
                 QApplication.processEvents()
         else:
-            prev_text = "Translate"
+            prev_text = "Translate" if not is_style else "Style"
 
-        # Collect UI language preferences
+        if is_style:
+            # Resolve selected style name
+            style_name = ""
+            try:
+                style_name = self.style_combo.currentText().strip()
+            except Exception:
+                pass
+            if not style_name:
+                # fallback to first configured style if available
+                try:
+                    styles = getattr(settings, "text_styles", []) or []
+                    if styles:
+                        style_name = (styles[0].get("name") or "Improve") if isinstance(styles[0], dict) else str(styles[0])
+                except Exception:
+                    style_name = "Improve"
+
+            logger.debug(f"Style mode selected. Style='{style_name}'")
+            self._translation_prev_text = prev_text
+            self._style_worker, self._style_thread = self._setup_worker(StyleWorker, text, style_name)
+            return
+
+        # Translate mode
         ui_source_lang = self.source_combo.currentData()
         ui_target_lang = self.target_combo.currentData()
-
-        logger.debug(f"Translate clicked with UI languages: source='{ui_source_lang}', target='{ui_target_lang}'")
-
-        self._setup_translation_worker(text, ui_source_lang, ui_target_lang, prev_text)
+        logger.debug(f"Translate mode selected with UI languages: source='{ui_source_lang}', target='{ui_target_lang}'")
+        self._translation_prev_text = prev_text
+        self._translation_worker, self._translation_thread = self._setup_worker(TranslationWorker, text, ui_source_lang, ui_target_lang)
 
     def _on_translation_finished(self, success: bool, result: str):
         """Handle completion of background translation."""
@@ -834,7 +942,16 @@ class OverlayWindow(StyledOverlayWindow):
                 QMessageBox.warning(self, "Translation failed", f"Translation error: {result}")
                 logger.error(f"Translation failed: {result}")
         finally:
-            settings = config_service.get_settings()
+            # Update status with completion time
+            if self._translation_start_time is not None:
+                import time
+                elapsed = time.time() - self._translation_start_time
+                self.status_label.setText(f"Completed in {elapsed:.1f}s")
+                self._translation_start_time = None
+            else:
+                self.status_label.setText("")
+
+            settings = self._cached_settings
             compact = getattr(settings, "compact_view", False)
             prev_text = getattr(self, "_translation_prev_text", "Translate")
             if self.translate_btn:
@@ -866,9 +983,6 @@ class OverlayWindow(StyledOverlayWindow):
         except Exception as e:
             logger.error(f"Failed to open reader mode: {e}")
 
-    def show_result(self, original_text: str, translated_text: str | None = None):
-        """Show the overlay with OCR result."""
-        self.show_overlay(original_text, translated_text or "")
 
     def dismiss(self) -> None:
         """Dismiss the overlay window, ensuring child dialogs are closed first."""

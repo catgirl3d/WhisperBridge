@@ -19,7 +19,9 @@ from ..utils.language_utils import detect_language
 from ..utils.translation_utils import (
     TranslationRequest,
     TranslationResponse,
+    StyleRequest,
     format_translation_prompt,
+    format_style_prompt,
     parse_gpt_response,
     validate_translation_response,
 )
@@ -211,7 +213,7 @@ class TranslationService:
 
             # Get model and cache settings once
             intended_model = self._get_active_model()
-            cache_enabled = use_cache and config_service.get_setting("cache_enabled")
+            cache_enabled = use_cache and config_service.get_setting("translation_cache_enabled")
 
             # Check cache
             if cache_enabled:
@@ -265,6 +267,128 @@ class TranslationService:
                 error_message=str(e),
                 source_lang=source_lang,
                 target_lang=target_lang,
+            )
+
+    async def style_text_async(
+        self,
+        text: str,
+        style_name: str,
+        use_cache: bool = True,
+    ) -> TranslationResponse:
+        """Rewrite text in a selected style using the same API pipeline as translation."""
+        logger.info(f"Starting style rewrite for text: '{text[:30]}...' with style '{style_name}'")
+
+        try:
+            intended_model = self._get_active_model()
+            cache_enabled = use_cache and config_service.get_setting("cache_enabled")
+
+            # Resolve style preset
+            settings = config_service.get_settings()
+            styles = getattr(settings, "text_styles", []) or []
+            style_entry = None
+            for s in styles:
+                try:
+                    if (s.get("name") or "").strip().lower() == style_name.strip().lower():
+                        style_entry = s
+                        break
+                except Exception:
+                    continue
+            if not style_entry and styles:
+                style_entry = styles[0]  # fallback to first preset if provided style not found
+                logger.warning(f"Style '{style_name}' not found. Falling back to preset '{style_entry.get('name','')}'.")
+                style_name = style_entry.get("name", style_name)
+            if not style_entry:
+                raise ValueError("No style presets configured. Please add styles in settings.")
+
+            style_prompt = style_entry.get("prompt", "").strip()
+            if not style_prompt:
+                raise ValueError(f"Selected style '{style_name}' has empty prompt")
+
+            request = StyleRequest(
+                text=text,
+                style_name=style_name,
+                style_prompt=style_prompt,
+                model=intended_model,
+            )
+
+            # Cache check (reuse TranslationCache with encoded key parts)
+            stylist_cache_enabled = config_service.get_setting("stylist_cache_enabled")
+            if cache_enabled and stylist_cache_enabled:
+                cached = self._cache.get(text, f"style:{style_name}", "-", intended_model)
+                if cached:
+                    logger.info("Style result found in cache")
+                    return self._make_response(
+                        success=True,
+                        translated_text=cached,
+                        source_lang="style",
+                        target_lang=style_name,
+                        model=intended_model,
+                        cached=True,
+                    )
+
+            if not self._api_manager.is_initialized():
+                raise RuntimeError("API manager not initialized")
+
+            if not self._api_manager.has_clients():
+                logger.info("No API clients configured; returning empty styled text")
+                return self._make_response(
+                    success=True,
+                    translated_text="",
+                    source_lang="style",
+                    target_lang=style_name,
+                    model=intended_model,
+                )
+
+            # Enforce "respond in the same language as input" policy for stylist mode
+            detected_lang = await self._detect_language_async(text)
+            language_policy_lines = [
+                "Important language policy:",
+                "- Detect the input language and return the rewritten text in the same language.",
+                "- Do not translate into another language.",
+                "- Output only the rewritten text without explanations.",
+            ]
+            if detected_lang:
+                language_policy_lines.append(f"- Input language code: {detected_lang}. Respond in {detected_lang}.")
+
+            language_policy = "\n".join(language_policy_lines)
+
+            messages = [
+                {"role": "system", "content": f"{style_prompt}\n\n{language_policy}"},
+                {"role": "user", "content": format_style_prompt(request)},
+            ]
+
+            response, final_model = self._api_manager.make_translation_request(
+                messages=messages, model_hint=intended_model
+            )
+
+            raw_text = response.choices[0].message.content
+            styled_text = parse_gpt_response(raw_text).strip()
+
+            if cache_enabled and stylist_cache_enabled:
+                self._cache.put(
+                    text,
+                    styled_text,
+                    f"style:{style_name}",
+                    "-",  # target placeholder for styling flow
+                    final_model,
+                )
+
+            return self._make_response(
+                success=True,
+                translated_text=styled_text,
+                source_lang="style",
+                target_lang=style_name,
+                model=final_model,
+                tokens_used=response.usage.total_tokens if response.usage else 0,
+            )
+
+        except Exception as e:
+            logger.error(f"Styling failed: {e}")
+            return self._make_response(
+                success=False,
+                error_message=str(e),
+                source_lang="style",
+                target_lang=style_name,
             )
 
     def detect_language_sync(self, text: str) -> Optional[str]:
@@ -351,6 +475,24 @@ class TranslationService:
                 target_lang=target_lang,
             )
 
+    def style_text_sync(
+        self,
+        text: str,
+        style_name: str,
+        use_cache: bool = True,
+    ) -> TranslationResponse:
+        """Synchronous wrapper for style_text_async."""
+        try:
+            return asyncio.run(self.style_text_async(text, style_name, use_cache))
+        except Exception as e:
+            logger.error(f"Synchronous styling failed: {e}")
+            return self._make_response(
+                success=False,
+                error_message=str(e),
+                source_lang="style",
+                target_lang=style_name,
+            )
+
     def clear_cache(self):
         """Clear translation cache."""
         self._cache.clear()
@@ -360,7 +502,7 @@ class TranslationService:
         return {
             "size": self._cache.size(),
             "max_size": self._cache._max_size,
-            "enabled": config_service.get_setting("cache_enabled"),
+            "enabled": config_service.get_setting("translation_cache_enabled"),
         }
 
     def shutdown(self):

@@ -8,7 +8,7 @@ and environment variable management.
 import json
 import re
 from pathlib import Path
-from typing import List, Literal, Optional
+from typing import Dict, List, Literal, Optional
 
 import keyring
 from loguru import logger
@@ -112,6 +112,29 @@ class Settings(BaseSettings):
     log_level: str = Field(default="INFO", description="Logging level")
     log_to_file: bool = Field(default=True, description="Log to file")
     max_log_size: int = Field(default=10, description="Max log file size in MB")
+
+    # Text Stylist presets (name + prompt). Users can customize via settings dialog later.
+    text_styles: List[Dict[str, str]] = Field(
+        default=[
+            {"name": "Formal", "prompt": "Rewrite the following text in a formal, business-like tone. Preserve meaning. Only return the rewritten text."},
+            {"name": "Friendly", "prompt": "Rewrite the following text in a warm, friendly, and conversational tone. Preserve meaning. Only return the rewritten text."},
+            {"name": "Simplify", "prompt": "Simplify the following text using plain language while preserving meaning. Only return the simplified text."},
+            {"name": "Shorten", "prompt": "Make the following text shorter and more concise, preserving key meaning. Only return the shortened text."},
+        ],
+        description="Preset styles for text rewriting (Text Stylist mode).",
+    )
+
+    # Text Stylist caching
+    stylist_cache_enabled: bool = Field(
+        default=True,
+        description="Enable caching for Text Stylist mode (separate from general translation caching).",
+    )
+
+    # Translation caching
+    translation_cache_enabled: bool = Field(
+        default=True,
+        description="Enable caching for translation mode (separate from general caching).",
+    )
 
     model_config = ConfigDict(
         env_file=".env", case_sensitive=False, validate_assignment=True, extra="ignore"

@@ -174,3 +174,43 @@ class TranslationWorker(QObject):
                 self.error.emit(getattr(resp, "error_message", "Translation failed"))
         except Exception as e:
             self.error.emit(str(e))
+
+class StyleWorker(QObject):
+    """Worker for styling (rewriting) text asynchronously using presets."""
+
+    finished = Signal(bool, str)  # success, result_or_error
+    error = Signal(str)
+
+    def __init__(self, text_to_style: str, style_name: str):
+        super().__init__()
+        self.text = text_to_style
+        self.style_name = style_name
+
+    def run(self):
+        try:
+            from ..services.translation_service import get_translation_service
+            service = get_translation_service()
+
+            # Create and use a new event loop in this thread to avoid conflicting with Qt's loop
+            loop = asyncio.new_event_loop()
+            try:
+                asyncio.set_event_loop(loop)
+                resp = loop.run_until_complete(
+                    service.style_text_async(
+                        self.text,
+                        style_name=self.style_name,
+                        use_cache=True,
+                    )
+                )
+            finally:
+                try:
+                    loop.close()
+                except Exception:
+                    pass
+
+            if resp and getattr(resp, "success", False):
+                self.finished.emit(True, resp.translated_text or "")
+            else:
+                self.error.emit(getattr(resp, "error_message", "Styling failed"))
+        except Exception as e:
+            self.error.emit(str(e))

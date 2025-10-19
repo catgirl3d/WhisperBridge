@@ -37,6 +37,15 @@ class TranslationResponse:
     cached: bool = False
 
 
+@dataclass
+class StyleRequest:
+    """Request data for text styling (rewriting) API."""
+    text: str
+    style_name: str
+    style_prompt: str
+    model: str
+
+
 def format_translation_prompt(request: TranslationRequest) -> str:
     """Format translation prompt for GPT API.
 
@@ -57,6 +66,17 @@ Text to translate:
 {request.text}
 """
     return prompt
+
+
+def format_style_prompt(request: StyleRequest) -> str:
+    """Format user message for text styling.
+
+    System prompt should contain the style instructions (request.style_prompt).
+    The user content is the raw text (optionally with a minimal preface).
+    """
+    return f"""Text to rewrite:
+{request.text}
+"""
 
 
 def validate_translation_response(response: TranslationResponse) -> bool:
