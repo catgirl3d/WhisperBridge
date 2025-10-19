@@ -279,8 +279,9 @@ class TranslationService:
         logger.info(f"Starting style rewrite for text: '{text[:30]}...' with style '{style_name}'")
 
         try:
+            # Get model and cache settings once
             intended_model = self._get_active_model()
-            cache_enabled = use_cache and config_service.get_setting("cache_enabled")
+            stylist_cache_enabled = use_cache and config_service.get_setting("stylist_cache_enabled")
 
             # Resolve style preset
             settings = config_service.get_settings()
@@ -311,20 +312,21 @@ class TranslationService:
                 model=intended_model,
             )
 
-            # Cache check (reuse TranslationCache with encoded key parts)
-            stylist_cache_enabled = config_service.get_setting("stylist_cache_enabled")
-            if cache_enabled and stylist_cache_enabled:
-                cached = self._cache.get(text, f"style:{style_name}", "-", intended_model)
-                if cached:
+            # Check cache
+            if stylist_cache_enabled:
+                cached_result = self._cache.get(text, f"style:{style_name}", "-", intended_model)
+                if cached_result:
                     logger.info("Style result found in cache")
                     return self._make_response(
                         success=True,
-                        translated_text=cached,
+                        translated_text=cached_result,
                         source_lang="style",
                         target_lang=style_name,
                         model=intended_model,
                         cached=True,
                     )
+                else:
+                    logger.info("Style result not found in cache.")
 
             if not self._api_manager.is_initialized():
                 raise RuntimeError("API manager not initialized")
@@ -364,7 +366,8 @@ class TranslationService:
             raw_text = response.choices[0].message.content
             styled_text = parse_gpt_response(raw_text).strip()
 
-            if cache_enabled and stylist_cache_enabled:
+            # Cache successful result (if we got here, the operation was successful)
+            if stylist_cache_enabled:
                 self._cache.put(
                     text,
                     styled_text,
