@@ -2,6 +2,8 @@
 
 [README Українською](README.UA.md)
 
+![1](docs/img/_251020140250.png) 
+
 Desktop application for instant on-screen text translation using OCR and GPT API. Capture a screen region, extract text, and show the translation in an overlay, triggered by a global hotkey.
 
 ## Features
