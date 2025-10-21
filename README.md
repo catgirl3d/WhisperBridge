@@ -1,6 +1,7 @@
 # WhisperBridge
 
-[README Українською](README.UA.md)
+
+### [DOWNLOAD](https://github.com/catgirl3d/WhisperBridge/releases/tag/WhisperBridge-v1.0.0-alpha) | [README Українською](README.UA.md)
 
 ![1](docs/img/_251020140250.png) 
 
@@ -36,10 +37,10 @@ pip install -r requirements.txt
 ```
 
 ### Run
-
+ 
 ```bash
 # Run application with Qt UI
-python scripts/run_qt_app.py
+python src/main.py
 ```
 
 ## Configuration
@@ -69,7 +70,6 @@ In the Settings window you can configure:
 
 | File | Description |
 |------|-------------|
-| `scripts/run_qt_app.py` | Qt interface launcher |
 | `src/main.py` | Application entry point |
 | `src/whisperbridge/core/config.py` | Settings and configuration model |
 | `src/whisperbridge/ui_qt/app.py` | Qt application and initialization |

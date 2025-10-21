@@ -651,7 +651,7 @@ class UIService:
             self.logger.info(f"Starting OCR worker for region: {region}")
 
             worker = CaptureOcrTranslateWorker(region=region)
-            self.app.create_and_run_worker(worker, self.app._handle_worker_finished, self._handle_worker_error)
+            self.app.create_and_run_worker(worker, self.app._handle_worker_finished, self.app._handle_worker_error)
 
             self.logger.info("OCR worker started successfully")
 

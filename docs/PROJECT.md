@@ -5,21 +5,17 @@ WhisperBridge is a desktop application for fast on-screen text extraction and tr
 ## Development
 
 Run the Qt UI during development:
-- Launcher script: [scripts/run_qt_app.py](scripts/run_qt_app.py)
-  - This launcher prepares the environment and imports the runtime entry located at [src/main.py](src/main.py).
+- Development entrypoint: [src/main.py](src/main.py)
+  - Initializes logging, creates the Qt application, and starts the event loop.
   - Command:
-    - python scripts/run_qt_app.py
+    - python src/main.py
 
 Runtime entrypoint used during development:
 - Application entry module: [src/main.py](src/main.py)
   - Initializes logging, creates the Qt application, and starts the event loop.
 
 Packaging and console script mapping:
-- Declared console script in [pyproject.toml](pyproject.toml):
-  - whisperbridge = "whisperbridge.main:main"
-- Current code layout does not include a packaged module at [src/whisperbridge/main.py](src/whisperbridge/main.py). To make the console script work when packaging, either:
-  - Add a thin wrapper module under [src/whisperbridge/](src/whisperbridge/) that imports and calls the actual entry in [src/main.py](src/main.py), or
-  - Update the console script mapping in [pyproject.toml](pyproject.toml) to point to a stable in-package entry.
+- Packaging console script: pyproject.toml currently defines whisperbridge = whisperbridge.main:main. Runtime entry (development) is now src/main.py. Consider updating the console script mapping to point to src.main:main if you want the package entry to match the in-repo runtime entry.
 
 ## Architecture
 
@@ -157,15 +153,14 @@ Conditional registration:
 - Provider defaults and model names live in [src/whisperbridge/core/config.py](src/whisperbridge/core/config.py). When adding/removing providers, update both [pyproject.toml](pyproject.toml) and configuration defaults.
 - OCR initialization is opt-in by default. If OCR-dependent hotkeys must always be available, enable initialization in settings or provide an explicit initialization action in UI logic.
 - Packaging alignment:
-  - Console script mapping in [pyproject.toml](pyproject.toml) should target a stable in-package entry under [src/whisperbridge/](src/whisperbridge/) or add a wrapper [src/whisperbridge/main.py](src/whisperbridge/main.py) delegating to [src/main.py](src/main.py).
+  - Packaging console script: pyproject.toml currently defines whisperbridge = whisperbridge.main:main. Runtime entry (development) is now src/main.py. Consider updating the console script mapping to point to src.main:main if you want the package entry to match the in-repo runtime entry.
 - Documentation reference for threading and UI rules:
   - [docs/THREADS_SIGNALS.md](docs/THREADS_SIGNALS.md)
 
 ## Quick References
 
 Core / entry points:
-- Launcher: [scripts/run_qt_app.py](scripts/run_qt_app.py)
-- Development entry: [src/main.py](src/main.py)
+- Launcher: [src/main.py](src/main.py)
 - Qt app module: [src/whisperbridge/ui_qt/app.py](src/whisperbridge/ui_qt/app.py)
 
 Core infrastructure and configuration:

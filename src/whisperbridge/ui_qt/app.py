@@ -311,6 +311,16 @@ class QtApp(QObject, SettingsObserver):
         except Exception as e:
             logger.error(f"Error in _handle_worker_finished delegate: {e}", exc_info=True)
 
+    @Slot(str)
+    def _handle_worker_error(self, error_message: str):
+        """Slot to handle worker error signal — delegate to UIService."""
+        try:
+            logger.error("Worker error slot invoked in main thread (delegating to UIService)")
+            if self.ui:
+                self.ui._handle_worker_error(error_message)
+        except Exception as e:
+            logger.error(f"Error in _handle_worker_error delegate: {e}", exc_info=True)
+
     def create_and_run_worker(self, worker: RunnableWorker, on_finished, on_error):
         """Centralized creates, configures, and starts a QThread for the worker."""
         thread = QThread()

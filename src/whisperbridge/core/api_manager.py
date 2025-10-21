@@ -8,6 +8,10 @@ error handling, retry logic, and usage monitoring.
 import json
 import threading
 import time
+import os
+import sys
+import platform
+import importlib
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import Enum
@@ -129,6 +133,7 @@ class APIManager:
         self._is_initialized = False
         self._model_cache: Dict[APIProvider, tuple] = {}  # (models_list, timestamp)
         self._model_cache_ttl = 1209600  # 2 weeks cache
+        self._diag_logged = False  # log network/SSL diagnostics once
 
     def _get_model_cache_path(self) -> Path:
         """Return path to persistent model cache file."""
@@ -404,6 +409,47 @@ class APIManager:
         # Unknown error
         return APIError(APIErrorType.UNKNOWN, str(error))
 
+    def _log_network_diagnostics(self):
+        """Log one-shot diagnostics to investigate crashes in frozen builds."""
+        try:
+            info: Dict[str, Any] = {
+                "frozen": getattr(sys, "frozen", False),
+                "meipass": getattr(sys, "_MEIPASS", None),
+                "python": sys.version,
+                "platform": platform.platform(),
+                "executable": getattr(sys, "executable", None),
+                "SSL_CERT_FILE": os.environ.get("SSL_CERT_FILE"),
+                "REQUESTS_CA_BUNDLE": os.environ.get("REQUESTS_CA_BUNDLE"),
+            }
+            # certifi
+            try:
+                import certifi  # type: ignore
+                info["certifi.where"] = certifi.where()
+                info["certifi.file"] = getattr(certifi, "__file__", None)
+            except Exception as e:
+                info["certifi.error"] = str(e)
+
+            def _mod_info(name: str) -> Dict[str, Any]:
+                try:
+                    m = importlib.import_module(name)
+                    return {
+                        "file": getattr(m, "__file__", None),
+                        "version": getattr(m, "__version__", None),
+                    }
+                except Exception as ex:
+                    return {"error": str(ex)}
+
+            # Critical runtime modules
+            info["openai"] = _mod_info("openai")
+            info["httpx"] = _mod_info("httpx")
+            info["httpcore"] = _mod_info("httpcore")
+            info["h11"] = _mod_info("h11")
+            info["pydantic_core"] = _mod_info("pydantic_core")
+
+            logger.debug(f"Network diagnostics (once): {info}")
+        except Exception as e:
+            logger.debug(f"Failed to log network diagnostics: {e}")
+
     @requires_initialization
     @retry(
         stop=stop_after_attempt(3),
@@ -420,6 +466,9 @@ class APIManager:
 
         try:
             logger.debug(f"Making API request to provider '{provider.value}' with args: {kwargs}")
+            if not self._diag_logged:
+                self._log_network_diagnostics()
+                self._diag_logged = True
             start_time = time.time()
             response = client.chat.completions.create(**kwargs)
             request_time = time.time() - start_time

@@ -19,36 +19,46 @@ def setup_logging(config_service: ConfigService):
     """Configure Loguru logger based on application settings."""
     logger.remove()  # Remove default handler
 
-    log_level = config_service.get_setting("log_level", use_cache=False)
-    log_to_file = config_service.get_setting("log_to_file", use_cache=False)
-    max_log_size = config_service.get_setting("max_log_size", use_cache=False)
+    # Read settings with safe fallbacks
+    log_level = (config_service.get_setting("log_level", use_cache=False) or "INFO").upper()
+    log_to_file = bool(config_service.get_setting("log_to_file", use_cache=False) or False)
+    max_log_size = int(config_service.get_setting("max_log_size", use_cache=False) or 10)
 
-    # Console logger
-    logger.add(
-        sys.stderr,
-        level=log_level.upper(),
-        format="<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | "
-        "<level>{level: <8}</level> | "
-        "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>",
-        colorize=True,
-    )
+    # Check if console is available (not None in windowed builds)
+    console_available = sys.stderr is not None
 
-    if log_to_file:
-        log_path = get_log_path()
-        log_path.mkdir(parents=True, exist_ok=True)
-        log_file = log_path / "whisperbridge.log"
-
+    # Console logger (only if available)
+    if console_available:
         logger.add(
-            log_file,
-            level=log_level.upper(),
-            rotation=f"{max_log_size} MB",
-            retention="10 days",
-            compression="zip",
-            encoding="utf-8",
-            format="{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | {name}:{function}:{line} - {message}",
-            enqueue=True,  # Make logging non-blocking
-            backtrace=True,
-            diagnose=True,
+            sys.stderr,
+            level=log_level,
+            format="<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | "
+            "<level>{level: <8}</level> | "
+            "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>",
+            colorize=True,
         )
+
+    # File logger (always enabled for frozen builds or if configured)
+    if log_to_file or getattr(sys, 'frozen', False):
+        try:
+            log_path = get_log_path()
+            log_path.mkdir(parents=True, exist_ok=True)
+            log_file = log_path / "whisperbridge.log"
+
+            logger.add(
+                log_file,
+                level=log_level,
+                rotation=f"{max_log_size} MB",
+                retention="10 days",
+                compression="zip",
+                encoding="utf-8",
+                format="{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | {name}:{function}:{line} - {message}",
+                enqueue=True,  # Make logging non-blocking
+                backtrace=True,
+                diagnose=True,
+            )
+        except Exception as e:
+            # Fallback: log to null sink if file logging fails
+            logger.add(lambda msg: None, level=log_level)
 
     logger.info("Logger initialized")

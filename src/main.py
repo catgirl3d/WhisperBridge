@@ -7,10 +7,45 @@ for quick text translation using OCR and GPT API.
 
 import asyncio
 import sys
+import os
+import threading
+import traceback
+from datetime import datetime
+from pathlib import Path
 
-from .whisperbridge.core.logger import logger, setup_logging
-from .whisperbridge.services.config_service import config_service
-from .whisperbridge.ui_qt.app import init_qt_app
+# Early crash logging for frozen builds
+def _get_crash_log_path() -> Path:
+    try:
+        if getattr(sys, 'frozen', False):
+            return Path(sys.executable).parent / "crash.log"
+        else:
+            return Path.home() / ".whisperbridge" / "logs" / "crash.log"
+    except Exception:
+        return Path.cwd() / "crash.log"
+
+def log_crash(error: Exception):
+    """Log unhandled exceptions to crash.log"""
+    try:
+        crash_path = _get_crash_log_path()
+        crash_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(crash_path, 'a', encoding='utf-8') as f:
+            f.write(f"{os.linesep}=== CRASH ==={os.linesep}")
+            f.write(f"Time: {datetime.now().isoformat()}{os.linesep}")
+            f.write(f"Frozen: {getattr(sys, 'frozen', False)}; Executable: {getattr(sys, 'executable', None)}{os.linesep}")
+            f.write(f"Error: {repr(error)}{os.linesep}")
+            # Use explicit exception formatting to capture correct traceback
+            tb_str = ''.join(traceback.format_exception(type(error), error, error.__traceback__))
+            f.write(f"Traceback:{os.linesep}{tb_str}{os.linesep}")
+    except Exception:
+        pass  # Silent fail for crash logging
+
+try:
+    from whisperbridge.core.logger import logger, setup_logging
+    from whisperbridge.services.config_service import config_service
+    from whisperbridge.ui_qt.app import init_qt_app
+except Exception as e:
+    log_crash(e)
+    raise
 
 
 async def main():
@@ -29,11 +64,36 @@ async def main():
         logger.info("Application interrupted by user")
     except Exception as e:
         logger.error(f"Application error: {e}")
+        log_crash(e)
         sys.exit(1)
     finally:
         logger.info("WhisperBridge application stopped")
 
 
 if __name__ == "__main__":
-    # Run with asyncio for async operations
-    asyncio.run(main())
+    # Route uncaught exceptions to crash.log (main and threads)
+    try:
+        def _excepthook(exc_type, exc, tb):
+            try:
+                log_crash(exc)
+            finally:
+                # Also print to stderr if available
+                traceback.print_exception(exc_type, exc, tb)
+        sys.excepthook = _excepthook
+
+        def _thread_excepthook(args):
+            try:
+                log_crash(args.exc_value)
+            finally:
+                # Also print to stderr if available
+                traceback.print_exception(args.exc_type, args.exc_value, args.exc_traceback)
+        threading.excepthook = _thread_excepthook
+    except Exception:
+        pass
+
+    try:
+        # Run with asyncio for async operations
+        asyncio.run(main())
+    except Exception as e:
+        log_crash(e)
+        raise

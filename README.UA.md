@@ -1,6 +1,6 @@
 # WhisperBridge
 
-[README ENGLISH](README.md)
+### [README ENGLISH](README.md) | [ЗАВАНТАЖИТИ](https://github.com/catgirl3d/WhisperBridge/releases/tag/WhisperBridge-v1.0.0-alpha)
 
 ![1](docs/img/_251020140250.png) 
 
@@ -36,10 +36,10 @@ pip install -r requirements.txt
 ```
 
 ### Запуск
-
+ 
 ```bash
 # Запуск програми з Qt інтерфейсом
-python scripts/run_qt_app.py
+python src/main.py
 ```
 
 ## Конфігурація
@@ -69,7 +69,6 @@ python scripts/run_qt_app.py
 
 | Файл | Опис |
 |------|------|
-| `scripts/run_qt_app.py` | Лаунчер Qt інтерфейсу |
 | `src/main.py` | Точка входу програми |
 | `src/whisperbridge/core/config.py` | Модель налаштувань та конфігурації |
 | `src/whisperbridge/ui_qt/app.py` | Qt програма та ініціалізація |
