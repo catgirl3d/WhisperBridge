@@ -1,6 +1,6 @@
 # WhisperBridge
 
-### [README ENGLISH](README.md) | [ЗАВАНТАЖИТИ](https://github.com/catgirl3d/WhisperBridge/releases/tag/WhisperBridge-v1.0.0-alpha)
+### [README ENGLISH](README.md) | [ЗАВАНТАЖИТИ](https://github.com/catgirl3d/WhisperBridge/releases)
 
 ![1](docs/img/_251020140250.png) 
 

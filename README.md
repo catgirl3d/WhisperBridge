@@ -1,7 +1,7 @@
 # WhisperBridge
 
 
-### [DOWNLOAD](https://github.com/catgirl3d/WhisperBridge/releases/tag/WhisperBridge-v1.0.0-alpha) | [README Українською](README.UA.md)
+### [DOWNLOAD](https://github.com/catgirl3d/WhisperBridge/releases) | [README Українською](README.UA.md)
 
 ![1](docs/img/_251020140250.png) 
 
