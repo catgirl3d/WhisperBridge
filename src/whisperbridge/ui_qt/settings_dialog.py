@@ -31,6 +31,7 @@ from ..services.config_service import config_service, SettingsObserver
 from ..core.api_manager import get_api_manager, APIProvider
 from ..core.config import delete_api_key, validate_api_key_format
 from loguru import logger
+from ..core.version import get_version
 from .workers import ApiTestWorker
 
 
@@ -334,6 +335,10 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
         self.translation_cache_checkbox = QCheckBox("Enable caching for translations")
         self.translation_cache_checkbox.setToolTip("If enabled, translation results will be cached to avoid repeated API calls for the same text and language pair.")
         ui_layout.addRow(self.translation_cache_checkbox)
+
+        # Application version (read from package metadata / setuptools-scm)
+        version_value = QLabel(get_version())
+        ui_layout.addRow("Version:", version_value)
 
         layout.addWidget(ui_group)
         layout.addStretch()

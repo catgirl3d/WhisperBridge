@@ -9,6 +9,7 @@ from PySide6.QtGui import QIcon
 from typing import Any, Dict, Optional, Protocol, cast
 
 from loguru import logger
+from ..core.version import get_version
 from PySide6.QtCore import QObject, QThread, Signal, Slot
 from PySide6.QtWidgets import QApplication
 
@@ -55,7 +56,7 @@ class QtApp(QObject, SettingsObserver):
 
         # Configure application
         self.qt_app.setApplicationName("WhisperBridge")
-        self.qt_app.setApplicationVersion("1.0.0")
+        self.qt_app.setApplicationVersion(get_version())
         self.qt_app.setOrganizationName("WhisperBridge")
         # Set application icon
         icon_path = os.path.join(

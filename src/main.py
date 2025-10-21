@@ -48,7 +48,7 @@ except Exception as e:
     raise
 
 
-async def main():
+async def _async_main():
     """Main application entry point."""
     try:
         # Setup logging
@@ -68,6 +68,15 @@ async def main():
         sys.exit(1)
     finally:
         logger.info("WhisperBridge application stopped")
+
+
+def main():
+    """Console script entry point wrapper for setuptools."""
+    try:
+        asyncio.run(_async_main())
+    except Exception as e:
+        log_crash(e)
+        raise
 
 
 if __name__ == "__main__":
@@ -93,7 +102,7 @@ if __name__ == "__main__":
 
     try:
         # Run with asyncio for async operations
-        asyncio.run(main())
+        main()
     except Exception as e:
         log_crash(e)
         raise

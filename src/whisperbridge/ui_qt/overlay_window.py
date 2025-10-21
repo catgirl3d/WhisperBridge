@@ -29,8 +29,9 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
-from ..services.config_service import config_service
+from ..services.config_service import config_service, SettingsObserver
 from ..utils.language_utils import detect_language, get_language_name, get_supported_languages
+from ..core.config import validate_api_key_format
 from typing import List, Optional
 from .styled_overlay_base import StyledOverlayWindow
 from .workers import TranslationWorker, StyleWorker
@@ -187,17 +188,42 @@ class PanelWidget(QFrame):
 
     def eventFilter(self, obj, event):
         # Hover-based autohide for compact mode
-        if self._autohide and self.side_panel and obj in (self, self.side_panel):
-            if event.type() == QEvent.Type.Enter:
-                self.side_panel.setFixedWidth(28)
-                for b in self.buttons:
-                    b.setVisible(True)
-            elif event.type() == QEvent.Type.Leave:
-                if not self.side_panel.underMouse() and not self.underMouse():
-                    self.side_panel.setFixedWidth(1)
+        try:
+            autohide = getattr(self, '_autohide', False)
+            side_panel = getattr(self, 'side_panel', None)
+            if autohide and side_panel and obj in (self, side_panel):
+                if event.type() == QEvent.Type.Enter:
+                    side_panel.setFixedWidth(28)
                     for b in self.buttons:
-                        b.setVisible(False)
+                        b.setVisible(True)
+                elif event.type() == QEvent.Type.Leave:
+                    if not side_panel.underMouse() and not self.underMouse():
+                        side_panel.setFixedWidth(1)
+                        for b in self.buttons:
+                            b.setVisible(False)
+        except Exception as e:
+            logger.debug(f"PanelWidget eventFilter error: {e}")
         return False
+
+
+class _OverlaySettingsObserver(SettingsObserver):
+    """Lightweight observer to react to settings changes affecting API readiness."""
+    def __init__(self, owner):
+        self._owner = owner
+
+    def on_settings_changed(self, key, old_value, new_value):
+        try:
+            if key in ("api_provider", "openai_api_key", "google_api_key", "api_timeout"):
+                if hasattr(self._owner, "_update_api_state_and_ui"):
+                    self._owner._update_api_state_and_ui()
+        except Exception as e:
+            logger.debug(f"Overlay observer change handler error: {e}")
+
+    def on_settings_loaded(self, settings):
+        self.on_settings_changed("loaded", None, None)
+
+    def on_settings_saved(self, settings):
+        self.on_settings_changed("saved", None, None)
 
 
 class OverlayWindow(StyledOverlayWindow):
@@ -215,6 +241,21 @@ class OverlayWindow(StyledOverlayWindow):
         self._init_ui()
         self._init_language_controls()
         self._connect_signals()
+
+        # Observe settings changes to react to provider/key updates
+        try:
+            self._settings_observer = _OverlaySettingsObserver(self)
+            config_service.add_observer(self._settings_observer)
+        except Exception as e:
+            logger.debug(f"Failed to add settings observer: {e}")
+        try:
+            # Re-check UI state after async settings saves
+            config_service.saved_async_result.connect(lambda *_: self._update_api_state_and_ui())
+        except Exception as e:
+            logger.debug(f"Failed to connect saved_async_result: {e}")
+
+        # Initial API state check for button/status
+        self._update_api_state_and_ui()
 
         logger.debug("OverlayWindow initialized")
 
@@ -238,6 +279,9 @@ class OverlayWindow(StyledOverlayWindow):
         self.icon_eraser = qta.icon("fa5s.eraser", color="black")
         self.icon_copy = qta.icon("fa5.copy", color="black")
         self.icon_check_green = qta.icon("fa5s.check", color="green")
+        # Disabled-state visuals
+        self.icon_lock_white = qta.icon("fa5s.lock", color="white")
+        self.icon_lock_grey = qta.icon("fa5s.lock", color="#757575")
 
         self.original_label = QLabel("Original:")
         self._set_bold_font(self.original_label)
@@ -605,6 +649,142 @@ class OverlayWindow(StyledOverlayWindow):
         if self.target_combo.currentData() != ui_target_language:
             self._set_combo_data(self.target_combo, "en")
 
+    def _is_api_ready(self) -> tuple[bool, str]:
+        """Check whether API calls can proceed given current provider/key settings."""
+        try:
+            provider = (config_service.get_setting("api_provider") or "openai").strip().lower()
+            if provider not in ("openai", "google"):
+                provider = "openai"
+
+            key = config_service.get_setting(f"{provider}_api_key")
+            if not key:
+                return False, f"{provider.capitalize()} API key is not configured"
+
+            try:
+                if validate_api_key_format(key, provider):
+                    return True, ""
+                else:
+                    return False, f"{provider.capitalize()} API key format is invalid"
+            except Exception:
+                # Conservative fallback: consider presence sufficient if validator fails
+                return True, ""
+        except Exception as e:
+            logger.debug(f"API readiness check failed: {e}")
+            return False, "API key is not configured"
+
+    def _apply_disabled_translate_visuals(self, reason_msg: str) -> None:
+        """Apply strong disabled visuals for the Translate/Style button."""
+        try:
+            if not hasattr(self, "translate_btn") or not self.translate_btn:
+                return
+
+            # Determine compact mode safely
+            compact = False
+            try:
+                compact = bool(getattr(getattr(self, "_cached_settings", None), "compact_view", False))
+            except Exception:
+                compact = False
+
+            # Disable and set cursor/tooltip
+            self.translate_btn.setEnabled(False)
+            try:
+                self.translate_btn.setCursor(Qt.CursorShape.ForbiddenCursor)
+            except Exception:
+                pass
+            try:
+                self.translate_btn.setToolTip(reason_msg or "API key is not configured. Open Settings to add a key.")
+            except Exception:
+                pass
+
+            # Visual style and icon per mode
+            if compact:
+                # Compact: small square button → gray with white lock
+                self.translate_btn.setStyleSheet(
+                    "QPushButton { background-color: #9e9e9e; color: #ffffff; border: none; border-radius: 4px; font-weight: bold; padding: 0px; margin: 0px; }"
+                )
+                try:
+                    self.translate_btn.setIcon(self.icon_lock_white)
+                except Exception:
+                    pass
+            else:
+                # Full: wider button → light gray bg, muted text, gray lock icon
+                self.translate_btn.setStyleSheet(
+                    "QPushButton { background-color: #e0e0e0; color: #9e9e9e; border: 1px solid #cfcfcf; border-radius: 4px; }"
+                )
+                try:
+                    self.translate_btn.setIcon(self.icon_lock_grey)
+                except Exception:
+                    pass
+        except Exception as e:
+            logger.debug(f"Failed to apply disabled translate visuals: {e}")
+
+    def _restore_enabled_translate_visuals(self) -> None:
+        """Restore normal visuals for the Translate/Style button."""
+        try:
+            if not hasattr(self, "translate_btn") or not self.translate_btn:
+                return
+
+            # Avoid re-enabling visuals during an active request
+            if getattr(self, "_translation_start_time", None) is None:
+                self.translate_btn.setEnabled(True)
+
+            # Restore cursor/tooltip
+            try:
+                self.translate_btn.setCursor(Qt.CursorShape.ArrowCursor)
+            except Exception:
+                pass
+            try:
+                self.translate_btn.setToolTip("")
+            except Exception:
+                pass
+
+            # Re-apply normal style/icon based on compact mode
+            compact = False
+            try:
+                compact = bool(getattr(getattr(self, "_cached_settings", None), "compact_view", False))
+            except Exception:
+                compact = False
+
+            # Re-apply standard button styles for current mode
+            try:
+                self._apply_button_style(self.translate_btn, compact)
+            except Exception:
+                # Fallback to clearing the stylesheet
+                self.translate_btn.setStyleSheet("")
+
+            # Restore translation icon
+            try:
+                self.translate_btn.setIcon(self.icon_translation)
+                self.translate_btn.setIconSize(QSize(14, 14))
+            except Exception:
+                pass
+        except Exception as e:
+            logger.debug(f"Failed to restore enabled translate visuals: {e}")
+
+    def _update_api_state_and_ui(self) -> None:
+        """Enable/disable action button and set high-priority status when API key is missing/invalid."""
+        try:
+            ready, msg = self._is_api_ready()
+
+            # Strong visual treatment for the action button
+            if not ready:
+                self._apply_disabled_translate_visuals(msg)
+            else:
+                self._restore_enabled_translate_visuals()
+
+            # Update status label with priority red message when not ready
+            if hasattr(self, "status_label") and self.status_label:
+                if not ready:
+                    self.status_label.setStyleSheet("color: #c62828; font-weight: 600; font-size: 10px;")
+                    self.status_label.setText(msg)
+                else:
+                    # Restore default style; don't override non-key statuses
+                    self.status_label.setStyleSheet("color: #666; font-size: 10px;")
+                    if "API key" in (self.status_label.text() or ""):
+                        self.status_label.setText("")
+        except Exception as e:
+            logger.debug(f"Failed to update API state/UI: {e}")
+
     def show_loading(self, position: tuple | None = None):
         """Show a minimal loading state at an optional absolute position."""
         try:
@@ -673,6 +853,9 @@ class OverlayWindow(StyledOverlayWindow):
         self.original_panel.configure(compact, autohide)
         self.translated_panel.configure(compact, autohide)
 
+        # Re-apply API state after layout changes to override any button style resets
+        self._update_api_state_and_ui()
+
         logger.debug(f"Layout updated: compact={compact}, autohide={autohide}")
 
     def eventFilter(self, obj, event):
@@ -693,12 +876,16 @@ class OverlayWindow(StyledOverlayWindow):
     def show_overlay(self, original_text: str = "", translated_text: str = "", position: tuple[int, int] | None = None):
         """Show the overlay with specified content."""
         logger.info("Showing overlay window")
+        # Ensure button/state reflect API key presence at time of showing
+        self._update_api_state_and_ui()
 
         settings = config_service.get_settings()
         current_state = getattr(settings, "ocr_auto_swap_en_ru", True)
         self.auto_swap_checkbox.setChecked(current_state)
 
         self._update_layout()
+        # Re-assert API state after layout restyles
+        self._update_api_state_and_ui()
 
         self.original_text.setPlainText(original_text)
         self.translated_text.setPlainText(translated_text)
@@ -760,11 +947,15 @@ class OverlayWindow(StyledOverlayWindow):
         """Clear original text area and reset language label."""
         self._clear_text(self.original_text, self.clear_original_btn, self.detected_lang_label)
         self.status_label.setText("")
+        # Re-assert API state warning if needed
+        self._update_api_state_and_ui()
 
     def _clear_translated_text(self):
         """Clear translated text area."""
         self._clear_text(self.translated_text, self.clear_translated_btn)
         self.status_label.setText("")
+        # Re-assert API state warning if needed
+        self._update_api_state_and_ui()
 
 
     def _on_original_text_changed(self):
@@ -867,10 +1058,13 @@ class OverlayWindow(StyledOverlayWindow):
         worker.moveToThread(thread)
 
         worker.finished.connect(self._on_translation_finished)
+        worker.error.connect(self._on_translation_error)
         thread.started.connect(worker.run)
 
         worker.finished.connect(thread.quit)
+        worker.error.connect(thread.quit)
         worker.finished.connect(worker.deleteLater)
+        worker.error.connect(worker.deleteLater)
         thread.finished.connect(thread.deleteLater)
 
         thread.start()
@@ -883,6 +1077,12 @@ class OverlayWindow(StyledOverlayWindow):
         text = self.original_text.toPlainText().strip()
         if not text:
             logger.info("Translate/Style button clicked with empty original_text")
+            return
+
+        # Guard: API must be ready (key configured/valid)
+        ready, _msg = self._is_api_ready()
+        if not ready:
+            self._update_api_state_and_ui()
             return
 
         # Record start time and update status
@@ -960,6 +1160,43 @@ class OverlayWindow(StyledOverlayWindow):
                     self.translate_btn.setText(prev_text)
             if hasattr(self, "_translation_prev_text"):
                 delattr(self, "_translation_prev_text")
+
+    def _on_translation_error(self, error_message: str):
+        """Handle error from background translation."""
+        try:
+            from PySide6.QtWidgets import QMessageBox
+            QMessageBox.warning(self, "Translation failed", f"Translation error: {error_message}")
+            logger.error(f"Translation failed: {error_message}")
+        finally:
+            # Update status with error indication
+            if self._translation_start_time is not None:
+                import time
+                elapsed = time.time() - self._translation_start_time
+                self.status_label.setText(f"Failed after {elapsed:.1f}s")
+                self._translation_start_time = None
+            else:
+                self.status_label.setText("Failed")
+            # UX: emphasize error state in red (same styling priority as key-missing)
+            try:
+                self.status_label.setStyleSheet("color: #c62828; font-weight: 600; font-size: 10px;")
+            except Exception:
+                pass
+
+            settings = self._cached_settings
+            compact = getattr(settings, "compact_view", False)
+            prev_text = getattr(self, "_translation_prev_text", "Translate")
+            if self.translate_btn:
+                self.translate_btn.setEnabled(True)
+                if not compact:
+                    self.translate_btn.setText(prev_text)
+            if hasattr(self, "_translation_prev_text"):
+                delattr(self, "_translation_prev_text")
+
+            # Re-evaluate API readiness in case the key was changed mid-flight; also reapplies disabled visuals if needed
+            try:
+                self._update_api_state_and_ui()
+            except Exception:
+                pass
 
     def _copy_translated_to_clipboard(self):
         """Copy translated text to clipboard."""

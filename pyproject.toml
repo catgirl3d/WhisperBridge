@@ -1,10 +1,10 @@
 [build-system]
-requires = ["setuptools>=61.0", "wheel"]
+requires = ["setuptools>=61.0", "wheel", "setuptools-scm[toml]>=8.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "whisperbridge"
-version = "1.0.0"
+dynamic = ["version"]
 description = "Desktop application for quick text translation using OCR and GPT API"
 readme = "README.md"
 license = {text = "MIT"}
@@ -86,7 +86,7 @@ Repository = "https://github.com/yourusername/whisperbridge"
 Changelog = "https://github.com/yourusername/whisperbridge/blob/main/CHANGELOG.md"
 
 [project.scripts]
-whisperbridge = "whisperbridge.main:main"
+whisperbridge = "src.main:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
@@ -96,6 +96,9 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 whisperbridge = ["assets/*", "config/*", "assets/icons/*", "assets/sounds/*", "assets/themes/*"]
+
+[tool.setuptools_scm]
+write_to = "src/whisperbridge/_version.py"
 
 [tool.black]
 line-length = 200
