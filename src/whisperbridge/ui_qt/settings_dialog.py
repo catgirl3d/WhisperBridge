@@ -88,6 +88,9 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
         # Load current values
         self._load_settings()
 
+        # Update Stylist tab visibility based on initial provider
+        self._update_stylist_tab_visibility()
+
     def dismiss(self):
         """Dismiss the settings dialog by hiding it."""
         self.hide()
@@ -112,6 +115,7 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
             "activation_hotkey": (self.activation_hotkey_edit, "text", "setText"),
             "copy_translate_hotkey": (self.copy_translate_hotkey_edit, "text", "setText"),
             "auto_copy_translated": (self.auto_copy_translated_check, "isChecked", "setChecked"),
+            "auto_copy_translated_main_window": (self.auto_copy_translated_main_window_check, "isChecked", "setChecked"),
             "clipboard_poll_timeout_ms": (self.clipboard_poll_timeout_spin, "value", "setValue"),
             "theme": (self.theme_combo, "currentText", "setCurrentText"),
             "log_level": (self.log_level_combo, "currentText", "setCurrentText"),
@@ -289,10 +293,15 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
         copy_group = QGroupBox("Copy-Translate Options")
         copy_layout = QFormLayout(copy_group)
 
-        # Automatically copy translated text to clipboard
-        self.auto_copy_translated_check = QCheckBox("Automatically copy translated text to clipboard")
-        self.auto_copy_translated_check.setToolTip("If enabled, translated text will be copied to the clipboard automatically after translation.")
+        # Automatically copy translated text to clipboard (hotkey mode)
+        self.auto_copy_translated_check = QCheckBox("Automatically copy translated text to clipboard (hotkey mode)")
+        self.auto_copy_translated_check.setToolTip("If enabled, translated text will be copied to the clipboard automatically after translation via hotkey.")
         copy_layout.addRow(self.auto_copy_translated_check)
+
+        # Automatically copy translated text to clipboard (main translator window)
+        self.auto_copy_translated_main_window_check = QCheckBox("Automatically copy translated text to clipboard (main translator window)")
+        self.auto_copy_translated_main_window_check.setToolTip("If enabled, translated text will be copied to the clipboard automatically after translation in the main translator window.")
+        copy_layout.addRow(self.auto_copy_translated_main_window_check)
 
         # Clipboard polling timeout (ms)
         self.clipboard_poll_timeout_spin = QSpinBox()
@@ -388,6 +397,7 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
         layout.addStretch()
 
         self.tab_widget.addTab(tab, "Stylist")
+        self._stylist_tab = tab
 
     def _load_text_styles(self, settings):
         """Populate styles_table from settings.text_styles."""
@@ -495,6 +505,28 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
         """Gets the current provider name, normalized."""
         return self.api_provider_combo.currentText().strip().lower()
 
+    def _update_stylist_tab_visibility(self):
+        """Update the visibility of the Stylist tab and related settings based on the current provider."""
+        provider = self._get_current_provider()
+        stylist_tab_index = self.tab_widget.indexOf(self._stylist_tab) if hasattr(self, '_stylist_tab') else -1
+        if stylist_tab_index == -1:
+            # Find the Stylist tab by name
+            for i in range(self.tab_widget.count()):
+                if self.tab_widget.tabText(i) == "Stylist":
+                    stylist_tab_index = i
+                    self._stylist_tab = self.tab_widget.widget(i)
+                    break
+
+        if stylist_tab_index != -1:
+            is_visible = provider != "deepl"
+            self.tab_widget.setTabVisible(stylist_tab_index, is_visible)
+            logger.debug(f"Stylist tab visibility set to {is_visible} for provider {provider}")
+
+        # Also update the stylist cache checkbox visibility
+        if hasattr(self, 'stylist_cache_checkbox'):
+            self.stylist_cache_checkbox.setVisible(provider != "deepl")
+            logger.debug(f"Stylist cache checkbox visibility set to {provider != 'deepl'} for provider {provider}")
+
     def _load_settings(self, settings=None):
         """Load current settings into the UI."""
         if settings is None:
@@ -522,6 +554,11 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
             self._load_text_styles(settings)
         except Exception as e:
             logger.warning(f"Failed to load text styles into UI: {e}")
+
+        # Update stylist cache checkbox visibility based on current provider
+        provider = self._get_current_provider()
+        if hasattr(self, 'stylist_cache_checkbox'):
+            self.stylist_cache_checkbox.setVisible(provider != "deepl")
 
     def _on_save(self):
         """Handle save button click."""
@@ -804,6 +841,7 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
 
         self._update_api_key_field(settings)
         self._load_models(provider_name=provider, model_to_select=model_to_restore)
+        self._update_stylist_tab_visibility()
 
     # SettingsObserver methods
     def on_settings_changed(self, key: str, old_value, new_value):

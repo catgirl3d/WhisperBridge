@@ -336,37 +336,43 @@ class UIService:
     def toggle_overlay(self):
         """Toggle overlay visibility. If no overlay exists, create a basic fullscreen overlay."""
         self.logger.info("UIService: toggling overlay")
+        main_overlay_id = "main"
         try:
-            if self.overlay_windows:
-                overlay_id = next(iter(self.overlay_windows.keys()))
-                overlay = self.overlay_windows[overlay_id]
+            if main_overlay_id in self.overlay_windows:
+                overlay = self.overlay_windows[main_overlay_id]
                 try:
                     if getattr(overlay, "is_overlay_visible", lambda: False)():
-                        overlay.hide_overlay()
-                        self.logger.debug(f"Overlay {overlay_id} hidden")
+                        # Hide the overlay
+                        try:
+                            overlay.hide_overlay()
+                        except AttributeError:
+                            overlay.hide()
+                        self.logger.debug(f"Overlay {main_overlay_id} hidden")
                     else:
+                        # Show the overlay
                         overlay.show_overlay("", "")
-                        self.logger.debug(f"Overlay {overlay_id} shown")
+                        self.logger.debug(f"Overlay {main_overlay_id} shown")
                     return
                 except Exception as e:
                     self.logger.error(
                         f"UIService: Error while toggling existing overlay: {e}",
                         exc_info=True,
                     )
+                    # If toggle failed, remove the broken overlay and create a new one
+                    del self.overlay_windows[main_overlay_id]
         except Exception as e:
             self.logger.error(
                 f"UIService: Error while accessing overlay_windows: {e}", exc_info=True
             )
 
-        # No overlays exist — create a basic fullscreen overlay (M0) and show it
+        # No overlays exist or toggle failed — create a basic fullscreen overlay and show it
         try:
             self.logger.info(
-                "UIService: No existing overlay found — creating a basic fullscreen overlay (M0)"
+                "UIService: No existing overlay found — creating a basic fullscreen overlay"
             )
-            overlay_id = "main"
-            self.overlay_windows[overlay_id] = OverlayWindow()
-            self.overlay_windows[overlay_id].show_overlay("", "")
-            self.logger.info(f"Created and showed overlay '{overlay_id}'")
+            self.overlay_windows[main_overlay_id] = OverlayWindow()
+            self.overlay_windows[main_overlay_id].show_overlay("", "")
+            self.logger.info(f"Created and showed overlay '{main_overlay_id}'")
         except Exception as e:
             self.logger.error(
                 f"UIService: Failed to create/show overlay: {e}", exc_info=True

@@ -68,7 +68,10 @@ class Settings(BaseSettings):
 
     # Copy-Translate enhancements
     auto_copy_translated: bool = Field(
-        default=False, description="Automatically copy translated text to clipboard"
+        default=False, description="Automatically copy translated text to clipboard (hotkey mode)"
+    )
+    auto_copy_translated_main_window: bool = Field(
+        default=False, description="Automatically copy translated text to clipboard (main translator window)"
     )
     clipboard_poll_timeout_ms: int = Field(
         default=2000,

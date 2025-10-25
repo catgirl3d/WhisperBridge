@@ -382,8 +382,8 @@ class OverlayWindow(StyledOverlayWindow):
         info_row.setContentsMargins(0, 0, 0, 0)
 
         # Left: Mode selector + Style presets (when Style mode is active)
-        mode_label = QLabel("Mode:")
-        info_row.addWidget(mode_label)
+        self.mode_label = QLabel("Mode:")
+        info_row.addWidget(self.mode_label)
 
         self.mode_combo = QComboBox()
         self.mode_combo.setFixedSize(95, 28)
@@ -811,6 +811,11 @@ class OverlayWindow(StyledOverlayWindow):
                         # Ensure style combo is hidden
                         if hasattr(self, "style_combo") and self.style_combo:
                             self.style_combo.setVisible(False)
+                        # Hide mode controls for DeepL provider
+                        if hasattr(self, "mode_label") and self.mode_label:
+                            self.mode_label.setVisible(False)
+                        if hasattr(self, "mode_combo") and self.mode_combo:
+                            self.mode_combo.setVisible(False)
                     else:
                         # Ensure Style option exists for LLM providers
                         if style_idx == -1:
@@ -818,6 +823,11 @@ class OverlayWindow(StyledOverlayWindow):
                                 self.mode_combo.addItem("Style")
                             except Exception:
                                 pass
+                        # Ensure mode controls are visible for non-DeepL providers
+                        if hasattr(self, "mode_label") and self.mode_label:
+                            self.mode_label.setVisible(True)
+                        if hasattr(self, "mode_combo") and self.mode_combo:
+                            self.mode_combo.setVisible(True)
             except Exception as e:
                 logger.debug(f"Provider capability enforcement failed: {e}")
         except Exception as e:
@@ -1175,6 +1185,19 @@ class OverlayWindow(StyledOverlayWindow):
             if success:
                 self.translated_text.setPlainText(result)
                 logger.info("Translation completed and inserted into translated_text")
+
+                # Auto-copy translated text to clipboard if enabled for main window
+                try:
+                    settings = self._cached_settings
+                    auto_copy_main_window = getattr(settings, "auto_copy_translated_main_window", False)
+                    if auto_copy_main_window:
+                        from PySide6.QtWidgets import QApplication
+                        clipboard = QApplication.clipboard()
+                        clipboard.setText(result)
+                        logger.info("Translated text automatically copied to clipboard (main window)")
+                        self._show_button_feedback(self.copy_translated_btn)
+                except Exception as e:
+                    logger.debug(f"Failed to auto-copy translated text: {e}")
             else:
                 from PySide6.QtWidgets import QMessageBox
                 QMessageBox.warning(self, "Translation failed", f"Translation error: {result}")
