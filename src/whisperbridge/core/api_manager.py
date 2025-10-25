@@ -34,6 +34,7 @@ from ..providers.deepl_adapter import DeepLClientAdapter
 from .config import (
     ensure_config_dir,
     validate_api_key_format,
+    DEEPL_IDENTIFIER,
 )
 
 
@@ -343,7 +344,7 @@ class APIManager:
         if provider == APIProvider.GOOGLE:
             fallback_models = ["gemini-1.5-flash-8b", "gemini-1.5-flash", "gemini-1.5-pro"]
         elif provider == APIProvider.DEEPL:
-            fallback_models = ["deepl-translate"]
+            fallback_models = [DEEPL_IDENTIFIER]
         else:
             fallback_models = self._get_default_models()
         self._cache_models_and_persist(provider, fallback_models)
@@ -566,7 +567,7 @@ class APIManager:
         if selected_provider == APIProvider.DEEPL:
             # DeepL doesn't use real models; use a fixed identifier
             if not final_model:
-                final_model = "deepl-translate"
+                final_model = DEEPL_IDENTIFIER
             api_params = {
                 "model": final_model,
                 "messages": messages,
@@ -741,7 +742,7 @@ class APIManager:
                 models_response = client.models.list()
                 all_models = [m.id for m in models_response.data]
                 logger.debug(f"All available DEEPL models from API: {all_models}")
-                models = all_models or ["deepl-translate"]
+                models = all_models or [DEEPL_IDENTIFIER]
             else:
                 return [], ModelSource.ERROR.value
 

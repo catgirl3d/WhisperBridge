@@ -29,7 +29,7 @@ from PySide6.QtCore import QThread, Signal, QObject
 
 from ..services.config_service import config_service, SettingsObserver
 from ..core.api_manager import get_api_manager, APIProvider
-from ..core.config import delete_api_key, validate_api_key_format
+from ..core.config import delete_api_key, validate_api_key_format, requires_model_selection, supports_stylist
 from loguru import logger
 from ..core.version import get_version
 from .workers import ApiTestWorker
@@ -518,14 +518,15 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
                     break
 
         if stylist_tab_index != -1:
-            is_visible = provider != "deepl"
+            is_visible = supports_stylist(provider)
             self.tab_widget.setTabVisible(stylist_tab_index, is_visible)
             logger.debug(f"Stylist tab visibility set to {is_visible} for provider {provider}")
 
         # Also update the stylist cache checkbox visibility
         if hasattr(self, 'stylist_cache_checkbox'):
-            self.stylist_cache_checkbox.setVisible(provider != "deepl")
-            logger.debug(f"Stylist cache checkbox visibility set to {provider != 'deepl'} for provider {provider}")
+            visible = supports_stylist(provider)
+            self.stylist_cache_checkbox.setVisible(visible)
+            logger.debug(f"Stylist cache checkbox visibility set to {visible} for provider {provider}")
 
     def _load_settings(self, settings=None):
         """Load current settings into the UI."""
@@ -558,7 +559,7 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
         # Update stylist cache checkbox visibility based on current provider
         provider = self._get_current_provider()
         if hasattr(self, 'stylist_cache_checkbox'):
-            self.stylist_cache_checkbox.setVisible(provider != "deepl")
+            self.stylist_cache_checkbox.setVisible(supports_stylist(provider))
 
     def _on_save(self):
         """Handle save button click."""
@@ -581,8 +582,8 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
             model_text = self.model_combo.currentText().strip()
  
             setattr(settings_to_save, f"{provider}_api_key", api_key_text)
-            # DeepL не имеет поля модели в Settings; пропускаем установку '{provider}_model'
-            if provider != "deepl":
+            # Only providers requiring model selection keep '{provider}_model'
+            if requires_model_selection(provider):
                 setattr(settings_to_save, f"{provider}_model", model_text)
 
             # Collect Text Stylist presets from UI
@@ -727,19 +728,19 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
         logger.debug(f"Loading models for provider: {provider}")
         logger.debug(f"Model to select: '{model_to_select}'")
 
-        # Special case: DeepL doesn't use selectable models — hide the control
-        if provider == "deepl":
+        # Special case: providers without model selection — hide the control
+        if not requires_model_selection(provider):
             try:
                 self.model_combo.clear()
-                self.model_combo.addItem("DeepL Translation Engine")
+                self.model_combo.addItem("Translation Engine")
                 self.model_combo.setEnabled(False)
-                # Hide model selection UI for DeepL
+                # Hide model selection UI
                 self.model_combo.setVisible(False)
                 if hasattr(self, "model_label") and self.model_label:
                     self.model_label.setVisible(False)
-                logger.debug("DeepL selected - model selection hidden/disabled")
+                logger.debug("Provider without model selection - model selection hidden/disabled")
             except Exception as e:
-                logger.debug(f"Failed to apply DeepL model UI constraints: {e}")
+                logger.debug(f"Failed to apply model UI constraints: {e}")
             return
         else:
             # Ensure model UI is visible/enabled for LLM providers
@@ -834,8 +835,8 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
         provider = self._get_current_provider()
         settings = config_service.get_settings()
 
-        # Get the model that was saved for the new provider
-        model_to_restore = getattr(settings, f"{provider}_model", None)
+        # Get the model that was saved for the new provider (only when needed)
+        model_to_restore = getattr(settings, f"{provider}_model", None) if requires_model_selection(provider) else None
 
         logger.debug(f"🔄 Provider changed to {provider}, attempting to restore model: '{model_to_restore}'")
 

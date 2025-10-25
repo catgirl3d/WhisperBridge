@@ -195,6 +195,23 @@ class Settings(BaseSettings):
         return v.upper()
 
 
+# Provider capability constants and helpers (centralize DeepL specifics)
+DEEPL_IDENTIFIER = "deepl-translate"
+
+
+def is_llm_provider(provider: str) -> bool:
+    """Return True if provider is LLM-based (supports system prompts, stylist, model selection)."""
+    return (provider or "").strip().lower() in ("openai", "google")
+
+
+def requires_model_selection(provider: str) -> bool:
+    """Return True if provider requires explicit model selection in UI and API calls."""
+    return is_llm_provider(provider)
+
+
+def supports_stylist(provider: str) -> bool:
+    """Return True if provider supports Text Stylist feature."""
+    return is_llm_provider(provider)
 
 
 def get_config_path() -> Path:
