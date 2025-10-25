@@ -62,11 +62,9 @@ class TrayManager(QObject):
             icon_path = os.path.join(
                 os.path.dirname(__file__),
                 "..",
-                "..",
-                "..",
                 "assets",
                 "icons",
-                "app_tray.png",
+                "app_icon.png",
             )
             if os.path.exists(icon_path):
                 self.tray_icon.setIcon(QIcon(icon_path))

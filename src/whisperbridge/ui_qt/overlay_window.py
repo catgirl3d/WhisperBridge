@@ -213,7 +213,7 @@ class _OverlaySettingsObserver(SettingsObserver):
 
     def on_settings_changed(self, key, old_value, new_value):
         try:
-            if key in ("api_provider", "openai_api_key", "google_api_key", "api_timeout"):
+            if key in ("api_provider", "openai_api_key", "google_api_key", "deepl_api_key", "api_timeout"):
                 if hasattr(self._owner, "_update_api_state_and_ui"):
                     self._owner._update_api_state_and_ui()
         except Exception as e:
@@ -653,7 +653,7 @@ class OverlayWindow(StyledOverlayWindow):
         """Check whether API calls can proceed given current provider/key settings."""
         try:
             provider = (config_service.get_setting("api_provider") or "openai").strip().lower()
-            if provider not in ("openai", "google"):
+            if provider not in ("openai", "google", "deepl"):
                 provider = "openai"
 
             key = config_service.get_setting(f"{provider}_api_key")
@@ -782,6 +782,44 @@ class OverlayWindow(StyledOverlayWindow):
                     self.status_label.setStyleSheet("color: #666; font-size: 10px;")
                     if "API key" in (self.status_label.text() or ""):
                         self.status_label.setText("")
+
+            # Enforce provider capabilities (disable Style mode for DeepL)
+            try:
+                provider = (config_service.get_setting("api_provider") or "openai").strip().lower()
+                if hasattr(self, "mode_combo") and self.mode_combo:
+                    # Helper to find index by visible text
+                    def _find_index_by_text(combo, text: str) -> int:
+                        for i in range(combo.count()):
+                            if (combo.itemText(i) or "").strip().lower() == text.lower():
+                                return i
+                        return -1
+
+                    style_idx = _find_index_by_text(self.mode_combo, "Style")
+                    if provider == "deepl":
+                        # If currently on Style, switch to Translate before removing the item
+                        try:
+                            if (self.mode_combo.currentText() or "").strip().lower() == "style":
+                                trans_idx = _find_index_by_text(self.mode_combo, "Translate")
+                                if trans_idx != -1:
+                                    self.mode_combo.setCurrentIndex(trans_idx)
+                                    self._apply_mode_visibility("Translate")
+                        except Exception:
+                            pass
+                        # Remove Style option
+                        if style_idx != -1:
+                            self.mode_combo.removeItem(style_idx)
+                        # Ensure style combo is hidden
+                        if hasattr(self, "style_combo") and self.style_combo:
+                            self.style_combo.setVisible(False)
+                    else:
+                        # Ensure Style option exists for LLM providers
+                        if style_idx == -1:
+                            try:
+                                self.mode_combo.addItem("Style")
+                            except Exception:
+                                pass
+            except Exception as e:
+                logger.debug(f"Provider capability enforcement failed: {e}")
         except Exception as e:
             logger.debug(f"Failed to update API state/UI: {e}")
 

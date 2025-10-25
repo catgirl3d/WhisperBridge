@@ -47,7 +47,6 @@ class SettingsManager:
 
         # Global caching settings (used by TranslationService; OCR cache removed)
         data.setdefault("cache_enabled", True)
-        data.setdefault("cache_ttl", 3600)
         data.setdefault("max_cache_size", 100)
 
         return data
@@ -58,7 +57,6 @@ class SettingsManager:
 
         # Add newer fields
         data.setdefault("supported_languages", ["en", "ru", "es", "fr", "de"])
-        data.setdefault("thread_pool_size", 4)
         data.setdefault("log_to_file", True)
 
         return data

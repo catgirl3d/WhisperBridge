@@ -216,12 +216,27 @@ class QtApp(QObject, SettingsObserver):
         except Exception as e:
             logger.error(f"Error handling initialize_ocr change: {e}", exc_info=True)
 
+    def _handle_notification_setting_change(self, key: str, old_value, new_value):
+        """Handle changes to notification visibility setting."""
+        if key != "show_notifications":
+            return
+        try:
+            if self.notifier:
+                if bool(new_value):
+                    self.notifier.enable()
+                else:
+                    self.notifier.disable()
+            logger.info(f"Notifications {'enabled' if new_value else 'disabled'} via settings")
+        except Exception as e:
+            logger.error(f"Error handling show_notifications change: {e}", exc_info=True)
+
     # SettingsObserver methods
     def on_settings_changed(self, key: str, old_value, new_value):
         """Called when a setting value changes."""
         self._handle_hotkey_setting_change(key, old_value, new_value)
         self._handle_ocr_setting_change(key, old_value, new_value)
-
+        self._handle_notification_setting_change(key, old_value, new_value)
+        
     def on_settings_loaded(self, settings):
         """Called when settings are loaded."""
         pass
@@ -243,11 +258,11 @@ class QtApp(QObject, SettingsObserver):
         self.activate_ocr_signal.emit()
 
     def _on_quick_translate_hotkey(self):
-        """Handle quick translation hotkey press - triggers OCR capture."""
-        logger.info("Quick translation hotkey pressed - starting OCR capture")
+        """Handle quick translation hotkey press - shows overlay translator window."""
+        logger.info("Quick translation hotkey pressed - showing overlay translator")
         quick_translate_hotkey = config_service.get_setting("quick_translate_hotkey", use_cache=False)
         logger.debug(f"Hotkey: {quick_translate_hotkey}")
-        self.activate_ocr_signal.emit()
+        self.toggle_overlay_signal.emit()
 
     def _on_activation_hotkey(self):
         """Handle application activation hotkey press."""

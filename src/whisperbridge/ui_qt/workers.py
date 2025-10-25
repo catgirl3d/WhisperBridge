@@ -13,9 +13,11 @@ from PySide6.QtCore import QObject, Signal
 from ..core.api_manager import get_api_manager, APIProvider
 from ..core.config import Settings
 from ..core.settings_manager import settings_manager
+from ..services.config_service import config_service
 from ..services.ocr_service import get_ocr_service
 from ..services.ocr_translation_service import get_ocr_translation_coordinator
 from ..services.screen_capture_service import get_capture_service
+from ..providers.deepl_adapter import DeepLClientAdapter
 from ..utils.screen_utils import Rectangle
 
 
@@ -117,21 +119,39 @@ class ApiTestWorker(QObject):
     def run(self):
         """Test the API key by delegating to APIManager with a temporary key and emit models to avoid double fetch."""
         try:
-            api_manager = get_api_manager()
-            if not api_manager.is_initialized():
-                api_manager.initialize()
-            provider_enum = APIProvider(self.provider)
-            models, source = api_manager.get_available_models_sync(
-                provider=provider_enum, temp_api_key=self.api_key
-            )
-            if source in ("error", "unconfigured"):
-                self.error.emit("API error or invalid key")
-            elif not models:
-                self.error.emit("No models available for this API key")
+            if self.provider == "deepl":
+                # Special handling for DeepL: perform a real translation request
+                plan = config_service.get_setting("deepl_plan") or "free"
+                client = DeepLClientAdapter(api_key=self.api_key, timeout=10, plan=plan)
+                response = client.chat.completions.create(
+                    model="deepl-translate",
+                    messages=[{"role": "user", "content": "Hello"}],
+                    target_lang="DE"
+                )
+                if response and response.choices and response.choices[0].message.content:
+                    self.finished.emit(True, "", ["deepl-translate"], "api")
+                else:
+                    self.finished.emit(False, "DeepL test failed: empty response", [], "api")
             else:
-                self.finished.emit(True, "", models, source)
+                # Existing behavior for OpenAI/Google
+                api_manager = get_api_manager()
+                if not api_manager.is_initialized():
+                    api_manager.initialize()
+                provider_enum = APIProvider(self.provider)
+                models, source = api_manager.get_available_models_sync(
+                    provider=provider_enum, temp_api_key=self.api_key
+                )
+                if source in ("error", "unconfigured"):
+                    self.error.emit("API error or invalid key")
+                elif not models:
+                    self.error.emit("No models available for this API key")
+                else:
+                    self.finished.emit(True, "", models, source)
         except Exception as e:
-            self.error.emit(f"Ошибка подключения: {str(e)}")
+            if self.provider == "deepl":
+                self.finished.emit(False, f"DeepL test failed: {str(e)}", [], "api")
+            else:
+                self.error.emit(f"Connection error: {str(e)}")
 
 
 class TranslationWorker(QObject):

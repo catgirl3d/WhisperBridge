@@ -78,7 +78,18 @@ class AppServices(QObject):
                 self.notification_service.set_tray_manager(self.ui_service.tray_manager)
         except Exception as e:
             logger.debug(f"AppServices: Failed to set tray manager on NotificationService: {e}")
-
+        
+        # Apply initial 'show_notifications' setting
+        try:
+            show = bool(config_service.get_setting("show_notifications", use_cache=False))
+            if show:
+                self.notification_service.enable()
+            else:
+                self.notification_service.disable()
+            logger.debug(f"AppServices: NotificationService initial state &#45;> {'enabled' if show else 'disabled'}")
+        except Exception as e:
+            logger.debug(f"AppServices: Failed to apply show_notifications setting: {e}")
+        
         # Copy-translate service
         self.copy_translate_service = CopyTranslateService(
             tray_manager=(self.ui_service.tray_manager if self.ui_service else None),

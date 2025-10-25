@@ -26,6 +26,10 @@ class Settings(BaseSettings):
     google_api_key: Optional[str] = Field(
         default=None, description="Google Generative AI API key (stored securely)"
     )
+    deepl_api_key: Optional[str] = Field(
+        default=None, description="DeepL API key (stored securely)"
+    )
+    deepl_plan: str = Field(default="free", description="DeepL plan type ('free' or 'pro')")
     api_provider: str = Field(default="openai", description="API provider")
     openai_model: str = Field(default="gpt-5-nano", description="Default OpenAI model")
     google_model: str = Field(default="gemini-1.5-flash", description="Default Google model")
@@ -58,7 +62,7 @@ class Settings(BaseSettings):
 
     # Hotkeys
     translate_hotkey: str = Field(default="ctrl+shift+t", description="Translate hotkey")
-    quick_translate_hotkey: str = Field(default="ctrl+shift+q", description="Quick translate hotkey")
+    quick_translate_hotkey: str = Field(default="ctrl+shift+q", description="Quick translate hotkey (overlay translator)")
     activation_hotkey: str = Field(default="ctrl+shift+a", description="Activation hotkey")
     copy_translate_hotkey: str = Field(default="ctrl+shift+j", description="Hotkey that copies selected text and translates it")
 
@@ -104,9 +108,7 @@ class Settings(BaseSettings):
 
     # Performance Settings
     cache_enabled: bool = Field(default=True, description="Enable caching")
-    cache_ttl: int = Field(default=3600, description="Cache TTL in seconds")
     max_cache_size: int = Field(default=100, description="Maximum cache size")
-    thread_pool_size: int = Field(default=4, description="Thread pool size")
 
     # Logging Settings
     log_level: str = Field(default="INFO", description="Logging level")
@@ -204,30 +206,8 @@ def ensure_config_dir() -> Path:
     return config_path
 
 
-def load_api_key(provider: str = "openai") -> Optional[str]:
-    """Load API key for the given provider from keyring."""
-    try:
-        if provider.lower() == "google":
-            return keyring.get_password("whisperbridge", "google_api_key")
-        # default to openai for backward compatibility
-        return keyring.get_password("whisperbridge", "openai_api_key")
-    except Exception as e:
-        logger.warning(f"Failed to load {provider} API key from keyring: {e}")
-        return None
 
 
-def save_api_key(api_key: str, provider: str = "openai") -> bool:
-    """Save API key for the given provider to keyring."""
-    try:
-        if provider.lower() == "google":
-            keyring.set_password("whisperbridge", "google_api_key", api_key)
-        else:
-            keyring.set_password("whisperbridge", "openai_api_key", api_key)
-        logger.info(f"{provider.capitalize()} API key saved to keyring")
-        return True
-    except Exception as e:
-        logger.error(f"Failed to save {provider} API key to keyring: {e}")
-        return False
 
 
 def delete_api_key(provider: str = "openai") -> bool:
@@ -235,6 +215,8 @@ def delete_api_key(provider: str = "openai") -> bool:
     try:
         if provider.lower() == "google":
             keyring.delete_password("whisperbridge", "google_api_key")
+        elif provider.lower() == "deepl":
+            keyring.delete_password("whisperbridge", "deepl_api_key")
         else:
             keyring.delete_password("whisperbridge", "openai_api_key")
         logger.info(f"{provider.capitalize()} API key deleted from keyring")
@@ -250,6 +232,7 @@ def validate_api_key_format(api_key: str, provider: Optional[str] = "openai") ->
     Supported providers:
       - openai: keys start with 'sk-' and contain 20+ characters (letters, digits, '-', or '_') after the prefix
       - google: keys start with 'AIza' followed by 35+ URL-safe characters (letters, digits, '_' or '-')
+      - deepl: UUID-style key, DeepL Free keys often end with ':fx' (suffix optional)
     """
     if not api_key or not isinstance(api_key, str):
         return False
@@ -263,6 +246,13 @@ def validate_api_key_format(api_key: str, provider: Optional[str] = "openai") ->
         if prov == "google":
             pattern = r"^AIza[0-9A-Za-z_-]{35,}$"
             return bool(re.match(pattern, api_key))
+        if prov == "deepl":
+            # Match 8-4-4-4-12 hex UUID, optional ':fx' suffix (DeepL Free)
+            pattern = r"^[0-9A-Fa-f]{8}-(?:[0-9A-Fa-f]{4}-){3}[0-9A-Fa-f]{12}(:fx)?$"
+            if re.match(pattern, api_key):
+                return True
+            # Allow generic long keys as a fallback
+            return len(api_key) >= 16
         # Generic fallback for unknown providers
         return len(api_key) >= 16
     except Exception:

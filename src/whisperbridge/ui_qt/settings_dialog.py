@@ -69,11 +69,11 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
         layout.addWidget(self.tab_widget)
 
         # Create tabs
+        self._create_general_tab()
         self._create_api_tab()
         self._create_translation_tab()
         self._create_ocr_tab()
         self._create_hotkeys_tab()
-        self._create_general_tab()
         self._create_stylist_tab()
 
         # Create buttons
@@ -143,7 +143,7 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
         provider_layout = QFormLayout(provider_group)
 
         self.api_provider_combo = QComboBox()
-        self.api_provider_combo.addItems(["openai", "google"])
+        self.api_provider_combo.addItems(["openai", "google", "deepl"])
         self.api_provider_combo.currentTextChanged.connect(self._on_provider_changed)
         provider_layout.addRow("Provider:", self.api_provider_combo)
 
@@ -174,10 +174,11 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
         model_group = QGroupBox("Model Settings")
         model_layout = QFormLayout(model_group)
 
+        self.model_label = QLabel("Model:")
         self.model_combo = QComboBox()
         # Allow custom model input
         self.model_combo.setEditable(True)
-        model_layout.addRow("Model:", self.model_combo)
+        model_layout.addRow(self.model_label, self.model_combo)
 
         # Don't load models here - they will be loaded in _load_settings
         logger.debug("Skipping model loading in _create_api_tab - will load in _load_settings")
@@ -266,13 +267,13 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
         hotkey_group = QGroupBox("Hotkey Configuration")
         hotkey_layout = QFormLayout(hotkey_group)
 
-        self.translate_hotkey_edit = QLineEdit()
-        hotkey_layout.addRow("Translate Hotkey:", self.translate_hotkey_edit)
-
         self.quick_translate_hotkey_edit = QLineEdit()
-        hotkey_layout.addRow("Quick Translate Hotkey:", self.quick_translate_hotkey_edit)
+        hotkey_layout.addRow("Show Translator Window:", self.quick_translate_hotkey_edit)
         self.activation_hotkey_edit = QLineEdit()
-        hotkey_layout.addRow("Activation Hotkey:", self.activation_hotkey_edit)
+        hotkey_layout.addRow("Activation:", self.activation_hotkey_edit)
+
+        self.translate_hotkey_edit = QLineEdit()
+        hotkey_layout.addRow("Translate:", self.translate_hotkey_edit)
 
         self.copy_translate_hotkey_edit = QLineEdit()
         hotkey_layout.addRow("Copy→Translate Hotkey:", self.copy_translate_hotkey_edit)
@@ -541,9 +542,11 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
             provider = self._get_current_provider()
             api_key_text = self.api_key_edit.text().strip() or None
             model_text = self.model_combo.currentText().strip()
-
+ 
             setattr(settings_to_save, f"{provider}_api_key", api_key_text)
-            setattr(settings_to_save, f"{provider}_model", model_text)
+            # DeepL не имеет поля модели в Settings; пропускаем установку '{provider}_model'
+            if provider != "deepl":
+                setattr(settings_to_save, f"{provider}_model", model_text)
 
             # Collect Text Stylist presets from UI
             try:
@@ -636,6 +639,8 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
                     msg = "Invalid API key format (expected OpenAI key with 'sk-' prefix and valid structure)."
                 elif provider == "google":
                     msg = "Invalid API key format (expected Google key with 'AIza' prefix and valid structure)."
+                elif provider == "deepl":
+                    msg = "Invalid API key format (expected DeepL key like UUID; free keys may end with ':fx')."
                 QMessageBox.warning(self, "Validation Error", msg)
                 return
         except Exception as e:
@@ -684,6 +689,30 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
         logger.debug("=== _load_models called ===")
         logger.debug(f"Loading models for provider: {provider}")
         logger.debug(f"Model to select: '{model_to_select}'")
+
+        # Special case: DeepL doesn't use selectable models — hide the control
+        if provider == "deepl":
+            try:
+                self.model_combo.clear()
+                self.model_combo.addItem("DeepL Translation Engine")
+                self.model_combo.setEnabled(False)
+                # Hide model selection UI for DeepL
+                self.model_combo.setVisible(False)
+                if hasattr(self, "model_label") and self.model_label:
+                    self.model_label.setVisible(False)
+                logger.debug("DeepL selected - model selection hidden/disabled")
+            except Exception as e:
+                logger.debug(f"Failed to apply DeepL model UI constraints: {e}")
+            return
+        else:
+            # Ensure model UI is visible/enabled for LLM providers
+            try:
+                if hasattr(self, "model_label") and self.model_label:
+                    self.model_label.setVisible(True)
+                self.model_combo.setVisible(True)
+                self.model_combo.setEnabled(True)
+            except Exception:
+                pass
 
         # Clear current models
         self.model_combo.clear()

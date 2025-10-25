@@ -160,16 +160,20 @@ class TranslationService:
         provider = config_service.get_setting("api_provider")
         if not provider:
             raise ValueError("API provider is not configured in settings.")
-
+    
+        # DeepL doesn't use real models; return fixed identifier
+        if str(provider).strip().lower() == "deepl":
+            return "deepl-translate"
+    
         model_setting_key = f"{provider.lower()}_model"
         model = config_service.get_setting(model_setting_key)
-
+    
         if not model:
             raise ValueError(
                 f"Model for provider '{provider}' is not configured. "
                 f"Expected setting: '{model_setting_key}'"
             )
-
+    
         return model
 
     async def _determine_languages(self, text: str, ui_source_lang: Optional[str], ui_target_lang: Optional[str]) -> tuple[str, str]:
@@ -428,20 +432,42 @@ class TranslationService:
             )
 
         try:
-            # Format messages for GPT
-            messages = [
-                {"role": "system", "content": request.system_prompt},
-                {"role": "user", "content": format_translation_prompt(request)},
-            ]
-
-            # Delegate provider selection, model adjustment, and API call to the manager
-            response, final_model = self._api_manager.make_translation_request(
-                messages=messages, model_hint=request.model
-            )
-
-            # Extract translation from response
-            raw_text = response.choices[0].message.content
-            translated_text = parse_gpt_response(raw_text).strip()
+            # Determine provider and prepare request accordingly
+            provider_name = (config_service.get_setting("api_provider") or "openai").strip().lower()
+    
+            if provider_name == "deepl":
+                # DeepL flow: no system prompts; send raw user text and pass langs explicitly
+                messages = [
+                    {"role": "user", "content": request.text},
+                ]
+                # Map 'auto' to None to let DeepL auto-detect
+                source_arg = None if (request.source_lang or "auto") == "auto" else request.source_lang
+                target_arg = request.target_lang
+    
+                response, final_model = self._api_manager.make_translation_request(
+                    messages=messages,
+                    model_hint="deepl-translate",
+                    target_lang=target_arg,
+                    source_lang=source_arg,
+                )
+    
+                raw_text = response.choices[0].message.content
+                translated_text = (raw_text or "").strip()
+            else:
+                # LLM flow (OpenAI/Google): use system prompt + formatted user prompt
+                messages = [
+                    {"role": "system", "content": request.system_prompt},
+                    {"role": "user", "content": format_translation_prompt(request)},
+                ]
+    
+                # Delegate provider selection, model adjustment, and API call to the manager
+                response, final_model = self._api_manager.make_translation_request(
+                    messages=messages, model_hint=request.model
+                )
+    
+                # Extract translation from response
+                raw_text = response.choices[0].message.content
+                translated_text = parse_gpt_response(raw_text).strip()
 
             return self._make_response(
                 success=True,

@@ -165,16 +165,14 @@ class HotkeyService:
             else:
                 logger.info("OCR disabled: skipping registration of main translate hotkey")
 
-            # Register quick translate hotkey only if OCR is enabled (OCR-dependent)
-            if initialize_ocr and current_settings.quick_translate_hotkey != current_settings.translate_hotkey:
+            # Register quick translate hotkey (shows overlay translator window)
+            if current_settings.quick_translate_hotkey != current_settings.translate_hotkey:
                 self.keyboard_manager.register_hotkey(
                     current_settings.quick_translate_hotkey,
                     on_quick_translate,
-                    "Quick translation hotkey (OCR capture)",
+                    "Quick translation hotkey (overlay translator)",
                 )
-                logger.info(f"Registered OCR-dependent hotkey: {current_settings.quick_translate_hotkey}")
-            elif not initialize_ocr:
-                logger.info("OCR disabled: skipping registration of quick translate hotkey")
+                logger.info(f"Registered overlay translator hotkey: {current_settings.quick_translate_hotkey}")
 
             # Register activation hotkey if different
             if (current_settings.activation_hotkey != current_settings.translate_hotkey and
@@ -198,11 +196,7 @@ class HotkeyService:
             )
             quick_status = (
                 current_settings.quick_translate_hotkey
-                if (
-                    initialize_ocr
-                    and current_settings.quick_translate_hotkey
-                    != current_settings.translate_hotkey
-                )
+                if current_settings.quick_translate_hotkey != current_settings.translate_hotkey
                 else "SKIPPED"
             )
             logger.info(

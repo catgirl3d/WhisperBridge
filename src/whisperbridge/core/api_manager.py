@@ -30,6 +30,7 @@ from tenacity import (
 
 from ..services.config_service import ConfigService, config_service
 from ..providers.google_chat_adapter import GoogleChatClientAdapter
+from ..providers.deepl_adapter import DeepLClientAdapter
 from .config import (
     ensure_config_dir,
     validate_api_key_format,
@@ -52,6 +53,7 @@ class APIProvider(Enum):
 
     OPENAI = "openai"
     GOOGLE = "google"
+    DEEPL = "deepl"
 
 
 class APIErrorType(Enum):
@@ -229,15 +231,16 @@ class APIManager:
     def _initialize_providers(self):
         """Initialize all available API providers.
 
-        This method attempts to initialize both OpenAI and Google providers
+        This method attempts to initialize OpenAI, Google and DeepL providers
         to ensure seamless switching between them in the UI without needing
         to restart or re-save settings.
         """
         logger.debug("Initializing all available API providers.")
 
-        # Always try to initialize both providers
+        # Always try to initialize all providers
         self._init_openai_provider()
         self._init_google_provider()
+        self._init_deepl_provider()
 
         selected_provider = (self.config_service.get_setting("api_provider") or "").strip().lower()
         if not selected_provider:
@@ -307,6 +310,20 @@ class APIManager:
             provider_name="Google Generative AI",
         )
 
+    def _init_deepl_provider(self):
+        """Initialize DeepL translation provider (non-LLM)."""
+        self._initialize_provider(
+            provider=APIProvider.DEEPL,
+            config_key_name="deepl_api_key",
+            key_prefix="",  # DeepL keys don't have a stable prefix
+            client_factory=lambda key, timeout: DeepLClientAdapter(
+                api_key=key,
+                timeout=timeout,
+                plan=(self.config_service.get_setting("deepl_plan") or "free"),
+            ),
+            provider_name="DeepL",
+        )
+
     def _finalize_initialization(self):
         """Finalize initialization with consistent status setting and cache loading."""
         # Allow initialization even without API clients
@@ -325,6 +342,8 @@ class APIManager:
         """Get fallback models with caching."""
         if provider == APIProvider.GOOGLE:
             fallback_models = ["gemini-1.5-flash-8b", "gemini-1.5-flash", "gemini-1.5-pro"]
+        elif provider == APIProvider.DEEPL:
+            fallback_models = ["deepl-translate"]
         else:
             fallback_models = self._get_default_models()
         self._cache_models_and_persist(provider, fallback_models)
@@ -511,20 +530,21 @@ class APIManager:
 
     @requires_initialization
     def make_translation_request(
-        self, messages: List[Dict[str, str]], model_hint: Optional[str] = None
+        self, messages: List[Dict[str, str]], model_hint: Optional[str] = None, **api_kwargs
     ) -> tuple[Any, str]:
         """
         Makes a translation request using the configured provider.
-
+    
         This method encapsulates the logic for:
         1. Selecting the provider specified in the settings.
         2. Applying provider-specific optimizations (e.g., for OpenAI).
         3. Calling the core `make_request_sync` method.
-
+    
         Args:
             messages: A list of messages for the chat completion.
             model_hint: The model name to use for the request.
-
+            api_kwargs: Additional provider-specific kwargs (e.g., target_lang/source_lang for DeepL).
+    
         Returns:
             A tuple containing the API response and the model name used.
         """
@@ -534,26 +554,42 @@ class APIManager:
             selected_provider = APIProvider(provider_name)
         except ValueError:
             raise RuntimeError(f"Invalid API provider '{provider_name}' configured in settings.")
-
+    
         if selected_provider not in self._clients:
             raise RuntimeError(
                 f"The configured API provider '{provider_name}' is not available. "
                 "Please check your API key in the settings."
             )
-
-        # 2. Use the provided model hint directly
+    
+        # 2. Use the provided model hint directly (with DeepL special-case)
         final_model = (model_hint or "").strip()
+        if selected_provider == APIProvider.DEEPL:
+            # DeepL doesn't use real models; use a fixed identifier
+            if not final_model:
+                final_model = "deepl-translate"
+            api_params = {
+                "model": final_model,
+                "messages": messages,
+            }
+            # Pass through DeepL specifics if provided (e.g., target_lang/source_lang)
+            for k, v in (api_kwargs or {}).items():
+                if v is not None:
+                    api_params[k] = v
+            logger.debug(f"Final API parameters for {selected_provider.value}: {api_params}")
+            response = self.make_request_sync(selected_provider, **api_params)
+            return response, final_model
+    
         if not final_model:
             raise ValueError("Model name must be provided for the translation request.")
-
-        # 3. Prepare API call parameters
+    
+        # 3. Prepare API call parameters for LLM providers
         api_params = {
             "model": final_model,
             "messages": messages,
             "temperature": 1,
             "max_completion_tokens": 2048,
         }
-
+    
         if selected_provider == APIProvider.OPENAI:
             if final_model.startswith(("gpt-5", "chatgpt")):
                 api_params["extra_body"] = {"reasoning_effort": "minimal", "verbosity": "low"}
@@ -563,10 +599,10 @@ class APIManager:
                 logger.debug("Using OpenAI GPT optimizations: reasoning_effort=minimal")
         
         logger.debug(f"Final API parameters for {selected_provider.value}: {api_params}")
-
+    
         # 4. Make the API call
         response = self.make_request_sync(selected_provider, **api_params)
-
+    
         return response, final_model
 
     @requires_initialization
@@ -700,6 +736,12 @@ class APIManager:
                 gemini_models.sort(key=_rank)
                 logger.debug(f"Filtered Gemini chat models: {gemini_models}")
                 models = gemini_models
+
+            elif provider == APIProvider.DEEPL:
+                models_response = client.models.list()
+                all_models = [m.id for m in models_response.data]
+                logger.debug(f"All available DEEPL models from API: {all_models}")
+                models = all_models or ["deepl-translate"]
             else:
                 return [], ModelSource.ERROR.value
 
