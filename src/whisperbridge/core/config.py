@@ -30,6 +30,7 @@ class Settings(BaseSettings):
         default=None, description="DeepL API key (stored securely)"
     )
     deepl_plan: str = Field(default="free", description="DeepL plan type ('free' or 'pro')")
+    deepl_identifier: str = Field(default="deepl-translate", description="DeepL model identifier for API compatibility")
     api_provider: str = Field(default="openai", description="API provider")
     openai_model: str = Field(default="gpt-5-nano", description="Default OpenAI model")
     google_model: str = Field(default="gemini-1.5-flash", description="Default Google model")
@@ -88,6 +89,11 @@ class Settings(BaseSettings):
     ocr_languages: List[str] = Field(default=["en", "ru"], description="OCR languages")
     ocr_confidence_threshold: float = Field(default=0.7, description="OCR confidence threshold")
     ocr_timeout: int = Field(default=10, description="OCR timeout in seconds")
+    # OCR build-time flag (default: enabled) - reads from OCR_ENABLED env var
+    ocr_enabled: bool = Field(
+        default=True,
+        description="OCR feature enabled at build time (OCR_ENABLED env var)",
+    )
     # OCR initialization flag (default: disabled)
     initialize_ocr: bool = Field(
         default=False,
@@ -142,8 +148,57 @@ class Settings(BaseSettings):
     )
 
     model_config = ConfigDict(
-        env_file=".env", case_sensitive=False, validate_assignment=True, extra="ignore"
+        env_file=Path(__file__).resolve().parent.parent.parent.parent / ".env",
+        case_sensitive=False, validate_assignment=True, extra="ignore"
     )
+
+    @classmethod
+    def get_project_root(cls) -> Path:
+        """Get project root directory (works from src/ or exe)."""
+        # When running from src/, go up 3 levels: src/whisperbridge/core -> project root
+        # When running from exe, PyInstaller sets sys._MEIPASS to temp dir, but we need project root
+        current = Path(__file__).resolve()
+        # Go up to src/whisperbridge/core, then up 3 more levels to project root
+        return current.parent.parent.parent.parent
+
+    @field_validator("ocr_enabled", mode='before')
+    @classmethod
+    def set_ocr_enabled(cls, v):
+        """
+        Set ocr_enabled from build-time flag, falling back to an environment variable.
+
+        Priority:
+        1. `_build_flags.py` (baked into the executable)
+        2. `OCR_ENABLED` environment variable
+        3. Default to True if neither is found.
+        """
+        # Debug logging
+        env_file_path = cls.model_config.get('env_file')
+        print(f"DEBUG: Pydantic passed ocr_enabled value: {v}")
+        print(f"DEBUG: Pydantic env_file config: {env_file_path}")
+        print(f"DEBUG: Current working directory: {Path.cwd()}")
+        print(f"DEBUG: env_file exists: {env_file_path.exists() if env_file_path else 'N/A'}")
+        if env_file_path and env_file_path.exists():
+            print(f"DEBUG: env_file contents: {env_file_path.read_text().strip()}")
+
+        logger.debug(f"Pydantic passed ocr_enabled value: {v}")
+        logger.debug(f"Pydantic env_file config: {env_file_path}")
+        logger.debug(f"Current working directory: {Path.cwd()}")
+
+        try:
+            # Highest priority: the build-time flag
+            from _build_flags import OCR_ENABLED
+            print(f"DEBUG: Using build-time flag: {OCR_ENABLED}")
+            logger.info(f"OCR enabled: {OCR_ENABLED} (source: build-time flag from _build_flags.py)")
+            return OCR_ENABLED
+        except ImportError:
+            # Pydantic already loaded OCR_ENABLED from .env or environment variables
+            # Just return the value that Pydantic processed
+            print(f"DEBUG: Using Pydantic value: {v}")
+            logger.info(f"OCR enabled: {v} (source: Pydantic environment handling)")
+            return v
+
+    # Build-time flag import is handled by the field_validator above
 
     @field_validator("ui_source_language", "ui_target_language")
     @classmethod
@@ -196,7 +251,10 @@ class Settings(BaseSettings):
 
 
 # Provider capability constants and helpers (centralize DeepL specifics)
-DEEPL_IDENTIFIER = "deepl-translate"
+def get_deepl_identifier() -> str:
+    """Get the DeepL identifier from settings."""
+    from ..services.config_service import config_service
+    return config_service.get_setting("deepl_identifier")
 
 
 def is_llm_provider(provider: str) -> bool:

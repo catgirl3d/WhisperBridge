@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Optional
 
 import httpx
 from loguru import logger
-from ..core.config import DEEPL_IDENTIFIER
+from ..core.config import get_deepl_identifier
 
 __all__ = ["DeepLClientAdapter"]
 
@@ -112,5 +112,5 @@ class DeepLClientAdapter:
 
     def _list_models(self) -> Any:
         # DeepL has no models; return a single pseudo-model for compatibility
-        model_info = SimpleNamespace(id=DEEPL_IDENTIFIER)
+        model_info = SimpleNamespace(id=get_deepl_identifier())
         return SimpleNamespace(data=[model_info])

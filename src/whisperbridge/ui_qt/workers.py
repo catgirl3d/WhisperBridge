@@ -18,7 +18,7 @@ from ..services.ocr_service import get_ocr_service
 from ..services.ocr_translation_service import get_ocr_translation_coordinator
 from ..services.screen_capture_service import get_capture_service
 from ..providers.deepl_adapter import DeepLClientAdapter
-from ..core.config import DEEPL_IDENTIFIER
+from ..core.config import get_deepl_identifier
 from ..utils.screen_utils import Rectangle
 
 
@@ -125,12 +125,12 @@ class ApiTestWorker(QObject):
                 plan = config_service.get_setting("deepl_plan") or "free"
                 client = DeepLClientAdapter(api_key=self.api_key, timeout=10, plan=plan)
                 response = client.chat.completions.create(
-                    model=DEEPL_IDENTIFIER,
+                    model=get_deepl_identifier(),
                     messages=[{"role": "user", "content": "Hello"}],
                     target_lang="DE"
                 )
                 if response and response.choices and response.choices[0].message.content:
-                    self.finished.emit(True, "", [DEEPL_IDENTIFIER], "api")
+                    self.finished.emit(True, "", [get_deepl_identifier()], "api")
                 else:
                     self.finished.emit(False, "DeepL test failed: empty response", [], "api")
             else:

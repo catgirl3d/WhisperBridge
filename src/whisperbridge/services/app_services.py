@@ -13,7 +13,16 @@ from ..core.keyboard_manager import KeyboardManager
 from .notification_service import get_notification_service
 from .copy_translate_service import CopyTranslateService
 from .config_service import config_service
-from .ocr_service import get_ocr_service
+
+# Conditional import for OCR service
+ocr_enabled = config_service.get_settings().ocr_enabled
+if ocr_enabled:
+    from .ocr_service import get_ocr_service
+else:
+    def get_ocr_service():
+        """Stub function when OCR is disabled."""
+        return None
+
 from .translation_service import get_translation_service
 from ..core.api_manager import init_api_manager
 from .clipboard_service import get_clipboard_service
@@ -129,9 +138,11 @@ class AppServices(QObject):
         # OCR conditional init
         try:
             initialize_ocr = config_service.get_setting("initialize_ocr", use_cache=False)
-            if initialize_ocr:
+            if ocr_enabled and initialize_ocr:
                 logger.info("AppServices: OCR initialization enabled; starting background init")
                 self.initialize_ocr_async()
+            elif not ocr_enabled:
+                logger.info("AppServices: OCR disabled at build time - skipping initialization")
             else:
                 logger.info("AppServices: OCR initialization disabled by settings")
         except Exception as e:
@@ -146,6 +157,9 @@ class AppServices(QObject):
         logger.info("AppServices: starting OCR service initialization")
         try:
             ocr_service = get_ocr_service()
+            if ocr_service is None:
+                logger.warning("AppServices: OCR service not available (disabled at build time)")
+                return
 
             def on_complete():
                 try:

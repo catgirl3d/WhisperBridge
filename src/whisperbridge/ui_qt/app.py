@@ -50,14 +50,23 @@ class QtApp(QObject, SettingsObserver):
 
     def __init__(self):
         """Initialize the Qt application."""
+        import time
+        start_time = time.time()
         super().__init__()
+
+        logger.debug(f"QtApp.__init__: Starting (timestamp: {start_time:.3f})")
+
         app_instance = QApplication.instance()
         self.qt_app = cast(QApplication, app_instance if app_instance is not None else QApplication(sys.argv))
+        logger.debug(f"QtApp.__init__: QApplication created in {time.time() - start_time:.3f}s")
 
         # Configure application
         self.qt_app.setApplicationName("WhisperBridge")
-        self.qt_app.setApplicationVersion(get_version())
+        # Defer version setting to initialize() to avoid import delays
+        # self.qt_app.setApplicationVersion(get_version())
         self.qt_app.setOrganizationName("WhisperBridge")
+        logger.debug(f"QtApp.__init__: Basic app config done in {time.time() - start_time:.3f}s")
+
         # Set application icon
         icon_path = os.path.join(
             os.path.dirname(__file__),
@@ -71,6 +80,7 @@ class QtApp(QObject, SettingsObserver):
             logger.debug(f"Loaded application icon from: {icon_path}")
         else:
             logger.warning(f"Application icon not found at: {icon_path}")
+        logger.debug(f"QtApp.__init__: Icon loaded in {time.time() - start_time:.3f}s")
 
         # Prevent app from quitting when all windows are closed (tray keeps it running)
         self.qt_app.setQuitOnLastWindowClosed(False)
@@ -98,11 +108,11 @@ class QtApp(QObject, SettingsObserver):
         self.activate_ocr_signal.connect(self._activate_ocr_slot)
         self.ocr_ready_signal.connect(self._on_ocr_service_ready)
 
-        # Ensure settings are loaded before getting theme
-        _ = config_service.get_settings()
+        # Defer settings loading and theme service initialization to initialize()
+        # _ = config_service.get_settings()
+        # self.theme_service = ThemeService(qt_app=self.qt_app, config_service=config_service)
 
-        # Initialize theme service (centralized theme state lives in ThemeService)
-        self.theme_service = ThemeService(qt_app=self.qt_app, config_service=config_service)
+        logger.debug(f"QtApp.__init__: Completed in {time.time() - start_time:.3f}s")
 
     @property
     def ui(self) -> Optional[UIService]:
@@ -122,7 +132,21 @@ class QtApp(QObject, SettingsObserver):
     def initialize(self):
         """Initialize application components."""
         try:
+            import time
+            init_start = time.time()
             logger.info("Initializing Qt-based WhisperBridge application...")
+
+            # Set application version (deferred from __init__ to avoid import delays)
+            self.qt_app.setApplicationVersion(get_version())
+            logger.debug(f"initialize: Version set in {time.time() - init_start:.3f}s")
+
+            # Ensure settings are loaded before getting theme
+            _ = config_service.get_settings()
+            logger.debug(f"initialize: Settings loaded in {time.time() - init_start:.3f}s")
+
+            # Initialize theme service (centralized theme state lives in ThemeService)
+            self.theme_service = ThemeService(qt_app=self.qt_app, config_service=config_service)
+            logger.debug(f"initialize: Theme service initialized in {time.time() - init_start:.3f}s")
 
             # Centralize service creation and lifecycle
             self.services = AppServices(app=self)
@@ -132,6 +156,7 @@ class QtApp(QObject, SettingsObserver):
                 on_activate=self._on_activation_hotkey,
                 on_copy_translate=self._on_copy_translate_hotkey,
             )
+            logger.debug(f"initialize: Services set up in {time.time() - init_start:.3f}s")
 
             # Services are accessible via self.services.* (no aliases created)
 
@@ -148,7 +173,7 @@ class QtApp(QObject, SettingsObserver):
                 logger.debug(f"Failed to connect saved_async_result signal: {e}")
 
             self.is_running = True
-            logger.info("Qt-based WhisperBridge application initialized successfully")
+            logger.info(f"Qt-based WhisperBridge application initialized successfully in {time.time() - init_start:.3f}s")
 
         except Exception as e:
             logger.error(f"Failed to initialize Qt application: {e}")

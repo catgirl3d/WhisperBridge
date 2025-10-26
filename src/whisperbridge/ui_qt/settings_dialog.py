@@ -100,6 +100,7 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
         self.settings_map = {
             "api_provider": (self.api_provider_combo, "currentText", "setCurrentText"),
             "api_timeout": (self.api_timeout_spin, "value", "setValue"),
+            "deepl_plan": (self.deepl_plan_combo, "currentText", "setCurrentText"),
             "ocr_auto_swap_en_ru": (self.ocr_auto_swap_checkbox, "isChecked", "setChecked"),
             "system_prompt": (self.system_prompt_edit, "toPlainText", "setPlainText"),
             "initialize_ocr": (self.initialize_ocr_check, "isChecked", "setChecked"),
@@ -191,6 +192,15 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
         self.api_timeout_spin.setRange(1, 300)
         model_layout.addRow("Timeout (seconds):", self.api_timeout_spin)
 
+        # DeepL plan selection (controls endpoint free/pro) - visible only for DeepL
+        self.deepl_plan_label = QLabel("DeepL Plan:")
+        self.deepl_plan_combo = QComboBox()
+        self.deepl_plan_combo.addItems(["free", "pro"])
+        self.deepl_plan_combo.setToolTip("Select your DeepL plan to use the correct API endpoint (free/pro).")
+        self.deepl_plan_label.setVisible(False)
+        self.deepl_plan_combo.setVisible(False)
+        model_layout.addRow(self.deepl_plan_label, self.deepl_plan_combo)
+
         layout.addWidget(model_group)
 
         layout.addStretch()
@@ -260,6 +270,7 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
         layout.addWidget(ocr_group)
         layout.addStretch()
 
+        self._ocr_tab = tab
         self.tab_widget.addTab(tab, "OCR")
 
     def _create_hotkeys_tab(self):
@@ -561,6 +572,27 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
         if hasattr(self, 'stylist_cache_checkbox'):
             self.stylist_cache_checkbox.setVisible(supports_stylist(provider))
 
+        # Update OCR tab visibility based on ocr_enabled build flag
+        if hasattr(self, '_ocr_tab'):
+            ocr_tab_index = self.tab_widget.indexOf(self._ocr_tab)
+            if ocr_tab_index != -1:
+                ocr_visible = getattr(settings, 'ocr_enabled', True)
+                self.tab_widget.setTabVisible(ocr_tab_index, ocr_visible)
+                logger.debug(f"OCR tab visibility set to {ocr_visible} based on ocr_enabled={ocr_visible}")
+
+        # Ensure DeepL plan control visibility and value on initial load
+        try:
+            is_deepl = provider == "deepl"
+            if hasattr(self, "deepl_plan_label"):
+                self.deepl_plan_label.setVisible(is_deepl)
+            if hasattr(self, "deepl_plan_combo"):
+                self.deepl_plan_combo.setVisible(is_deepl)
+                # Initialize from settings on load
+                current_plan = getattr(settings, "deepl_plan", None) or config_service.get_setting("deepl_plan") or "free"
+                self.deepl_plan_combo.setCurrentText(current_plan)
+        except Exception as e:
+            logger.debug(f"Failed to initialize DeepL plan controls: {e}")
+
     def _on_save(self):
         """Handle save button click."""
         try:
@@ -844,6 +876,19 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
         self._load_models(provider_name=provider, model_to_select=model_to_restore)
         self._update_stylist_tab_visibility()
 
+        # Toggle DeepL plan UI visibility and value
+        try:
+            is_deepl = provider == "deepl"
+            if hasattr(self, "deepl_plan_label"):
+                self.deepl_plan_label.setVisible(is_deepl)
+            if hasattr(self, "deepl_plan_combo"):
+                self.deepl_plan_combo.setVisible(is_deepl)
+                if is_deepl:
+                    current_plan = getattr(settings, "deepl_plan", None) or config_service.get_setting("deepl_plan") or "free"
+                    self.deepl_plan_combo.setCurrentText(current_plan)
+        except Exception as e:
+            logger.debug(f"Failed to toggle DeepL plan controls: {e}")
+
     # SettingsObserver methods
     def on_settings_changed(self, key: str, old_value, new_value):
         """Called when a setting value changes."""
@@ -871,23 +916,32 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
         # This must be done BEFORE self.current_settings is updated.
         try:
             old_settings = self.current_settings
-            api_keys_changed = settings.api_provider != old_settings.api_provider
+            must_reinit = settings.api_provider != old_settings.api_provider
 
-            if not api_keys_changed:
+            # Reinit when any API key changed
+            if not must_reinit:
                 providers = [self.api_provider_combo.itemText(i) for i in range(self.api_provider_combo.count())]
                 for provider in providers:
                     p_lower = provider.lower()
                     old_key = getattr(old_settings, f"{p_lower}_api_key", None) or ""
                     new_key = getattr(settings, f"{p_lower}_api_key", None) or ""
                     if old_key != new_key:
-                        api_keys_changed = True
+                        must_reinit = True
                         break
-            if api_keys_changed:
+
+            # Reinit when DeepL plan changed (endpoint switch free/pro)
+            try:
+                if getattr(old_settings, "deepl_plan", "free") != getattr(settings, "deepl_plan", "free"):
+                    must_reinit = True
+            except Exception:
+                pass
+
+            if must_reinit:
                 api_manager = get_api_manager()
                 api_manager.reinitialize()
-                logger.info("API manager reinitialized after settings save due to key/provider change.")
+                logger.info("API manager reinitialized after settings save due to configuration change (provider/key/plan).")
             else:
-                logger.debug("API keys/provider unchanged, skipping reinitialization.")
+                logger.debug("Provider, keys and DeepL plan unchanged, skipping reinitialization.")
         except Exception as e:
             logger.error(f"Failed to reinitialize API manager after settings save: {e}")
 

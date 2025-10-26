@@ -42,7 +42,6 @@ def log_crash(error: Exception):
 try:
     from whisperbridge.core.logger import logger, setup_logging
     from whisperbridge.services.config_service import config_service
-    from whisperbridge.ui_qt.app import init_qt_app
 except Exception as e:
     log_crash(e)
     raise
@@ -55,6 +54,9 @@ async def _async_main():
         setup_logging(config_service)
 
         logger.info("Starting WhisperBridge application...")
+
+        # Import Qt app after logging is set up to avoid delays in module imports
+        from whisperbridge.ui_qt.app import init_qt_app
 
         # Create and run application using Qt initializer directly
         app = init_qt_app()

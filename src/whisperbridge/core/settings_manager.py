@@ -164,8 +164,17 @@ class SettingsManager:
                 if google_key:
                     data["google_api_key"] = google_key
 
-                # Create and validate settings
-                self._settings = Settings(**data)
+                # Create settings with environment variables first (including .env)
+                # This ensures ocr_enabled is loaded from .env or build flag
+                temp_settings = Settings()
+
+                # Apply saved settings onto the temp_settings while preserving ocr_enabled
+                # Use model_copy(update=...) to avoid re-validating ocr_enabled twice.
+                update_data = dict(data)  # copy to avoid modifying original
+                update_data.pop("ocr_enabled", None)  # preserve env/build value from temp_settings
+
+                # Merge saved settings into the environment-initialized model
+                self._settings = temp_settings.model_copy(update=update_data)
                 logger.info("Settings loaded successfully")
                 return self._settings
 

@@ -156,11 +156,17 @@ class TrayManager(QObject):
             # Activate OCR action
             self.activate_ocr_action = QAction("Активировать OCR", self)
             self.activate_ocr_action.triggered.connect(self._on_activate_ocr)
-            # Set enabled state based on settings (default: disabled)
+            # Set visibility and enabled state based on ocr_enabled build flag AND initialize_ocr runtime flag
             try:
-                enabled = bool(config_service.get_setting("initialize_ocr", use_cache=False))
+                settings = config_service.get_settings()
+                ocr_build_enabled = getattr(settings, 'ocr_enabled', True)
+                ocr_runtime_enabled = bool(config_service.get_setting("initialize_ocr", use_cache=False))
+                visible = ocr_build_enabled
+                enabled = ocr_build_enabled and ocr_runtime_enabled
             except Exception:
+                visible = False
                 enabled = False
+            self.activate_ocr_action.setVisible(visible)
             self.activate_ocr_action.setEnabled(enabled)
             self.tray_menu.addAction(self.activate_ocr_action)
 
@@ -219,8 +225,15 @@ class TrayManager(QObject):
         """Update the enabled state of the OCR activation menu action."""
         try:
             if hasattr(self, "activate_ocr_action"):
-                self.activate_ocr_action.setEnabled(enabled)
-                logger.debug(f"Tray: OCR menu action enabled state updated to: {enabled}")
+                # Check build-time flag as well
+                try:
+                    settings = config_service.get_settings()
+                    ocr_build_enabled = getattr(settings, 'ocr_enabled', True)
+                    final_enabled = enabled and ocr_build_enabled
+                except Exception:
+                    final_enabled = enabled
+                self.activate_ocr_action.setEnabled(final_enabled)
+                logger.debug(f"Tray: OCR menu action enabled state updated to: {final_enabled} (build: {ocr_build_enabled if 'ocr_build_enabled' in locals() else 'unknown'})")
         except Exception as e:
             logger.error(f"Error updating OCR action enabled state: {e}")
 

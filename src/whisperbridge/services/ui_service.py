@@ -410,6 +410,13 @@ class UIService:
     def activate_ocr(self):
         """Activate OCR selection overlay in the main Qt thread."""
         try:
+            from ..services.config_service import config_service
+            settings = config_service.get_settings()
+            ocr_build_enabled = getattr(settings, 'ocr_enabled', True)
+            if not ocr_build_enabled:
+                self.logger.warning("OCR activation blocked: OCR not enabled at build time (OCR_ENABLED=0)")
+                return
+
             # Ensure OCR overlay exists (created in main thread)
             if 'ocr' not in self.overlay_windows:
                 self.overlay_windows['ocr'] = OverlayWindow()
@@ -654,6 +661,15 @@ class UIService:
     def _start_ocr_worker(self, region: Rectangle):
         """Start OCR worker for the selected region."""
         try:
+            from ..services.config_service import config_service
+            settings = config_service.get_settings()
+            ocr_build_enabled = getattr(settings, 'ocr_enabled', True)
+            if not ocr_build_enabled:
+                self.logger.warning("OCR worker blocked: OCR not enabled at build time (OCR_ENABLED=0)")
+                notification_service = get_notification_service()
+                notification_service.error("OCR is not available in this build.", "WhisperBridge")
+                return
+
             self.logger.info(f"Starting OCR worker for region: {region}")
 
             worker = CaptureOcrTranslateWorker(region=region)

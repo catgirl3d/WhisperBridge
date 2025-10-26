@@ -25,7 +25,7 @@ from ..utils.translation_utils import (
     parse_gpt_response,
     validate_translation_response,
 )
-from ..core.config import DEEPL_IDENTIFIER, requires_model_selection, is_llm_provider
+from ..core.config import get_deepl_identifier, requires_model_selection, is_llm_provider
 
 
 class TranslationCache:
@@ -164,7 +164,7 @@ class TranslationService:
 
         # Providers without model selection (e.g., DeepL) use fixed identifier
         if not requires_model_selection(str(provider)):
-            return DEEPL_IDENTIFIER
+            return get_deepl_identifier()
 
         model_setting_key = f"{provider.lower()}_model"
         model = config_service.get_setting(model_setting_key)
@@ -447,7 +447,7 @@ class TranslationService:
 
                 response, final_model = self._api_manager.make_translation_request(
                     messages=messages,
-                    model_hint=DEEPL_IDENTIFIER,
+                    model_hint=get_deepl_identifier(),
                     target_lang=target_arg,
                     source_lang=source_arg,
                 )

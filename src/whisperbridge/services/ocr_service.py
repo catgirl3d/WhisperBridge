@@ -120,18 +120,26 @@ class OCRService:
         """Initialize EasyOCR engine."""
         start_time = time.time()
         logger.info("Starting OCR service engine initialization")
+
+        # Check if OCR is enabled at runtime
+        ocr_enabled = config_service.get_setting("ocr_enabled", use_cache=False)
+        if not ocr_enabled:
+            logger.warning("OCR disabled - skipping initialization")
+            return False
+
+        # Lazy import EasyOCR
+        try:
+            import easyocr
+        except ImportError:
+            logger.warning("EasyOCR not available - skipping initialization")
+            return False
+
         # Get OCR languages from settings
         languages = self._settings.ocr_languages
         logger.debug(f"OCR languages from settings: {languages}")
 
         try:
             with self._lock:
-                try:
-                    import easyocr
-                except ImportError:
-                    logger.error("EasyOCR not installed")
-                    return False
-
                 logger.info(f"Initializing EasyOCR with languages: {languages}")
                 self._easyocr_reader = easyocr.Reader(languages)
 
