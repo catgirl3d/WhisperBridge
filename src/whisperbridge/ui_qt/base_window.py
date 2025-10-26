@@ -17,4 +17,4 @@ class BaseWindow:
         Вызывает dismiss() для унифицированной логики.
         """
         self.dismiss()
-        event.ignore()  # Игнорируем событие, чтобы не закрывать приложение
+        event.ignore()  # Ignore the event so as not to close the application

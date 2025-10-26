@@ -2,7 +2,7 @@ import os
 import sys
 from unittest.mock import patch, MagicMock
 
-# Добавляем корень проекта в пути Python для корректного импорта модулей
+# Add the project root to Python paths for correct module imports
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 import pytest

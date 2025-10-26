@@ -134,7 +134,7 @@ class TrayManager(QObject):
                 logger.debug("Unable to apply tray menu stylesheet on this platform")
 
             # Show Main Window action
-            show_action = QAction("Окно переводчика", self)
+            show_action = QAction("Translator Window", self)
             # Make the main/primary action visually stand out (bold)
             try:
                 bold_font = QFont()
@@ -149,12 +149,12 @@ class TrayManager(QObject):
             self.tray_menu.addAction(show_action)
 
             # Settings action
-            settings_action = QAction("Настройки", self)
+            settings_action = QAction("Settings", self)
             settings_action.triggered.connect(self._on_open_settings)
             self.tray_menu.addAction(settings_action)
 
             # Activate OCR action
-            self.activate_ocr_action = QAction("Активировать OCR", self)
+            self.activate_ocr_action = QAction("Activate OCR", self)
             self.activate_ocr_action.triggered.connect(self._on_activate_ocr)
             # Set visibility and enabled state based on ocr_enabled build flag AND initialize_ocr runtime flag
             try:
@@ -173,7 +173,7 @@ class TrayManager(QObject):
             self.tray_menu.addSeparator()
 
             # Exit action
-            exit_action = QAction("Выйти", self)
+            exit_action = QAction("Exit", self)
             exit_action.triggered.connect(self._on_exit_app)
             self.tray_menu.addAction(exit_action)
 

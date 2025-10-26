@@ -255,7 +255,7 @@ class ConfigService(QObject):
 
             logger.info("Starting asynchronous settings save from ConfigService.")
 
-            # Создаем копию, чтобы избежать проблем с потоками
+            # Create a copy to avoid threading issues
             settings_copy = settings.model_copy()
 
             # Store the settings being saved for use in callback
@@ -273,7 +273,7 @@ class ConfigService(QObject):
         with self._lock:
             if success:
                 logger.info(f"Async save successful: {message}")
-                # Снимем копию старых настроек для корректной дифф-нотификации
+                # Take a copy of old settings for correct diff-notification
                 old_settings = self._settings.model_copy() if self._settings else None
 
                 # Update in-memory state with the settings that were successfully saved
@@ -282,7 +282,7 @@ class ConfigService(QObject):
                     self._settings = self._last_saved_settings
                     self._invalidate_cache()  # Clear cache since settings changed
 
-                # Уведомим 'saved' и по-раздельности изменения ключей
+                # Notify 'saved' and separately changes to keys
                 new_settings = self.get_settings()
                 self._notify_observers("saved", new_settings)
                 if old_settings:
@@ -296,7 +296,7 @@ class ConfigService(QObject):
         except Exception as e:
             logger.debug(f"Failed to emit saved_async_result: {e}")
     
-        # Очистка завершенных потоков (опционально, для долгоживущих приложений)
+        # Cleanup of completed threads (optional, for long-lived applications)
         self._worker_threads = [
             (t, w) for t, w in self._worker_threads if t.isRunning()
         ]
