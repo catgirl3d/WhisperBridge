@@ -54,7 +54,7 @@ class MainWindow(QMainWindow, BaseWindow):
         self.restore_geometry()
 
     def closeEvent(self, event):
-        """Стандартизованный closeEvent, вызывающий dismiss()."""
+        """Standardized closeEvent that triggers dismiss()."""
         self.dismiss()
         event.ignore()
 

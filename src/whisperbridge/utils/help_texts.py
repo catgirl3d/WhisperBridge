@@ -96,11 +96,11 @@ HELP_TEXTS = {
         "detailed": "<b>Copy→Translate</b><br>Copies text from clipboard and opens translator. Useful for text that can't be selected."
     },
     "hotkeys.auto_copy_hotkey": {
-        "tooltip": "Automatically copy translated text to clipboard when using hotkeys.",
+        "tooltip": "Automatically copy translated text\nto clipboard when using hotkeys.",
         "detailed": "<b>Auto-copy (Hotkey)</b><br>When enabled, translations via hotkeys are automatically copied to clipboard."
     },
     "hotkeys.auto_copy_main": {
-        "tooltip": "Automatically copy translated text in the main translator window.",
+        "tooltip": "Automatically copy translated text\nto clipboard (main translator window).",
         "detailed": "<b>Auto-copy (Main Window)</b><br>When enabled, translations in the main window are automatically copied to clipboard."
     },
     "hotkeys.clipboard_poll_timeout": {

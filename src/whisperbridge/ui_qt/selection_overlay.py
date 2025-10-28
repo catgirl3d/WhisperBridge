@@ -115,6 +115,6 @@ class SelectionOverlayQt(QWidget, BaseWindow):
         self.close()
 
     def closeEvent(self, event):
-        """Стандартизованный closeEvent, вызывающий dismiss()."""
+        """Standardized closeEvent that triggers dismiss()."""
         self.dismiss()
         event.accept()  # For selection overlay, closing is normal

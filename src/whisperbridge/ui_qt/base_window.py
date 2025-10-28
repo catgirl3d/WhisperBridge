@@ -2,19 +2,19 @@ from PySide6.QtCore import QEvent
 
 class BaseWindow:
     """
-    Mixin-класс для унифицированного сокрытия окон.
+    Mixin class that provides a unified way to hide windows.
     """
     def dismiss(self):
         """
-        Универсальный метод для сокрытия или закрытия окна.
-        Переопределяется в дочерних классах.
+        Generic method to hide or dismiss the window.
+        Override this in subclasses.
         """
         self.hide()
 
     def closeEvent(self, event):
         """
-        Стандартизованный обработчик события закрытия.
-        Вызывает dismiss() для унифицированной логики.
+        Standardized handler for the close event.
+        Calls dismiss() to apply the unified logic.
         """
         self.dismiss()
         event.ignore()  # Ignore the event so as not to close the application
