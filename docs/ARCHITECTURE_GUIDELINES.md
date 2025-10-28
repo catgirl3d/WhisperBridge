@@ -38,6 +38,17 @@ src/whisperbridge/
 - **Worker Factory**: Use `QtApp.create_and_run_worker` for creating and managing worker threads. All workers should emit `finished` for results and `error` for failures to ensure consistent error handling.
 - **Never**: Block UI thread with I/O, network, or CPU-intensive tasks
 
+### OCR Engines: EasyOCR and LLM
+- Engine selection via settings key ocr_engine: “easyocr” vs “llm” (defaults remain “easyocr”).
+- LLM OCR flow: capture → natural image encode via [`to_data_url_jpeg()`](src/whisperbridge/utils/image_utils.py:1) → [`APIManager.make_vision_request()`](src/whisperbridge/core/api_manager.py:532) (OpenAI or Google) → text.
+- Fallback policy: if LLM fails/empty, fallback to EasyOCR when ocr_enabled is true. Reader readiness ensured during fallback by an internal guard to avoid crashes.
+- Threading discipline: all OCR/LLM work in background threads per [`THREADS_SIGNALS.md`](docs/THREADS_SIGNALS.md); UI updates via signals only. Reference worker [`CaptureOcrTranslateWorker.run()`](src/whisperbridge/ui_qt/workers.py:44).
+- Retry/backoff: LLM calls reuse APIManager retry semantics via [`APIManager.make_request_sync()`](src/whisperbridge/core/api_manager.py:479) or mirrored policy for Gemini in [`APIManager.make_vision_request()`](src/whisperbridge/core/api_manager.py:532).
+
+#### LLM Image Handling
+- Natural images only; downscale long edge (~1280) and JPEG quality ~80 using [`resize_long_edge()`](src/whisperbridge/utils/image_utils.py:1) and [`encode_jpeg()`](src/whisperbridge/utils/image_utils.py:1).
+- Avoid binarization/sharpening used by [`preprocess_for_ocr()`](src/whisperbridge/utils/image_utils.py:100) which remains EasyOCR-specific.
+
 ### 3. Configuration Management
 - **Centralized**: `config_service` singleton manages all settings
 - **Observer Pattern**: Notify components of setting changes

@@ -260,7 +260,7 @@ class CopyTranslateService(QObject):
                 log.info("Copy-translate overlay shown (original text only) due to missing API key")
                 return
 
-            # Translate text synchronously (respect ocr_auto_swap_en_ru setting) — with debug logs and live config check
+            # Translate text synchronously (respect auto_swap_en_ru setting) — with debug logs and live config check
             try:
                 # Try to detect language and apply EN<->RU auto-swap if enabled in settings
                 log.debug(f"Copy-translate: text length={len(text_to_translate)}")
@@ -269,7 +269,7 @@ class CopyTranslateService(QObject):
 
                 # Read all relevant settings
                 settings = self.config_service.get_settings()
-                swap_enabled = getattr(settings, "ocr_auto_swap_en_ru", False)
+                swap_enabled = getattr(settings, "auto_swap_en_ru", False)
                 ui_source_language = getattr(settings, "ui_source_language", "en")
                 ui_target_language = getattr(settings, "ui_target_language", "en")
 

@@ -72,7 +72,7 @@ Notable defaults (see source for exact values):
 - Provider and models:
   - Default provider: openai
   - OpenAI model: gpt-5-nano
-  - Google model: gemini-1.5-flash
+  - Google model: gemini-2.5-flash
 - OCR initialization:
   - initialize_ocr default: False
 - Hotkeys (defaults):
@@ -84,9 +84,19 @@ Notable defaults (see source for exact values):
   - clipboard_poll_timeout_ms: 2000
 - System prompt:
   - Defined in the settings model
+- New OCR settings in [`Settings`](src/whisperbridge/core/config.py:19):
+  - ocr_engine: Literal["easyocr","llm"] (default "easyocr")
+  - ocr_llm_prompt: str (default prompt)
+  - openai_vision_model: str (default gpt-4o-mini)
+  - google_vision_model: str (default gemini-2.5-flash)
 - Configuration persistence and keys:
   - Settings manager: [src/whisperbridge/core/settings_manager.py](src/whisperbridge/core/settings_manager.py)
   - Runtime config service: [src/whisperbridge/services/config_service.py](src/whisperbridge/services/config_service.py)
+
+### Settings UI
+- Help hints: Interactive question mark (?) buttons next to all settings fields provide contextual tooltips and detailed explanations on click. Centralized hint texts in [`src/whisperbridge/utils/help_texts.py`](src/whisperbridge/utils/help_texts.py) with QSS styling in [`src/whisperbridge/assets/style.qss`](src/whisperbridge/assets/style.qss).
+- Additions in [`SettingsDialog._create_ocr_tab()`](src/whisperbridge/ui_qt/settings_dialog.py:241): OCR Engine selector and LLM OCR Prompt.
+- API tab: provider-specific vision model fields; visibility toggles with provider and are disabled without corresponding API key; wired via [`SettingsDialog._init_settings_map()`](src/whisperbridge/ui_qt/settings_dialog.py:98).
 
 ## Dependencies and Tooling
 
@@ -109,6 +119,7 @@ Notable defaults (see source for exact values):
   - Create a tests/ directory and move root tests under tests/, or
   - Adjust pytest configuration to discover root-level tests
 - Prioritize tests for services (translation, OCR/processing, API manager) and utilities.
+- Reference [`test_ocr_llm.py`](tests/test_ocr_llm.py:1) summarizing coverage: LLM fast-path readiness, success path, fallback to EasyOCR, and disabled-fallback behavior.
 
 ## Key Workflows
 
@@ -118,11 +129,15 @@ Main translation pipeline (Capture → OCR → Translate → Display):
 3) Worker/thread initialization: [src/whisperbridge/ui_qt/app.py](src/whisperbridge/ui_qt/app.py) + [src/whisperbridge/ui_qt/workers.py](src/whisperbridge/ui_qt/workers.py)
 4) Worker steps:
    - Capture screen region: [src/whisperbridge/services/screen_capture_service.py](src/whisperbridge/services/screen_capture_service.py)
-   - Perform OCR: [src/whisperbridge/services/ocr_service.py](src/whisperbridge/services/ocr_service.py)
+   - Perform OCR: [src/whisperbridge/services/ocr_service.py](src/whisperbridge/services/ocr_service.py) (LLM OCR branch with EasyOCR fallback if LLM fails/empty and ocr_enabled is true; results pass to TranslationService; workers/threads unchanged)
    - Orchestrate translation: [src/whisperbridge/services/ocr_translation_service.py](src/whisperbridge/services/ocr_translation_service.py), using [src/whisperbridge/services/translation_service.py](src/whisperbridge/services/translation_service.py)
 5) Results are emitted back to the UI thread and displayed via UI service and windows:
    - [src/whisperbridge/services/ui_service.py](src/whisperbridge/services/ui_service.py)
    - [src/whisperbridge/ui_qt/overlay_window.py](src/whisperbridge/ui_qt/overlay_window.py)
+
+### Performance/Cost Notes
+- Image size capping, zero temperature, and token limits (max ~2048 completion tokens) for vision calls.
+- Emphasize that all network calls are off the UI thread.
 
 Copy → Translate flow:
 - Hotkey-driven; implemented by [src/whisperbridge/services/copy_translate_service.py](src/whisperbridge/services/copy_translate_service.py) with orchestration in [src/whisperbridge/ui_qt/app.py](src/whisperbridge/ui_qt/app.py)

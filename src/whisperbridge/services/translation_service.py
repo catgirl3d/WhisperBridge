@@ -182,7 +182,7 @@ class TranslationService:
         detected_lang = await self._detect_language_async(text) or "auto"
 
         settings = config_service.get_settings()
-        swap_enabled = getattr(settings, "ocr_auto_swap_en_ru", False)
+        swap_enabled = getattr(settings, "auto_swap_en_ru", False)
 
         # 1. Check for auto-swap feature
         if swap_enabled and detected_lang in ["en", "ru"]:

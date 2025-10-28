@@ -53,17 +53,6 @@ class MainWindow(QMainWindow, BaseWindow):
         # Restore geometry on initialization
         self.restore_geometry()
 
-    def _on_close(self, event):
-        """Handle window close event."""
-        logger.info("Main window close event triggered")
-        # Save geometry before closing
-        self.capture_geometry()
-        # Emit signal to hide to tray instead of closing
-        self.closeToTrayRequested.emit()
-        event.ignore()
-        self.hide()
-        logger.debug("Main window hidden to tray")
-
     def closeEvent(self, event):
         """Стандартизованный closeEvent, вызывающий dismiss()."""
         self.dismiss()
@@ -71,7 +60,13 @@ class MainWindow(QMainWindow, BaseWindow):
 
     def dismiss(self):
         """Dismiss the main window by hiding it to tray."""
-        self._on_close(None)  # Trigger the close logic without event
+        logger.info("Main window close event triggered")
+        # Save geometry before closing
+        self.capture_geometry()
+        # Emit signal to hide to tray instead of closing
+        self.closeToTrayRequested.emit()
+        self.hide()
+        logger.debug("Main window hidden to tray")
 
     def restore_geometry(self):
         """Restore window geometry from settings."""

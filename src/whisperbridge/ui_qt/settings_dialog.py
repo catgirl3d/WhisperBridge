@@ -33,6 +33,7 @@ from ..core.config import delete_api_key, validate_api_key_format, requires_mode
 from loguru import logger
 from ..core.version import get_version
 from .workers import ApiTestWorker
+from ..utils.help_texts import HELP_TEXTS
 
 
 from .base_window import BaseWindow
@@ -76,6 +77,10 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
         self._create_hotkeys_tab()
         self._create_stylist_tab()
 
+        # Connect vision model visibility signals
+        self.api_provider_combo.currentTextChanged.connect(self._update_vision_model_visibility)
+        self.api_key_edit.textChanged.connect(self._update_vision_model_visibility)
+
         # Create buttons
         self._create_buttons(layout)
 
@@ -91,6 +96,9 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
         # Update Stylist tab visibility based on initial provider
         self._update_stylist_tab_visibility()
 
+        # Update vision model visibility based on initial provider and API key
+        self._update_vision_model_visibility()
+
     def dismiss(self):
         """Dismiss the settings dialog by hiding it."""
         self.hide()
@@ -101,9 +109,11 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
             "api_provider": (self.api_provider_combo, "currentText", "setCurrentText"),
             "api_timeout": (self.api_timeout_spin, "value", "setValue"),
             "deepl_plan": (self.deepl_plan_combo, "currentText", "setCurrentText"),
-            "ocr_auto_swap_en_ru": (self.ocr_auto_swap_checkbox, "isChecked", "setChecked"),
+            "auto_swap_en_ru": (self.ocr_auto_swap_checkbox, "isChecked", "setChecked"),
             "system_prompt": (self.system_prompt_edit, "toPlainText", "setPlainText"),
             "initialize_ocr": (self.initialize_ocr_check, "isChecked", "setChecked"),
+            "ocr_engine": (self.ocr_engine_combo, "currentText", "setCurrentText"),
+            "ocr_llm_prompt": (self.ocr_llm_prompt_edit, "toPlainText", "setPlainText"),
             "ocr_languages": (
                 self.ocr_languages_edit,
                 lambda w: [lang.strip() for lang in w.text().split(",") if lang.strip()],
@@ -111,6 +121,8 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
             ),
             "ocr_confidence_threshold": (self.ocr_confidence_spin, "value", "setValue"),
             "ocr_timeout": (self.ocr_timeout_spin, "value", "setValue"),
+            "openai_vision_model": (self.openai_vision_model_edit, "text", "setText"),
+            "google_vision_model": (self.google_vision_model_edit, "text", "setText"),
             "translate_hotkey": (self.translate_hotkey_edit, "text", "setText"),
             "quick_translate_hotkey": (self.quick_translate_hotkey_edit, "text", "setText"),
             "activation_hotkey": (self.activation_hotkey_edit, "text", "setText"),
@@ -138,6 +150,85 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
 
         self.setStyleSheet(stylesheet)
 
+    def _create_hint_label(self, text: str, help_key: str) -> QWidget:
+        """Create a label widget with hint button for form rows.
+
+        Args:
+            text: The label text
+            help_key: Key in HELP_TEXTS dictionary
+
+        Returns:
+            QWidget containing label and hint button
+        """
+        from PySide6.QtWidgets import QToolButton
+        from PySide6.QtCore import QPoint
+
+        container = QWidget(self)  # Properly parent to dialog
+        layout = QHBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(2)
+
+        label = QLabel(text)
+        layout.addWidget(label)
+
+        hint_button = QToolButton()
+        hint_button.setObjectName("hintButton")
+        hint_button.setText("?")
+        hint_button.setAutoRaise(True)
+        hint_button.setToolTip(HELP_TEXTS.get(help_key, {}).get("tooltip", ""))
+
+        def show_detailed_hint():
+            detailed = HELP_TEXTS.get(help_key, {}).get("detailed", "")
+            if detailed:
+                from PySide6.QtWidgets import QToolTip
+                pos = hint_button.mapToGlobal(QPoint(0, hint_button.height()))
+                QToolTip.showText(pos, detailed, hint_button)
+
+        hint_button.clicked.connect(show_detailed_hint)
+        layout.addWidget(hint_button)
+
+        return container
+
+    def _create_hint_label_from_widget(self, label_widget: QLabel, help_key: str) -> QWidget:
+        """Wrap an existing QLabel in a container with hint button.
+
+        This preserves the original label reference for dynamic updates.
+
+        Args:
+            label_widget: The existing QLabel to wrap
+            help_key: Key in HELP_TEXTS dictionary
+
+        Returns:
+            QWidget containing the original label and hint button
+        """
+        from PySide6.QtWidgets import QToolButton
+        from PySide6.QtCore import QPoint
+
+        container = QWidget(self)  # Properly parent to dialog
+        layout = QHBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(2)
+
+        layout.addWidget(label_widget)
+
+        hint_button = QToolButton()
+        hint_button.setObjectName("hintButton")
+        hint_button.setText("?")
+        hint_button.setAutoRaise(True)
+        hint_button.setToolTip(HELP_TEXTS.get(help_key, {}).get("tooltip", ""))
+
+        def show_detailed_hint():
+            detailed = HELP_TEXTS.get(help_key, {}).get("detailed", "")
+            if detailed:
+                from PySide6.QtWidgets import QToolTip
+                pos = hint_button.mapToGlobal(QPoint(0, hint_button.height()))
+                QToolTip.showText(pos, detailed, hint_button)
+
+        hint_button.clicked.connect(show_detailed_hint)
+        layout.addWidget(hint_button)
+
+        return container
+
     def _create_api_tab(self):
         """Create API settings tab."""
         tab = QWidget()
@@ -150,10 +241,11 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
         self.api_provider_combo = QComboBox()
         self.api_provider_combo.addItems(["openai", "google", "deepl"])
         self.api_provider_combo.currentTextChanged.connect(self._on_provider_changed)
-        provider_layout.addRow("Provider:", self.api_provider_combo)
+        provider_layout.addRow(self._create_hint_label("Provider:", "api.provider"), self.api_provider_combo)
 
         # API Key (dynamic based on provider)
         self.api_key_label = QLabel()  # Label will be updated dynamically
+        self.api_key_label_container = self._create_hint_label_from_widget(self.api_key_label, "api.key")
         self.api_key_edit = QLineEdit()
         self.api_key_edit.setEchoMode(QLineEdit.EchoMode.Password)
 
@@ -170,7 +262,7 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
         self.api_key_widget = QWidget()
         self.api_key_widget.setLayout(key_layout)
 
-        provider_layout.addRow(self.api_key_label, self.api_key_widget)
+        provider_layout.addRow(self.api_key_label_container, self.api_key_widget)
         provider_layout.addRow(self.test_api_button)
 
         layout.addWidget(provider_group)
@@ -180,26 +272,41 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
         model_layout = QFormLayout(model_group)
 
         self.model_label = QLabel("Model:")
+        self.model_label_container = self._create_hint_label_from_widget(self.model_label, "api.model")
         self.model_combo = QComboBox()
         # Allow custom model input
         self.model_combo.setEditable(True)
-        model_layout.addRow(self.model_label, self.model_combo)
+        model_layout.addRow(self.model_label_container, self.model_combo)
 
         # Don't load models here - they will be loaded in _load_settings
         logger.debug("Skipping model loading in _create_api_tab - will load in _load_settings")
 
         self.api_timeout_spin = QSpinBox()
         self.api_timeout_spin.setRange(1, 300)
-        model_layout.addRow("Timeout (seconds):", self.api_timeout_spin)
+        model_layout.addRow(self._create_hint_label("Timeout (seconds):", "api.timeout"), self.api_timeout_spin)
+
+        # Vision model fields
+        self.openai_vision_model_label = QLabel("OpenAI Vision Model:")
+        self.openai_vision_model_label_container = self._create_hint_label_from_widget(self.openai_vision_model_label, "api.vision_model_openai")
+        self.openai_vision_model_edit = QLineEdit()
+        self.openai_vision_model_edit.setPlaceholderText("e.g., gpt-4-vision-preview")
+        model_layout.addRow(self.openai_vision_model_label_container, self.openai_vision_model_edit)
+
+        self.google_vision_model_label = QLabel("Google Vision Model:")
+        self.google_vision_model_label_container = self._create_hint_label_from_widget(self.google_vision_model_label, "api.vision_model_google")
+        self.google_vision_model_edit = QLineEdit()
+        self.google_vision_model_edit.setPlaceholderText("e.g., gemini-pro-vision")
+        model_layout.addRow(self.google_vision_model_label_container, self.google_vision_model_edit)
 
         # DeepL plan selection (controls endpoint free/pro) - visible only for DeepL
         self.deepl_plan_label = QLabel("DeepL Plan:")
+        self.deepl_plan_label_container = self._create_hint_label_from_widget(self.deepl_plan_label, "api.deepl_plan")
         self.deepl_plan_combo = QComboBox()
         self.deepl_plan_combo.addItems(["free", "pro"])
-        self.deepl_plan_combo.setToolTip("Select your DeepL plan to use the correct API endpoint (free/pro).")
-        self.deepl_plan_label.setVisible(False)
+        self.deepl_plan_combo.setToolTip(HELP_TEXTS.get("api.deepl_plan", {}).get("tooltip", ""))
+        self.deepl_plan_label_container.setVisible(False)
         self.deepl_plan_combo.setVisible(False)
-        model_layout.addRow(self.deepl_plan_label, self.deepl_plan_combo)
+        model_layout.addRow(self.deepl_plan_label_container, self.deepl_plan_combo)
 
         layout.addWidget(model_group)
 
@@ -220,10 +327,10 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
         tab = QWidget()
         layout = QVBoxLayout(tab)
 
-        # Translation options: OCR auto-swap and System Prompt
-        # OCR auto-swap checkbox (EN <-> RU)
-        self.ocr_auto_swap_checkbox = QCheckBox("OCR Auto-swap EN ↔ RU")
-        self.ocr_auto_swap_checkbox.setToolTip("If enabled, OCR translations will auto-swap: English→Russian, Russian→English")
+        # Translation options: Auto-swap and System Prompt
+        # Auto-swap checkbox (EN <-> RU)
+        self.ocr_auto_swap_checkbox = QCheckBox("Auto-swap EN ↔ RU")
+        self.ocr_auto_swap_checkbox.setToolTip(HELP_TEXTS.get("translation.auto_swap", {}).get("tooltip", ""))
         layout.addWidget(self.ocr_auto_swap_checkbox)
 
         # System Prompt
@@ -232,6 +339,7 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
         self.system_prompt_edit = QTextEdit()
         self.system_prompt_edit.setAcceptRichText(False)
         self.system_prompt_edit.setPlaceholderText("Enter the system prompt for the translation model.")
+        prompt_layout.addWidget(self._create_hint_label("System Prompt:", "translation.system_prompt"))
         prompt_layout.addWidget(self.system_prompt_edit)
         layout.addWidget(prompt_group)
         layout.addStretch()
@@ -249,23 +357,35 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
 
         # Initialize OCR on startup (enable/disable OCR features)
         self.initialize_ocr_check = QCheckBox("Initialize OCR service on startup")
-        self.initialize_ocr_check.setToolTip("If enabled, the OCR service will be initialized and OCR actions (menu/hotkeys) will be available.")
+        self.initialize_ocr_check.setToolTip(HELP_TEXTS.get("ocr.initialize", {}).get("tooltip", ""))
+        self.initialize_ocr_check.stateChanged.connect(self._update_vision_model_visibility)
         ocr_layout.addRow(self.initialize_ocr_check)
+
+        # OCR Engine selector
+        self.ocr_engine_combo = QComboBox()
+        self.ocr_engine_combo.addItems(["easyocr", "llm"])
+        ocr_layout.addRow(self._create_hint_label("OCR Engine:", "ocr.engine"), self.ocr_engine_combo)
+
+        # LLM OCR Prompt
+        self.ocr_llm_prompt_edit = QTextEdit()
+        self.ocr_llm_prompt_edit.setAcceptRichText(False)
+        self.ocr_llm_prompt_edit.setPlaceholderText("Enter the prompt for LLM-based OCR.")
+        ocr_layout.addRow(self._create_hint_label("LLM OCR Prompt:", "ocr.llm_prompt"), self.ocr_llm_prompt_edit)
 
         # OCR Languages
         self.ocr_languages_edit = QLineEdit()
         self.ocr_languages_edit.setPlaceholderText("e.g., en,ru,es")
-        ocr_layout.addRow("OCR Languages:", self.ocr_languages_edit)
+        ocr_layout.addRow(self._create_hint_label("OCR Languages:", "ocr.languages"), self.ocr_languages_edit)
 
         # Confidence threshold
         self.ocr_confidence_spin = QDoubleSpinBox()
         self.ocr_confidence_spin.setRange(0.0, 1.0)
         self.ocr_confidence_spin.setSingleStep(0.05)
         self.ocr_confidence_spin.setValue(0.7)
-        ocr_layout.addRow("Confidence Threshold:", self.ocr_confidence_spin)
+        ocr_layout.addRow(self._create_hint_label("Confidence Threshold:", "ocr.confidence_threshold"), self.ocr_confidence_spin)
         self.ocr_timeout_spin = QSpinBox()
         self.ocr_timeout_spin.setRange(1, 300)
-        ocr_layout.addRow("OCR Timeout (seconds):", self.ocr_timeout_spin)
+        ocr_layout.addRow(self._create_hint_label("OCR Timeout (seconds):", "ocr.timeout"), self.ocr_timeout_spin)
 
         layout.addWidget(ocr_group)
         layout.addStretch()
@@ -283,15 +403,15 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
         hotkey_layout = QFormLayout(hotkey_group)
 
         self.quick_translate_hotkey_edit = QLineEdit()
-        hotkey_layout.addRow("Show Translator Window:", self.quick_translate_hotkey_edit)
+        hotkey_layout.addRow(self._create_hint_label("Show Translator Window:", "hotkeys.show_translator"), self.quick_translate_hotkey_edit)
         self.activation_hotkey_edit = QLineEdit()
-        hotkey_layout.addRow("Activation:", self.activation_hotkey_edit)
+        hotkey_layout.addRow(self._create_hint_label("Translate:", "hotkeys.translate"), self.activation_hotkey_edit)
 
         self.translate_hotkey_edit = QLineEdit()
-        hotkey_layout.addRow("Translate:", self.translate_hotkey_edit)
+        hotkey_layout.addRow(self._create_hint_label("Capture screen region (OCR):", "hotkeys.capture_screen"), self.translate_hotkey_edit)
 
         self.copy_translate_hotkey_edit = QLineEdit()
-        hotkey_layout.addRow("Copy→Translate Hotkey:", self.copy_translate_hotkey_edit)
+        hotkey_layout.addRow(self._create_hint_label("Copy→Translate Hotkey:", "hotkeys.copy_translate"), self.copy_translate_hotkey_edit)
 
         layout.addWidget(hotkey_group)
 
@@ -306,12 +426,12 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
 
         # Automatically copy translated text to clipboard (hotkey mode)
         self.auto_copy_translated_check = QCheckBox("Automatically copy translated text to clipboard (hotkey mode)")
-        self.auto_copy_translated_check.setToolTip("If enabled, translated text will be copied to the clipboard automatically after translation via hotkey.")
+        self.auto_copy_translated_check.setToolTip(HELP_TEXTS.get("hotkeys.auto_copy_hotkey", {}).get("tooltip", ""))
         copy_layout.addRow(self.auto_copy_translated_check)
 
         # Automatically copy translated text to clipboard (main translator window)
         self.auto_copy_translated_main_window_check = QCheckBox("Automatically copy translated text to clipboard (main translator window)")
-        self.auto_copy_translated_main_window_check.setToolTip("If enabled, translated text will be copied to the clipboard automatically after translation in the main translator window.")
+        self.auto_copy_translated_main_window_check.setToolTip(HELP_TEXTS.get("hotkeys.auto_copy_main", {}).get("tooltip", ""))
         copy_layout.addRow(self.auto_copy_translated_main_window_check)
 
         # Clipboard polling timeout (ms)
@@ -337,24 +457,24 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
         # Theme selection (support system option as well)
         self.theme_combo = QComboBox()
         self.theme_combo.addItems(["dark", "light", "system"])
-        ui_layout.addRow("Theme:", self.theme_combo)
+        ui_layout.addRow(self._create_hint_label("Theme:", "general.theme"), self.theme_combo)
 
         # Log level selection (exposed to users so they can change verbosity)
         self.log_level_combo = QComboBox()
         self.log_level_combo.addItems(["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"])
-        ui_layout.addRow("Log level:", self.log_level_combo)
+        ui_layout.addRow(self._create_hint_label("Log level:", "general.log_level"), self.log_level_combo)
 
         self.show_notifications_check = QCheckBox("Show notifications")
         ui_layout.addRow(self.show_notifications_check)
 
         # Text Stylist caching
         self.stylist_cache_checkbox = QCheckBox("Enable caching for Text Stylist mode")
-        self.stylist_cache_checkbox.setToolTip("If enabled, Text Stylist results will be cached to avoid repeated API calls for the same text and style.")
+        self.stylist_cache_checkbox.setToolTip(HELP_TEXTS.get("general.stylist_cache", {}).get("tooltip", ""))
         ui_layout.addRow(self.stylist_cache_checkbox)
 
         # Translation caching
         self.translation_cache_checkbox = QCheckBox("Enable caching for translations")
-        self.translation_cache_checkbox.setToolTip("If enabled, translation results will be cached to avoid repeated API calls for the same text and language pair.")
+        self.translation_cache_checkbox.setToolTip(HELP_TEXTS.get("general.translation_cache", {}).get("tooltip", ""))
         ui_layout.addRow(self.translation_cache_checkbox)
 
         # Application version (read from package metadata / setuptools-scm)
@@ -539,6 +659,50 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
             self.stylist_cache_checkbox.setVisible(visible)
             logger.debug(f"Stylist cache checkbox visibility set to {visible} for provider {provider}")
 
+    def _update_vision_model_visibility(self):
+        """Update the visibility and enablement of vision model fields based on provider, API key presence, and OCR enabled status."""
+        provider = self._get_current_provider()
+
+        # Determine visibility
+        show_openai = provider == "openai"
+        show_google = provider == "google"
+
+        # Check if OCR is enabled (both build flag and runtime setting)
+        ocr_enabled = getattr(self.current_settings, 'ocr_enabled', True) and getattr(self.current_settings, 'initialize_ocr', False)
+        show_openai = show_openai and ocr_enabled
+        show_google = show_google and ocr_enabled
+
+        # Update visibility for label containers
+        if hasattr(self, 'openai_vision_model_label_container'):
+            self.openai_vision_model_label_container.setVisible(show_openai)
+        if hasattr(self, 'google_vision_model_label_container'):
+            self.google_vision_model_label_container.setVisible(show_google)
+
+        # Update visibility for fields
+        self.openai_vision_model_edit.setVisible(show_openai)
+        self.google_vision_model_edit.setVisible(show_google)
+
+        # Update enablement based on API key presence
+        openai_key_present = bool(self.api_key_edit.text().strip()) if show_openai else False
+        google_key_present = bool(self.api_key_edit.text().strip()) if show_google else False
+
+        self.openai_vision_model_edit.setEnabled(openai_key_present)
+        self.google_vision_model_edit.setEnabled(google_key_present)
+
+    def _update_deepl_plan_controls(self):
+        """Update the visibility and value of DeepL plan controls based on the current provider."""
+        provider = self._get_current_provider()
+        is_deepl = provider == "deepl"
+
+        if hasattr(self, "deepl_plan_label_container"):
+            self.deepl_plan_label_container.setVisible(is_deepl)
+        if hasattr(self, "deepl_plan_combo"):
+            self.deepl_plan_combo.setVisible(is_deepl)
+            if is_deepl:
+                # Initialize from settings with fallback
+                current_plan = getattr(self.current_settings, "deepl_plan", None) or config_service.get_setting("deepl_plan") or "free"
+                self.deepl_plan_combo.setCurrentText(current_plan)
+
     def _load_settings(self, settings=None):
         """Load current settings into the UI."""
         if settings is None:
@@ -580,18 +744,8 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
                 self.tab_widget.setTabVisible(ocr_tab_index, ocr_visible)
                 logger.debug(f"OCR tab visibility set to {ocr_visible} based on ocr_enabled={ocr_visible}")
 
-        # Ensure DeepL plan control visibility and value on initial load
-        try:
-            is_deepl = provider == "deepl"
-            if hasattr(self, "deepl_plan_label"):
-                self.deepl_plan_label.setVisible(is_deepl)
-            if hasattr(self, "deepl_plan_combo"):
-                self.deepl_plan_combo.setVisible(is_deepl)
-                # Initialize from settings on load
-                current_plan = getattr(settings, "deepl_plan", None) or config_service.get_setting("deepl_plan") or "free"
-                self.deepl_plan_combo.setCurrentText(current_plan)
-        except Exception as e:
-            logger.debug(f"Failed to initialize DeepL plan controls: {e}")
+        # Update DeepL plan controls visibility and value
+        self._update_deepl_plan_controls()
 
     def _on_save(self):
         """Handle save button click."""
@@ -768,8 +922,8 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
                 self.model_combo.setEnabled(False)
                 # Hide model selection UI
                 self.model_combo.setVisible(False)
-                if hasattr(self, "model_label") and self.model_label:
-                    self.model_label.setVisible(False)
+                if hasattr(self, "model_label_container") and self.model_label_container:
+                    self.model_label_container.setVisible(False)
                 logger.debug("Provider without model selection - model selection hidden/disabled")
             except Exception as e:
                 logger.debug(f"Failed to apply model UI constraints: {e}")
@@ -777,8 +931,8 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
         else:
             # Ensure model UI is visible/enabled for LLM providers
             try:
-                if hasattr(self, "model_label") and self.model_label:
-                    self.model_label.setVisible(True)
+                if hasattr(self, "model_label_container") and self.model_label_container:
+                    self.model_label_container.setVisible(True)
                 self.model_combo.setVisible(True)
                 self.model_combo.setEnabled(True)
             except Exception:
@@ -876,18 +1030,8 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
         self._load_models(provider_name=provider, model_to_select=model_to_restore)
         self._update_stylist_tab_visibility()
 
-        # Toggle DeepL plan UI visibility and value
-        try:
-            is_deepl = provider == "deepl"
-            if hasattr(self, "deepl_plan_label"):
-                self.deepl_plan_label.setVisible(is_deepl)
-            if hasattr(self, "deepl_plan_combo"):
-                self.deepl_plan_combo.setVisible(is_deepl)
-                if is_deepl:
-                    current_plan = getattr(settings, "deepl_plan", None) or config_service.get_setting("deepl_plan") or "free"
-                    self.deepl_plan_combo.setCurrentText(current_plan)
-        except Exception as e:
-            logger.debug(f"Failed to toggle DeepL plan controls: {e}")
+        # Update DeepL plan controls visibility and value
+        self._update_deepl_plan_controls()
 
     # SettingsObserver methods
     def on_settings_changed(self, key: str, old_value, new_value):
@@ -898,8 +1042,8 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
             self.current_settings = config_service.get_settings()
             # Update the theme combo box to reflect the change
             self.theme_combo.setCurrentText(new_value)
-        elif key == "ocr_auto_swap_en_ru":
-            logger.debug(f"OCR auto-swap setting changed from {old_value} to {new_value}")
+        elif key == "auto_swap_en_ru":
+            logger.debug(f"Auto-swap setting changed from {old_value} to {new_value}")
             self.ocr_auto_swap_checkbox.setChecked(bool(new_value))
 
     def on_settings_loaded(self, settings):

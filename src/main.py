@@ -42,6 +42,18 @@ def log_crash(error: Exception):
 try:
     from whisperbridge.core.logger import logger, setup_logging
     from whisperbridge.services.config_service import config_service
+    # Disable tooltip fade animation for instant display
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QApplication
+    app = QApplication.instance()
+    if app is None:
+        app = QApplication([])
+    # Disable desktop settings awareness to allow full control over effects
+    app.setDesktopSettingsAware(False)
+    # Disable the fade effect for tooltips
+    app.setEffectEnabled(Qt.UI_FadeTooltip, False)
+    # Optionally, also disable animation
+    app.setEffectEnabled(Qt.UI_AnimateTooltip, False)
 except Exception as e:
     log_crash(e)
     raise

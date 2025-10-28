@@ -64,7 +64,16 @@ class GoogleChatClientAdapter:
 
         response = model_obj.generate_content(prompt, generation_config=generation_config)
 
-        text = getattr(response, "text", "") or ""
+        # Check if response was blocked by safety filters
+        if hasattr(response, 'candidates') and response.candidates:
+            candidate = response.candidates[0]
+            if hasattr(candidate, 'finish_reason') and candidate.finish_reason == 2:  # SAFETY
+                # Response was blocked due to safety filters
+                text = ""  # Return empty string instead of accessing text property
+            else:
+                text = getattr(response, "text", "") or ""
+        else:
+            text = getattr(response, "text", "") or ""
         usage_metadata = getattr(response, "usage_metadata", None)
         total_tokens = 0
         if usage_metadata is not None:

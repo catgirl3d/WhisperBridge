@@ -132,24 +132,24 @@ QGroupBox::title {
 }
 
 /* SpinBox arrow styling */
-QSpinBox::up-button {
+QSpinBox::up-button, QDoubleSpinBox::up-button {
     subcontrol-origin: border;
     subcontrol-position: top right;
     width: 22px;
     border-left: 1px solid rgba(0,0,0,0.08);
 }
-QSpinBox::down-button {
+QSpinBox::down-button, QDoubleSpinBox::down-button {
     subcontrol-origin: border;
     subcontrol-position: bottom right;
     width: 22px;
     border-left: 1px solid rgba(0,0,0,0.08);
 }
-QSpinBox::up-arrow {
+QSpinBox::up-arrow, QDoubleSpinBox::up-arrow {
     image: url("{assets_path}/icons/chevron-up-solid-full.svg");
     width: 12px;
     height: 12px;
 }
-QSpinBox::down-arrow {
+QSpinBox::down-arrow, QDoubleSpinBox::down-arrow {
     image: url("{assets_path}/icons/chevron-down-solid-full.svg");
     width: 12px;
     height: 12px;
@@ -176,6 +176,7 @@ QTabBar::tab:selected {
     border: 0px solid #d0d0d0;
     border-bottom: 0px solid #ffffff; /* Match pane background */
     color:white;
+    margin-left:2px;
 }
 QTabBar::tab:!selected:hover {
     background: #e8e8e8;
@@ -219,4 +220,40 @@ QCheckBox::indicator:checked {
 
 QCheckBox::indicator:checked:hover {
     image: url("{assets_path}/icons/checkbox-checked-v4-hover.svg");
+}
+
+/* Hint button styling */
+QToolButton#hintButton {
+    border: none;
+    background-color: transparent;
+    color: #666666;
+    font-weight: bold;
+    font-size: 9px;
+    padding: 0px 0px;
+    margin-bottom:12px;
+    border-radius: 2px;
+    min-width: 10px;
+    max-width: 10px;
+    min-height: 10px;
+    max-height: 10px;
+    margin-left: 0px;
+}
+QToolButton#hintButton:hover {
+    background-color: #e8e8e8;
+    color: #333333;
+}
+QToolButton#hintButton:pressed {
+    background-color: #d0d0d0;
+}
+
+/* Tooltip styling */
+QToolTip {
+    background-color: #ffffe0;
+    color: #000000;
+    border: 1px solid #cccccc;
+    border-radius: 4px;
+    padding: 8px;
+    font-size: 11px;
+    max-width: 300px;
+    white-space: pre-wrap;
 }

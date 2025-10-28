@@ -148,11 +148,6 @@ class TrayManager(QObject):
             show_action.triggered.connect(self._on_toggle_overlay)
             self.tray_menu.addAction(show_action)
 
-            # Settings action
-            settings_action = QAction("Settings", self)
-            settings_action.triggered.connect(self._on_open_settings)
-            self.tray_menu.addAction(settings_action)
-
             # Activate OCR action
             self.activate_ocr_action = QAction("Activate OCR", self)
             self.activate_ocr_action.triggered.connect(self._on_activate_ocr)
@@ -169,6 +164,11 @@ class TrayManager(QObject):
             self.activate_ocr_action.setVisible(visible)
             self.activate_ocr_action.setEnabled(enabled)
             self.tray_menu.addAction(self.activate_ocr_action)
+
+            # Settings action
+            settings_action = QAction("Settings", self)
+            settings_action.triggered.connect(self._on_open_settings)
+            self.tray_menu.addAction(settings_action)
 
             self.tray_menu.addSeparator()
 

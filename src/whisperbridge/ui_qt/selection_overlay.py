@@ -80,6 +80,9 @@ class SelectionOverlayQt(QWidget, BaseWindow):
             self.selection_end = event.pos()
             self.is_selecting = True
             self.update()
+        elif event.button() == Qt.RightButton:
+            self.selectionCanceled.emit()
+            self.close()
 
     def mouseMoveEvent(self, event):
         if self.is_selecting:

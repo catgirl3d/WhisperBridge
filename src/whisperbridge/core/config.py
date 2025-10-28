@@ -33,15 +33,10 @@ class Settings(BaseSettings):
     deepl_identifier: str = Field(default="deepl-translate", description="DeepL model identifier for API compatibility")
     api_provider: str = Field(default="openai", description="API provider")
     openai_model: str = Field(default="gpt-5-nano", description="Default OpenAI model")
-    google_model: str = Field(default="gemini-1.5-flash", description="Default Google model")
+    google_model: str = Field(default="gemini-2.5-flash", description="Default Google model")
     api_timeout: int = Field(default=30, description="API request timeout in seconds")
     default_models: Optional[List[str]] = Field(
         default=None, description="Custom default models list (overrides built-in default)"
-    )
-
-    # Language Settings (legacy - now handled by UI overlay)
-    supported_languages: List[str] = Field(
-        default=["en", "ru", "de", "ua"], description="List of supported languages"
     )
 
     # Overlay UI-specific language selections (do not affect core behavior)
@@ -56,7 +51,7 @@ class Settings(BaseSettings):
     # When True, OCR translation will auto-swap between English and Russian:
     # - If OCR detects English, translate to Russian
     # - If OCR detects Russian, translate to English
-    ocr_auto_swap_en_ru: bool = Field(
+    auto_swap_en_ru: bool = Field(
         default=True,
         description="If enabled, OCR translations will auto-swap EN <-> RU based on detected language",
     )
@@ -99,12 +94,16 @@ class Settings(BaseSettings):
         default=False,
         description="Initialize OCR service on startup and enable OCR actions",
     )
+    ocr_engine: Literal["easyocr", "llm"] = Field(default="easyocr", description="OCR engine to use")
+    ocr_llm_prompt: str = Field(
+        default="Extract plain text from the image in natural reading order. Output only the text.",
+        description="Prompt for LLM-based OCR",
+    )
+    openai_vision_model: str = Field(default="gpt-4o-mini", description="OpenAI vision model for OCR")
+    google_vision_model: str = Field(default="gemini-2.5-flash", description="Google vision model for OCR")
 
     # UI Settings
     theme: str = Field(default="light", description="UI theme")
-    font_size: int = Field(default=12, description="Font size")
-    window_width: int = Field(default=400, description="Default window width")
-    window_height: int = Field(default=300, description="Default window height")
     window_geometry: Optional[List[int]] = Field(default=None, description="Window geometry [x, y, width, height]")
     overlay_window_geometry: Optional[List[int]] = Field(default=None, description="Overlay window geometry [x, y, width, height]")
 
@@ -248,6 +247,14 @@ class Settings(BaseSettings):
         if v.upper() not in valid_levels:
             raise ValueError(f"Invalid log level: {v}. Must be one of {valid_levels}")
         return v.upper()
+
+    @field_validator("ocr_engine")
+    @classmethod
+    def validate_ocr_engine(cls, v: str) -> str:
+        """Validate OCR engine."""
+        if v not in ["easyocr", "llm"]:
+            raise ValueError(f"Invalid OCR engine: {v}. Must be one of ['easyocr', 'llm']")
+        return v
 
 
 # Provider capability constants and helpers (centralize DeepL specifics)

@@ -60,7 +60,7 @@ class StyledOverlayWindow(QWidget, BaseWindow):
 
         # Reasonable defaults, subclasses may adjust
         self.setMinimumSize(320, 200)
-        self.resize(460, 360)
+        self.resize(540, 500)
 
         # ----- Layout skeleton -----
         # Root vertical layout with default margins/spacings

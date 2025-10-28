@@ -9,14 +9,16 @@ import threading
 import time
 from dataclasses import dataclass
 from enum import Enum
+from time import perf_counter
 from typing import Any, List, Optional
 
 from loguru import logger
 from PIL import Image
 from PySide6.QtCore import QThread
 
+from ..core.api_manager import get_api_manager
 from ..services.config_service import config_service
-from ..utils.image_utils import preprocess_for_ocr
+from ..utils.image_utils import preprocess_for_ocr, to_data_url_jpeg
 import numpy as np
 
 
@@ -36,6 +38,7 @@ class OCREngine(Enum):
     """Supported OCR engines."""
 
     EASYOCR = "easyocr"
+    LLM = "llm"
 
 
 @dataclass
@@ -225,6 +228,85 @@ class OCRService:
         except Exception as e:
             return self._handle_ocr_error(e, start_time, "_process_easyocr_array")
 
+    def _process_llm_image(self, image: "Image.Image") -> OCRResult:
+        """Process image with LLM vision API.
+
+        Args:
+            image: Input PIL image
+
+        Returns:
+            OCRResult with LLM processing results
+        """
+        start_time = perf_counter()
+        logger.debug("Processing image with LLM vision API")
+
+        try:
+            # Build image data URL
+            data_url = to_data_url_jpeg(image, max_edge=1280, quality=80)
+
+            # Compose messages
+            system_prompt = config_service.get_setting("ocr_llm_prompt") or "Extract the text as-is. Keep natural reading order. Return only the text."
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "Extract the text as-is. Keep natural reading order. Return only the text."},
+                        {"type": "image_url", "image_url": {"url": data_url}}
+                    ]
+                }
+            ]
+
+            # Determine provider and model
+            provider = config_service.get_setting("api_provider")
+            if provider == "openai":
+                model_hint = config_service.get_setting("openai_vision_model")
+            elif provider == "google":
+                model_hint = config_service.get_setting("google_vision_model")
+            else:
+                raise ValueError("Selected provider does not support vision OCR")
+
+            # Call vision API
+            api_manager = get_api_manager()
+            response, _ = api_manager.make_vision_request(messages, model_hint)
+
+            logger.debug(f"LLM vision API response: {response}")
+
+            # Extract text from unified response format
+            extracted_text = getattr(response.choices[0].message, 'content', '')
+            logger.debug(f"Extracted text: '{extracted_text}' (length: {len(extracted_text)})")
+
+            logger.debug(f"Extracted text from LLM response: '{extracted_text}' (length: {len(extracted_text)})")
+
+            extracted_text = extracted_text.strip()
+            processing_time = perf_counter() - start_time
+
+            # Create result
+            success = bool(extracted_text)
+            result = OCRResult(
+                text=extracted_text,
+                confidence=0.90 if success else 0.0,
+                engine=OCREngine.LLM,
+                processing_time=processing_time,
+                success=success,
+                error_message=None if success else "Empty OCR text from LLM"
+            )
+
+            logger.info(f"LLM OCR completed in {processing_time:.2f}s, success={success}")
+            return result
+
+        except Exception as e:
+            processing_time = perf_counter() - start_time
+            logger.error(f"LLM OCR failed: {e}")
+            return OCRResult(
+                text="",
+                confidence=0.0,
+                engine=OCREngine.LLM,
+                processing_time=processing_time,
+                error_message=str(e),
+                success=False,
+            )
+
     def _background_init_task(self, on_complete):
         """Task to initialize engines and call completion callback.
 
@@ -288,6 +370,77 @@ class OCRService:
         self._start_background_initialization(on_complete)
         return None
 
+    def _process_with_easyocr(self, request: OCRRequest, start_time: float, context: str = "OCR") -> OCRResult:
+        """Process image with EasyOCR engine.
+
+        Common helper for both primary EasyOCR path and LLM fallback path.
+
+        Args:
+            request: OCR request with image and preprocessing flag
+            start_time: Processing start time for timing
+            context: Context string for logging ("OCR" or "EasyOCR fallback")
+
+        Returns:
+            OCRResult with EasyOCR processing results
+        """
+        # Preprocess image if requested
+        processed_image = request.image
+        if request.preprocess:
+            logger.debug(f"Applying image preprocessing for {context}")
+            processed_image = preprocess_for_ocr(request.image)
+            logger.debug(f"Preprocessed image size: {processed_image.size}")
+
+        # Convert PIL image to numpy array for EasyOCR
+        image_array = np.array(processed_image)
+        logger.debug(f"Converted to numpy array: shape={image_array.shape}, dtype={image_array.dtype}")
+
+        # Process with EasyOCR engine using settings
+        result = self._process_easyocr_array(image_array, self._settings.ocr_confidence_threshold)
+
+        # Update processing time to include preprocessing and conversion
+        result.processing_time = time.time() - start_time
+
+        logger.info(f"{context} processing completed in {result.processing_time:.2f}s")
+        logger.info(f"{context} results: confidence={result.confidence:.3f}, success={result.success}")
+        if context == "OCR":
+            logger.debug(f"{context} text length: {len(result.text)} characters")
+
+        return result
+
+    def _ensure_easyocr_fallback_ready(self, timeout: float = 5.0) -> bool:
+        """Ensure EasyOCR reader is ready for fallback use.
+
+        Private helper for LLM fallback path. Checks OCR settings, verifies
+        reader readiness, and initializes if needed using existing mechanisms.
+
+        Args:
+            timeout: Maximum time to wait for initialization.
+
+        Returns:
+            True if EasyOCR reader is ready, False otherwise.
+        """
+        # Check if OCR is enabled
+        if not config_service.get_setting("ocr_enabled"):
+            logger.debug("OCR disabled, skipping EasyOCR fallback initialization")
+            return False
+
+        # Check if already ready
+        if self.is_ocr_engine_ready():
+            logger.debug("EasyOCR reader already initialized for fallback")
+            return True
+
+        # Start initialization if not already started
+        logger.debug("Starting EasyOCR initialization for fallback")
+        self._start_background_initialization(None)
+
+        # Wait for readiness
+        ready = self._ready_event.wait(timeout)
+        if ready:
+            logger.debug("EasyOCR fallback initialization completed successfully")
+        else:
+            logger.warning(f"EasyOCR fallback initialization timed out after {timeout}s")
+        return ready
+
     def ensure_ready(self, timeout: Optional[float] = 15.0) -> bool:
         """Ensure OCR engine is initialized and ready for use.
 
@@ -302,6 +455,11 @@ class OCRService:
         Returns:
             True if the engine is ready by the end of wait, False otherwise.
         """
+        # Fast path for LLM engine
+        engine = config_service.get_setting("ocr_engine")
+        if engine == "llm":
+            return True
+
         # Fast path
         if self.is_ocr_engine_ready():
             return True
@@ -336,30 +494,38 @@ class OCRService:
             )
 
         try:
+            # Get engine from settings
+            engine = config_service.get_setting("ocr_engine")
 
-            # Preprocess image if requested
-            processed_image = request.image
-            if request.preprocess:
-                logger.debug("Applying image preprocessing")
-                processed_image = preprocess_for_ocr(request.image)
-                logger.debug(f"Preprocessed image size: {processed_image.size}")
+            if engine == "llm":
+                # Use LLM vision API without EasyOCR preprocessing
+                result = self._process_llm_image(request.image)
 
-            # Convert PIL image to numpy array for EasyOCR
+                # Check if LLM succeeded
+                if result.success and result.text.strip():
+                    logger.info(f"LLM OCR succeeded: confidence={result.confidence:.3f}, text_length={len(result.text)}")
+                    return result
+                else:
+                    logger.warning(f"LLM OCR failed or empty: {result.error_message}")
 
-            image_array = np.array(processed_image)
-            logger.debug(f"Converted to numpy array: shape={image_array.shape}, dtype={image_array.dtype}")
+                    # Fallback to EasyOCR if enabled
+                    ocr_enabled = config_service.get_setting("ocr_enabled", True)
+                    if ocr_enabled:
+                        logger.info("Falling back to EasyOCR")
+                        # Ensure EasyOCR is ready before proceeding
+                        if not self._ensure_easyocr_fallback_ready(timeout=5.0):
+                            logger.warning("EasyOCR fallback initialization failed, returning LLM failure result")
+                            return result
 
-            # Process with EasyOCR engine using settings
-            result = self._process_easyocr_array(image_array, self._settings.ocr_confidence_threshold)
-
-            # Update processing time to include preprocessing and conversion
-            result.processing_time = time.time() - start_time
-
-            logger.info(f"OCR processing completed in {result.processing_time:.2f}s")
-            logger.info(f"OCR results: confidence={result.confidence:.3f}, success={result.success}")
-            logger.debug(f"OCR text length: {len(result.text)} characters")
-
-            return result
+                        # Process with EasyOCR fallback
+                        result = self._process_with_easyocr(request, start_time, "EasyOCR fallback")
+                        return result
+                    else:
+                        logger.warning("EasyOCR disabled, returning LLM failure result")
+                        return result
+            else:
+                # Original EasyOCR path
+                return self._process_with_easyocr(request, start_time, "OCR")
 
         except Exception as e:
             return self._handle_ocr_error(e, start_time, "process_image")

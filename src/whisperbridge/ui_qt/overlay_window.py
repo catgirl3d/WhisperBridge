@@ -928,7 +928,7 @@ class OverlayWindow(StyledOverlayWindow):
         self._update_api_state_and_ui()
 
         settings = config_service.get_settings()
-        current_state = getattr(settings, "ocr_auto_swap_en_ru", True)
+        current_state = getattr(settings, "auto_swap_en_ru", True)
         self.auto_swap_checkbox.setChecked(current_state)
 
         self._update_layout()
@@ -1032,10 +1032,10 @@ class OverlayWindow(StyledOverlayWindow):
             logger.debug(f"Failed to update reader button state: {e}")
 
     def _on_auto_swap_changed(self, state):
-        """Persist OCR auto-swap checkbox state to settings when changed."""
+        """Persist Auto-swap checkbox state to settings when changed."""
         enabled = bool(state)
-        if config_service.set_setting("ocr_auto_swap_en_ru", enabled):
-            logger.info(f"OCR auto-swap setting updated: {enabled}")
+        if config_service.set_setting("auto_swap_en_ru", enabled):
+            logger.info(f"Auto-swap setting updated: {enabled}")
 
     def _on_source_changed(self, index: int):
         """User changed Source combo -> persist ui_source_language."""
@@ -1183,34 +1183,45 @@ class OverlayWindow(StyledOverlayWindow):
         """Handle completion of background translation."""
         try:
             if success:
-                self.translated_text.setPlainText(result)
-                logger.info("Translation completed and inserted into translated_text")
+                # Check if the result is empty (indicating safety filter block)
+                if not result.strip():
+                    self.status_label.setText("Response blocked by safety filters")
+                    self.status_label.setStyleSheet("color: #c62828; font-weight: 600; font-size: 10px;")
+                    self.translated_text.setPlainText("")
+                    logger.warning("Translation was blocked by API safety filters")
+                else:
+                    self.translated_text.setPlainText(result)
+                    logger.info("Translation completed and inserted into translated_text")
 
-                # Auto-copy translated text to clipboard if enabled for main window
-                try:
-                    settings = self._cached_settings
-                    auto_copy_main_window = getattr(settings, "auto_copy_translated_main_window", False)
-                    if auto_copy_main_window:
-                        from PySide6.QtWidgets import QApplication
-                        clipboard = QApplication.clipboard()
-                        clipboard.setText(result)
-                        logger.info("Translated text automatically copied to clipboard (main window)")
-                        self._show_button_feedback(self.copy_translated_btn)
-                except Exception as e:
-                    logger.debug(f"Failed to auto-copy translated text: {e}")
+                    # Auto-copy translated text to clipboard if enabled for main window
+                    try:
+                        settings = self._cached_settings
+                        auto_copy_main_window = getattr(settings, "auto_copy_translated_main_window", False)
+                        if auto_copy_main_window:
+                            from PySide6.QtWidgets import QApplication
+                            clipboard = QApplication.clipboard()
+                            clipboard.setText(result)
+                            logger.info("Translated text automatically copied to clipboard (main window)")
+                            self._show_button_feedback(self.copy_translated_btn)
+                    except Exception as e:
+                        logger.debug(f"Failed to auto-copy translated text: {e}")
             else:
                 from PySide6.QtWidgets import QMessageBox
                 QMessageBox.warning(self, "Translation failed", f"Translation error: {result}")
                 logger.error(f"Translation failed: {result}")
         finally:
-            # Update status with completion time
+            # Update status with completion time (only if not blocked by safety)
             if self._translation_start_time is not None:
                 import time
                 elapsed = time.time() - self._translation_start_time
-                self.status_label.setText(f"Completed in {elapsed:.1f}s")
+                # Only show completion time if we didn't already set safety block message
+                if "safety" not in (self.status_label.text() or "").lower():
+                    self.status_label.setText(f"Completed in {elapsed:.1f}s")
                 self._translation_start_time = None
             else:
-                self.status_label.setText("")
+                # Only clear if not showing safety message
+                if "safety" not in (self.status_label.text() or "").lower():
+                    self.status_label.setText("")
 
             settings = self._cached_settings
             compact = getattr(settings, "compact_view", False)

@@ -12,6 +12,7 @@ import os
 import sys
 import platform
 import importlib
+import base64
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import Enum
@@ -342,7 +343,7 @@ class APIManager:
     def _get_fallback_models(self, provider: APIProvider) -> tuple[List[str], str]:
         """Get fallback models with caching."""
         if provider == APIProvider.GOOGLE:
-            fallback_models = ["gemini-1.5-flash-8b", "gemini-1.5-flash", "gemini-1.5-pro"]
+            fallback_models = ["gemini-2.5-flash", "gemini-1.5-flash"]
         elif provider == APIProvider.DEEPL:
             fallback_models = [get_deepl_identifier()]
         else:
@@ -535,17 +536,17 @@ class APIManager:
     ) -> tuple[Any, str]:
         """
         Makes a translation request using the configured provider.
-    
+
         This method encapsulates the logic for:
         1. Selecting the provider specified in the settings.
         2. Applying provider-specific optimizations (e.g., for OpenAI).
         3. Calling the core `make_request_sync` method.
-    
+
         Args:
             messages: A list of messages for the chat completion.
             model_hint: The model name to use for the request.
             api_kwargs: Additional provider-specific kwargs (e.g., target_lang/source_lang for DeepL).
-    
+
         Returns:
             A tuple containing the API response and the model name used.
         """
@@ -555,13 +556,13 @@ class APIManager:
             selected_provider = APIProvider(provider_name)
         except ValueError:
             raise RuntimeError(f"Invalid API provider '{provider_name}' configured in settings.")
-    
+
         if selected_provider not in self._clients:
             raise RuntimeError(
                 f"The configured API provider '{provider_name}' is not available. "
                 "Please check your API key in the settings."
             )
-    
+
         # 2. Use the provided model hint directly (with DeepL special-case)
         final_model = (model_hint or "").strip()
         if selected_provider == APIProvider.DEEPL:
@@ -579,10 +580,10 @@ class APIManager:
             logger.debug(f"Final API parameters for {selected_provider.value}: {api_params}")
             response = self.make_request_sync(selected_provider, **api_params)
             return response, final_model
-    
+
         if not final_model:
             raise ValueError("Model name must be provided for the translation request.")
-    
+
         # 3. Prepare API call parameters for LLM providers
         api_params = {
             "model": final_model,
@@ -590,7 +591,7 @@ class APIManager:
             "temperature": 1,
             "max_completion_tokens": 2048,
         }
-    
+
         if selected_provider == APIProvider.OPENAI:
             if final_model.startswith(("gpt-5", "chatgpt")):
                 api_params["extra_body"] = {"reasoning_effort": "minimal", "verbosity": "low"}
@@ -598,13 +599,223 @@ class APIManager:
             elif final_model.startswith("gpt-"):
                 api_params["extra_body"] = {"reasoning_effort": "minimal"}
                 logger.debug("Using OpenAI GPT optimizations: reasoning_effort=minimal")
-        
+
         logger.debug(f"Final API parameters for {selected_provider.value}: {api_params}")
-    
+
         # 4. Make the API call
         response = self.make_request_sync(selected_provider, **api_params)
-    
+
         return response, final_model
+
+    @requires_initialization
+    def make_vision_request(self, messages: list[dict], model_hint: str) -> tuple[object, str]:
+        """
+        Makes a vision request using the configured provider for multimodal content.
+
+        This method handles vision-capable providers (OpenAI, Google) and normalizes
+        responses to an OpenAI-like structure. For non-vision providers, raises an error.
+
+        Args:
+            messages: OpenAI-style message list with multimodal content.
+            model_hint: Suggested model name (e.g., settings.openai_vision_model or settings.google_vision_model).
+
+        Returns:
+            Tuple of (response_object, final_model_str) where response_object has OpenAI-like structure.
+
+        Raises:
+            ValueError: If provider doesn't support vision or input validation fails.
+        """
+        # 1. Select provider from settings
+        provider_name = (self.config_service.get_setting("api_provider") or "openai").strip().lower()
+        try:
+            selected_provider = APIProvider(provider_name)
+        except ValueError:
+            raise RuntimeError(f"Invalid API provider '{provider_name}' configured in settings.")
+
+        if selected_provider not in self._clients:
+            raise RuntimeError(
+                f"The configured API provider '{provider_name}' is not available. "
+                "Please check your API key in the settings."
+            )
+
+        # 2. Resolve final model
+        final_model = (model_hint or "").strip()
+        if not final_model:
+            raise ValueError("Model hint must be provided for vision request.")
+
+        if selected_provider == APIProvider.OPENAI:
+            # Use model_hint directly (typically settings.openai_vision_model)
+            pass
+        elif selected_provider == APIProvider.GOOGLE:
+            # Use model_hint directly (typically settings.google_vision_model)
+            pass
+        else:
+            raise ValueError(f"Provider '{selected_provider.value}' does not support vision requests.")
+
+        logger.debug(f"Vision request: provider={selected_provider.value}, model={final_model}")
+
+        # 3. Route to provider-specific implementation
+        if selected_provider == APIProvider.OPENAI:
+            return self._make_openai_vision_request(messages, final_model)
+        elif selected_provider == APIProvider.GOOGLE:
+            return self._make_google_vision_request(messages, final_model)
+        else:
+            # Should not reach here due to check above, but defensive
+            raise ValueError(f"Unsupported vision provider: {selected_provider.value}")
+
+    def _make_openai_vision_request(self, messages: list[dict], model: str) -> tuple[object, str]:
+        """Handle OpenAI vision request via make_request_sync."""
+        response = self.make_request_sync(
+            APIProvider.OPENAI,
+            model=model,
+            messages=messages,
+            temperature=0,
+            max_completion_tokens=2048,
+        )
+        return response, model
+
+    def _make_google_vision_request(self, messages: list[dict], model: str) -> tuple[object, str]:
+        """Handle Google Gemini vision request with direct SDK usage and retry."""
+        # Validate input: require at least one image part for Gemini
+        has_image = False
+        for msg in messages:
+            if msg.get("role") == "user" and isinstance(msg.get("content"), list):
+                for part in msg["content"]:
+                    if isinstance(part, dict) and part.get("type") == "image_url":
+                        has_image = True
+                        break
+            if has_image:
+                break
+        if not has_image:
+            raise ValueError("Gemini vision request requires an image part")
+
+        # Extract text and image from messages (concatenate all text, use first image)
+        text_parts = []
+        image_data = None
+        for msg in messages:
+            if msg.get("role") == "system":
+                text_parts.append(msg.get("content", ""))
+            elif msg.get("role") == "user" and isinstance(msg.get("content"), list):
+                for part in msg["content"]:
+                    if isinstance(part, dict):
+                        if part.get("type") == "text":
+                            text_parts.append(part.get("text", ""))
+                        elif part.get("type") == "image_url" and not image_data:
+                            # Decode first image
+                            image_url = part.get("image_url", {}).get("url", "")
+                            if image_url.startswith("data:image/jpeg;base64,"):
+                                try:
+                                    image_data = base64.b64decode(image_url[23:])  # Strip prefix
+                                except Exception as e:
+                                    raise ValueError(f"Failed to decode image data URL: {e}")
+                            else:
+                                raise ValueError("Unsupported image URL format; expected data:image/jpeg;base64,...")
+
+        prompt = " ".join(text_parts).strip()
+        if not image_data:
+            raise ValueError("No valid image data found in messages")
+
+        # Lazy import and call Gemini
+        try:
+            import google.generativeai as genai
+        except ImportError:
+            raise RuntimeError("google-generativeai package not available")
+
+        api_key = self.config_service.get_setting("google_api_key")
+        if not api_key:
+            raise RuntimeError("Google API key not configured")
+
+        genai.configure(api_key=api_key)
+        gemini_model = genai.GenerativeModel(model)
+        parts = [prompt, {"mime_type": "image/jpeg", "data": image_data}]
+
+        generation_config = {"max_output_tokens": 2048, "temperature": 0}
+
+        @retry(
+            stop=stop_after_attempt(3),
+            wait=wait_exponential(multiplier=1, min=4, max=60),
+            retry=retry_if_exception_type(RetryableAPIError),
+        )
+        def do_gemini_call():
+            try:
+                response = gemini_model.generate_content(parts, generation_config=generation_config)
+                return response
+            except Exception as e:
+                api_error = self._classify_error(e)
+                if api_error.error_type in [
+                    APIErrorType.RATE_LIMIT,
+                    APIErrorType.NETWORK,
+                    APIErrorType.TIMEOUT,
+                    APIErrorType.SERVER_ERROR,
+                ]:
+                    raise RetryableAPIError(f"Retryable Gemini error: {api_error.message}") from e
+                else:
+                    raise e
+
+        gemini_response = do_gemini_call()
+
+        # Normalize to OpenAI-like structure
+        logger.debug(f"Gemini response object: {gemini_response}")
+        logger.debug(f"Gemini response attributes: {dir(gemini_response)}")
+
+        try:
+            extracted_text = gemini_response.text or ""
+            logger.debug(f"Successfully extracted text using .text: '{extracted_text}'")
+        except Exception as e:
+            logger.warning(f"Failed to extract text using .text: {e}")
+            # Fallback if response.text fails
+            extracted_text = ""
+            if hasattr(gemini_response, 'candidates') and gemini_response.candidates:
+                logger.debug(f"Using candidates fallback, found {len(gemini_response.candidates)} candidates")
+                for candidate in gemini_response.candidates:
+                    logger.debug(f"Processing candidate: {candidate}")
+                    if hasattr(candidate, 'content') and hasattr(candidate.content, 'parts'):
+                        logger.debug(f"Content has {len(candidate.content.parts)} parts")
+                        for part in candidate.content.parts:
+                            logger.debug(f"Processing part: {part}")
+                            if hasattr(part, 'text'):
+                                extracted_text += part.text or ""
+                                logger.debug(f"Extracted text from part: '{part.text}'")
+                            break
+                        break
+            else:
+                logger.warning("No candidates found in Gemini response")
+
+        # Calculate total tokens correctly (usage_metadata is an object, not a dict)
+        usage_metadata = getattr(gemini_response, "usage_metadata", None)
+        total_tokens = 0
+        if usage_metadata is not None:
+            total_tokens = getattr(usage_metadata, "total_token_count", None) or (
+                getattr(usage_metadata, "input_token_count", 0)
+                + getattr(usage_metadata, "output_token_count", 0)
+            )
+
+        # Create OpenAI-like response object for consistency
+        class _Message:
+            def __init__(self, content):
+                self.content = content
+
+        class _Choice:
+            def __init__(self, message):
+                self.message = message
+
+        class _Usage:
+            def __init__(self, total_tokens):
+                self.total_tokens = total_tokens
+
+        class _Response:
+            def __init__(self, choices, model, usage):
+                self.choices = choices
+                self.model = model
+                self.usage = usage
+
+        message = _Message(extracted_text)
+        choice = _Choice(message)
+        usage = _Usage(total_tokens)
+
+        normalized_response = _Response([choice], model, usage)
+
+        return normalized_response, model
 
     @requires_initialization
     def get_usage_stats(self, provider: Optional[APIProvider] = None) -> Dict[str, Any]:

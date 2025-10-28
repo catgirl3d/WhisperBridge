@@ -12,6 +12,7 @@ from loguru import logger
 from PIL import Image
 
 from .config_service import config_service
+from .notification_service import get_notification_service
 from .ocr_service import OCRRequest, get_ocr_service
 from .translation_service import get_translation_service
 
@@ -71,6 +72,13 @@ class OCRTranslationCoordinator:
 
         logger.info("OCR completed, checking translation availability")
 
+        # Notify user that OCR is complete and translation is in progress
+        notification_service = get_notification_service()
+        notification_service.info(
+            "OCR completed. Translating...",
+            title="WhisperBridge"
+        )
+
         if not self.translation_service.is_available:
             logger.debug("Translation service not available, skipping translation")
             return ""
@@ -104,7 +112,7 @@ class OCRTranslationCoordinator:
             Tuple of (source_language, target_language)
         """
         settings = config_service.get_settings()
-        ocr_auto_swap = getattr(settings, "ocr_auto_swap_en_ru", False)
+        ocr_auto_swap = getattr(settings, "auto_swap_en_ru", False)
 
         if ocr_auto_swap:
             # Auto-detection and swapping of EN ↔ RU languages
@@ -118,7 +126,7 @@ class OCRTranslationCoordinator:
                 else:
                     target = "en"  # Default fallback
 
-                logger.debug(f"OCR auto-swap: detected='{detected}', target='{target}'")
+                logger.debug(f"Auto-swap: detected='{detected}', target='{target}'")
                 return detected, target
 
             except Exception as e:
