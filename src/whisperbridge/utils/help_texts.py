@@ -50,8 +50,8 @@ HELP_TEXTS = {
 
     # OCR Tab
     "ocr.initialize": {
-        "tooltip": "Enable OCR features and initialize the OCR engine on startup.",
-        "detailed": "<b>Initialize OCR</b><br>When enabled, OCR-related hotkeys and menus become available. Requires EasyOCR installation."
+        "tooltip": "Enable local OCR engine (EasyOCR) initialization on startup for fallback support.",
+        "detailed": "<b>Initialize Local OCR</b><br>When enabled, the local EasyOCR engine will be loaded on startup. This provides fallback support when LLM OCR fails, but uses more memory and startup time."
     },
     "ocr.engine": {
         "tooltip": "Choose OCR method: easyocr (local) or llm (AI-powered).",

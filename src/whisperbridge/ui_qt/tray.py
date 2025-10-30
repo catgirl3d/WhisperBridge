@@ -14,6 +14,9 @@ from PySide6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
 from ..services.config_service import config_service
 
 
+from ..services.ocr_service import get_ocr_service
+
+
 class TrayManager(QObject):
     """Manager for system tray functionality."""
 
@@ -151,18 +154,18 @@ class TrayManager(QObject):
             # Activate OCR action
             self.activate_ocr_action = QAction("Activate OCR", self)
             self.activate_ocr_action.triggered.connect(self._on_activate_ocr)
-            # Set visibility and enabled state based on ocr_enabled build flag AND initialize_ocr runtime flag
+            # Set visibility and enabled state based on ocr_enabled build flag and OCR engine type
             try:
-                settings = config_service.get_settings()
-                ocr_build_enabled = getattr(settings, 'ocr_enabled', True)
-                ocr_runtime_enabled = bool(config_service.get_setting("initialize_ocr", use_cache=False))
-                visible = ocr_build_enabled
-                enabled = ocr_build_enabled and ocr_runtime_enabled
-            except Exception:
-                visible = False
-                enabled = False
-            self.activate_ocr_action.setVisible(visible)
-            self.activate_ocr_action.setEnabled(enabled)
+                ocr_service = get_ocr_service()
+                is_available = ocr_service.is_ocr_available()
+                ocr_build_enabled = config_service.get_setting("ocr_enabled", use_cache=False)
+                
+                self.activate_ocr_action.setVisible(ocr_build_enabled)
+                self.activate_ocr_action.setEnabled(is_available)
+            except Exception as e:
+                logger.error(f"Failed to set initial OCR action state: {e}")
+                self.activate_ocr_action.setVisible(False)
+                self.activate_ocr_action.setEnabled(False)
             self.tray_menu.addAction(self.activate_ocr_action)
 
             # Settings action
@@ -221,19 +224,14 @@ class TrayManager(QObject):
         except Exception as e:
             logger.error(f"Error activating OCR from tray: {e}")
 
-    def update_ocr_action_enabled(self, enabled: bool):
+    def update_ocr_action_state(self):
         """Update the enabled state of the OCR activation menu action."""
         try:
             if hasattr(self, "activate_ocr_action"):
-                # Check build-time flag as well
-                try:
-                    settings = config_service.get_settings()
-                    ocr_build_enabled = getattr(settings, 'ocr_enabled', True)
-                    final_enabled = enabled and ocr_build_enabled
-                except Exception:
-                    final_enabled = enabled
-                self.activate_ocr_action.setEnabled(final_enabled)
-                logger.debug(f"Tray: OCR menu action enabled state updated to: {final_enabled} (build: {ocr_build_enabled if 'ocr_build_enabled' in locals() else 'unknown'})")
+                ocr_service = get_ocr_service()
+                is_available = ocr_service.is_ocr_available()
+                self.activate_ocr_action.setEnabled(is_available)
+                logger.debug(f"Tray: OCR menu action enabled state updated to: {is_available}")
         except Exception as e:
             logger.error(f"Error updating OCR action enabled state: {e}")
 

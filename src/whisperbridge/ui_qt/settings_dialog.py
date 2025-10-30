@@ -26,11 +26,11 @@ from PySide6.QtWidgets import (
     QTableWidgetItem,
     QHeaderView,
 )
-from PySide6.QtCore import QThread, Signal, QObject
+from PySide6.QtCore import QThread, Signal, QObject, QTimer
 
 from ..services.config_service import config_service, SettingsObserver
 from ..core.api_manager import get_api_manager, APIProvider
-from ..core.config import delete_api_key, validate_api_key_format, requires_model_selection, supports_stylist
+from ..core.config import delete_api_key, validate_api_key_format, requires_model_selection, supports_stylist, Settings as DefaultSettings
 from loguru import logger
 from ..core.version import get_version
 from .workers import ApiTestWorker
@@ -42,6 +42,14 @@ from .base_window import BaseWindow
 
 class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
     """Settings dialog with tabbed interface for configuration."""
+
+    MODEL_PLACEHOLDERS = {
+        "No API key configured",
+        "No models available",
+        "Translation Engine",
+        "Invalid API key format",
+        "Failed to retrieve models list"
+    }
 
     def __init__(self, app, parent=None):
         """Initialize the settings dialog.
@@ -81,6 +89,13 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
         # Connect vision model visibility signals
         self.api_provider_combo.currentTextChanged.connect(self._update_vision_model_visibility)
         self.api_key_edit.textChanged.connect(self._update_vision_model_visibility)
+        
+        # Debounce API key input to auto-load models
+        self.api_key_debounce_timer = QTimer(self)
+        self.api_key_debounce_timer.setSingleShot(True)
+        self.api_key_debounce_timer.setInterval(500)  # 500ms delay
+        self.api_key_debounce_timer.timeout.connect(self._load_models_from_key_input)
+        self.api_key_edit.textChanged.connect(self.api_key_debounce_timer.start)
 
         # Create buttons
         self._create_buttons(layout)
@@ -321,8 +336,8 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
         ocr_group = QGroupBox("OCR Configuration")
         ocr_layout = QFormLayout(ocr_group)
 
-        # Initialize OCR on startup (enable/disable OCR features)
-        self.initialize_ocr_check = QCheckBox("Initialize OCR service on startup")
+        # Initialize OCR on startup (enable/disable local OCR features)
+        self.initialize_ocr_check = QCheckBox("Initialize local OCR engine (EasyOCR) on startup")
         self.initialize_ocr_check.setToolTip(HELP_TEXTS.get("ocr.initialize", {}).get("tooltip", ""))
         self.initialize_ocr_check.stateChanged.connect(self._update_vision_model_visibility)
         ocr_layout.addRow(self.initialize_ocr_check)
@@ -640,8 +655,9 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
                 logger.debug(f"Stylist cache checkbox visibility set to {visible} for provider {provider}")
 
         elif control_type == "vision_model":
-            # Check if OCR is enabled (both build flag and runtime setting)
-            ocr_enabled = getattr(self.current_settings, 'ocr_enabled', True) and getattr(self.current_settings, 'initialize_ocr', False)
+            # For vision models, we only need API key presence and OCR build flag
+            # The initialize_ocr setting doesn't affect LLM OCR availability
+            ocr_build_enabled = getattr(self.current_settings, 'ocr_enabled', True)
 
             # Define vision model controls for each provider
             vision_controls = [
@@ -652,7 +668,7 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
             api_key_present = bool(self.api_key_edit.text().strip())
 
             for provider_name, label_container, edit_field in vision_controls:
-                show_field = (provider == provider_name) and ocr_enabled
+                show_field = (provider == provider_name) and ocr_build_enabled
 
                 # Update visibility for label container
                 label_container.setVisible(show_field)
@@ -751,9 +767,15 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
             model_text = self.model_combo.currentText().strip()
  
             setattr(settings_to_save, f"{provider}_api_key", api_key_text)
-            # Only providers requiring model selection keep '{provider}_model'
+
             if requires_model_selection(provider):
-                setattr(settings_to_save, f"{provider}_model", model_text)
+                # Do not save placeholder text as a model name.
+                if model_text not in self.MODEL_PLACEHOLDERS:
+                    setattr(settings_to_save, f"{provider}_model", model_text)
+                else:
+                    # If a placeholder is selected, we don't save it.
+                    # This preserves the last known valid model in the settings file.
+                    logger.debug(f"Ignoring model placeholder '{model_text}' during save to prevent corrupting settings.")
 
             # Collect Text Stylist presets from UI
             try:
@@ -978,6 +1000,9 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
             if source == "unconfigured":
                 self.model_combo.addItem("No API key configured")
                 logger.debug("❌ No API key configured, cannot select models.")
+            elif source == "error":
+                self.model_combo.addItem("Failed to retrieve models list")
+                logger.debug(f"❌ Failed to get models list (source: {source})")
             else:
                 self.model_combo.addItem("No models available")
                 logger.debug(f"❌ No models available to select (source: {source})")
@@ -1033,3 +1058,30 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
     def closeEvent(self, event):
         """Handle dialog close event."""
         super().closeEvent(event)
+
+    def _load_models_from_key_input(self):
+        """Slot for the debounce timer to reload models based on API key input."""
+        provider = self._get_current_provider()
+        api_key = self.api_key_edit.text().strip()
+
+        # Check if there's any key entered
+        if not api_key:
+            logger.debug("API key is empty, skipping model load.")
+            return
+
+        # Validate key format first
+        if not validate_api_key_format(api_key, provider):
+            logger.debug(f"API key format is invalid for {provider}. Showing format error.")
+            # Show format error directly in the model combo
+            self.model_combo.clear()
+            self.model_combo.addItem("Invalid API key format")
+            self.model_combo.setCurrentText("Invalid API key format")
+            return
+
+        # Key format is valid, proceed with loading models
+        logger.debug(f"API key changed and format is valid for {provider}. Reloading models.")
+        # Pass the currently selected model to preserve it if it's still valid
+        current_model = self.model_combo.currentText().strip()
+        if current_model in self.MODEL_PLACEHOLDERS:
+            current_model = None # Don't try to re-select a placeholder
+        self._load_models(provider_name=provider, model_to_select=current_model)

@@ -223,23 +223,30 @@ class QtApp(QObject, SettingsObserver):
 
     def _handle_ocr_setting_change(self, key: str, old_value, new_value):
         """Handle changes to OCR initialization setting."""
-        if key != "initialize_ocr":
+        if key not in ["initialize_ocr", "ocr_engine"]:
             return
             
         try:
-            if new_value:
-                # Initialize OCR via AppServices (guard for None)
-                if self.services:
-                    self.services.initialize_ocr_async()
-                if self.ui and self.ui.tray_manager:
-                    self.ui.tray_manager.update_ocr_action_enabled(True)
-                logger.info("OCR enabled via settings; initialized service and enabled menu")
-            else:
-                if self.ui and self.ui.tray_manager:
-                    self.ui.tray_manager.update_ocr_action_enabled(False)
-                logger.info("OCR disabled via settings; menu disabled (hotkeys remain for on-demand)")
+            self._update_ocr_state()
         except Exception as e:
-            logger.error(f"Error handling initialize_ocr change: {e}", exc_info=True)
+            logger.error(f"Error handling OCR setting change for key '{key}': {e}", exc_info=True)
+
+    def _update_ocr_state(self):
+        """Update OCR state, including tray menu and service initialization."""
+        ocr_service = get_ocr_service()
+        is_available = ocr_service.is_ocr_available()
+
+        if self.ui and self.ui.tray_manager:
+            self.ui.tray_manager.update_ocr_action_state()
+
+        # If EasyOCR is now needed, ensure it's initialized
+        engine = config_service.get_setting("ocr_engine")
+        initialize_ocr = config_service.get_setting("initialize_ocr")
+        if engine == "easyocr" and initialize_ocr and not ocr_service.is_ocr_engine_ready():
+            if self.services:
+                self.services.initialize_ocr_async()
+        
+        logger.info(f"OCR state updated. Available: {is_available}")
 
     def _handle_notification_setting_change(self, key: str, old_value, new_value):
         """Handle changes to notification visibility setting."""

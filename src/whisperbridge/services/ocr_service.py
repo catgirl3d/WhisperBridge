@@ -18,6 +18,7 @@ from PySide6.QtCore import QThread
 
 from ..core.api_manager import get_api_manager
 from ..services.config_service import config_service
+from ..services.notification_service import get_notification_service
 from ..utils.image_utils import preprocess_for_ocr, to_data_url_jpeg
 import numpy as np
 
@@ -126,10 +127,15 @@ class OCRService:
         start_time = time.time()
         logger.info("Starting OCR service engine initialization")
 
-        # Check if OCR is enabled at runtime
-        ocr_enabled = self.config_service.get_setting("ocr_enabled", use_cache=False)
-        if not ocr_enabled:
-            logger.warning("OCR disabled - skipping initialization")
+        # Check both build-time and runtime flags
+        ocr_build_enabled = self.config_service.get_setting("ocr_enabled", use_cache=False)
+        ocr_runtime_enabled = self.config_service.get_setting("initialize_ocr", use_cache=False)
+
+        if not ocr_build_enabled or not ocr_runtime_enabled:
+            logger.warning(
+                f"OCR initialization skipped (build_enabled={ocr_build_enabled}, "
+                f"runtime_enabled={ocr_runtime_enabled})"
+            )
             return False
 
         # Lazy import EasyOCR
@@ -167,6 +173,21 @@ class OCRService:
             True if engine is available and ready for use
         """
         return self._easyocr_reader is not None
+
+    def is_ocr_available(self) -> bool:
+        """Check if OCR is available based on current settings."""
+        ocr_build_enabled = self.config_service.get_setting("ocr_enabled", use_cache=False)
+        if not ocr_build_enabled:
+            return False
+
+        engine = self.config_service.get_setting("ocr_engine", use_cache=False)
+        if engine == "llm":
+            return True
+
+        if engine == "easyocr":
+            return self.config_service.get_setting("initialize_ocr", use_cache=False)
+
+        return False
 
     def _process_easyocr_array(self, image_array: Any, ocr_confidence_threshold: float) -> OCRResult:
         """Process image array with EasyOCR.
@@ -277,8 +298,6 @@ class OCRService:
             # Extract text from unified response format using safe helper
             extracted_text = api_manager.extract_text_from_response(response)
             logger.debug(f"Extracted text: '{extracted_text}' (length: {len(extracted_text)})")
-
-            logger.debug(f"Extracted text from LLM response: '{extracted_text}' (length: {len(extracted_text)})")
 
             extracted_text = extracted_text.strip()
             processing_time = perf_counter() - start_time
@@ -409,39 +428,6 @@ class OCRService:
 
         return result
 
-    def _ensure_easyocr_fallback_ready(self, timeout: float = 5.0) -> bool:
-        """Ensure EasyOCR reader is ready for fallback use.
-
-        Private helper for LLM fallback path. Checks OCR settings, verifies
-        reader readiness, and initializes if needed using existing mechanisms.
-
-        Args:
-            timeout: Maximum time to wait for initialization.
-
-        Returns:
-            True if EasyOCR reader is ready, False otherwise.
-        """
-        # Check if OCR is enabled
-        if not self.config_service.get_setting("ocr_enabled"):
-            logger.debug("OCR disabled, skipping EasyOCR fallback initialization")
-            return False
-
-        # Check if already ready
-        if self.is_ocr_engine_ready():
-            logger.debug("EasyOCR reader already initialized for fallback")
-            return True
-
-        # Start initialization if not already started
-        logger.debug("Starting EasyOCR initialization for fallback")
-        self._start_background_initialization(None)
-
-        # Wait for readiness
-        ready = self._ready_event.wait(timeout)
-        if ready:
-            logger.debug("EasyOCR fallback initialization completed successfully")
-        else:
-            logger.warning(f"EasyOCR fallback initialization timed out after {timeout}s")
-        return ready
 
     def ensure_ready(self, timeout: Optional[float] = 15.0) -> bool:
         """Ensure OCR engine is initialized and ready for use.
@@ -457,10 +443,15 @@ class OCRService:
         Returns:
             True if the engine is ready by the end of wait, False otherwise.
         """
-        # Fast path for LLM engine
+        # Fast path for LLM engine - no initialization needed
         engine = self.config_service.get_setting("ocr_engine")
         if engine == "llm":
             return True
+
+        # For EasyOCR engine, check if initialization is enabled
+        if not self.config_service.get_setting("ocr_enabled") or not self.config_service.get_setting("initialize_ocr"):
+            logger.debug("EasyOCR disabled by build or runtime settings, skipping initialization")
+            return False
 
         # Fast path
         if self.is_ocr_engine_ready():
@@ -500,18 +491,31 @@ class OCRService:
 
                     # Fallback to EasyOCR if enabled
                     ocr_enabled = self.config_service.get_setting("ocr_enabled", True)
-                    if ocr_enabled:
+                    initialize_ocr = self.config_service.get_setting("initialize_ocr", False)
+
+                    if ocr_enabled and initialize_ocr:
                         logger.info("Falling back to EasyOCR")
+                        # Notify user about fallback
+                        notification_service = get_notification_service()
+                        notification_service.warning(
+                            "LLM OCR failed. Falling back to local OCR engine...",
+                            "WhisperBridge OCR"
+                        )
+
                         # Ensure EasyOCR is ready before proceeding
-                        if not self._ensure_easyocr_fallback_ready(timeout=5.0):
+                        if not self.ensure_ready(timeout=5.0):
                             logger.warning("EasyOCR fallback initialization failed, returning LLM failure result")
+                            notification_service.error(
+                                "Local OCR engine failed to initialize. OCR unavailable.",
+                                "WhisperBridge OCR"
+                            )
                             return result
 
                         # Process with EasyOCR fallback
                         result = self._process_with_easyocr(request, start_time, "EasyOCR fallback")
                         return result
                     else:
-                        logger.warning("EasyOCR disabled, returning LLM failure result")
+                        logger.warning("EasyOCR disabled or not initialized, returning LLM failure result")
                         return result
             else:
                 # Original EasyOCR path - ensure ready before processing

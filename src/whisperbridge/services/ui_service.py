@@ -214,29 +214,37 @@ class UIService:
 
     @main_thread_only
     def open_settings(self):
-        """Create and open a new settings dialog with fresh state."""
+        """Open (or create) the settings dialog with fresh state and bring it to front."""
         self.logger.info("UIService: open_settings() called")
         try:
-            # Always create a new dialog instance to ensure fresh state
-            # Ensure main_window exists for parenting
-            if self.main_window is None:
-                self._create_main_window()
-            # Parent to main_window if available
-            parent = self.main_window if self.main_window else None
+            # Create dialog if it doesn't exist or was closed
+            if self.settings_dialog is None:
+                # Ensure main_window exists for parenting
+                if self.main_window is None:
+                    self._create_main_window()
+                # Parent to main_window if available
+                parent = self.main_window if self.main_window else None
+                try:
+                    self.settings_dialog = SettingsDialog(app=self.app, parent=parent)
+                except Exception as e:
+                    self.logger.error(f"UIService: Failed to create SettingsDialog: {e}", exc_info=True)
+                    # Notify user via tray if possible
+                    notification_service = get_notification_service()
+                    notification_service.error(f"Failed to open settings: {e}", "WhisperBridge")
+                    return
+
+            # Force reload all settings to ensure fresh state
             try:
-                settings_dialog = SettingsDialog(app=self.app, parent=parent)
+                self.settings_dialog._load_settings()
+                self.logger.debug("UIService: SettingsDialog state refreshed before showing")
             except Exception as e:
-                self.logger.error(f"UIService: Failed to create SettingsDialog: {e}", exc_info=True)
-                # Notify user via tray if possible
-                notification_service = get_notification_service()
-                notification_service.error(f"Failed to open settings: {e}", "WhisperBridge")
-                return
+                self.logger.warning(f"UIService: Failed to refresh SettingsDialog state: {e}")
 
             # Show and activate dialog
             try:
-                settings_dialog.show()
-                settings_dialog.raise_()
-                settings_dialog.activateWindow()
+                self.settings_dialog.show()
+                self.settings_dialog.raise_()
+                self.settings_dialog.activateWindow()
             except Exception:
                 # Best-effort activation
                 pass

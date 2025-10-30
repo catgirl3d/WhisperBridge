@@ -82,6 +82,7 @@ QComboBox {
     padding: 6px 8px;
     background-color: #ffffff;
     color: #111111;
+    selection-color: #ffffff;
     selection-background-color: #0078d7;
 }
 QComboBox::drop-down {
@@ -256,3 +257,4 @@ QToolTip {
     font-size: 11px;
     white-space: pre-wrap;
 }
+

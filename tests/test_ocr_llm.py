@@ -128,6 +128,7 @@ def test_llm_failure_falls_back_to_easyocr_when_enabled(fake_config, fake_api_ma
     fake_config.settings.update({
         "ocr_engine": "llm",
         "ocr_enabled": True,
+        "initialize_ocr": True,
         "api_provider": "openai"
     })
 
@@ -138,38 +139,35 @@ def test_llm_failure_falls_back_to_easyocr_when_enabled(fake_config, fake_api_ma
 
         # Mock is_ocr_engine_ready to return True for LLM
         with patch.object(service, "is_ocr_engine_ready", return_value=True):
-            # Mock _ensure_easyocr_fallback_ready
-            with patch.object(service, "_ensure_easyocr_fallback_ready") as mock_ensure_fallback:
-                mock_ensure_fallback.return_value = True
+            # Mock _process_easyocr_array
+            with patch.object(service, "_process_easyocr_array") as mock_easyocr:
+                mock_easyocr.return_value = OCRResult(
+                    engine=OCREngine.EASYOCR,
+                    text="easyocr text",
+                    success=True,
+                    confidence=0.85,
+                    processing_time=0.1
+                )
 
-                # Mock _process_easyocr_array
-                with patch.object(service, "_process_easyocr_array") as mock_easyocr:
-                    mock_easyocr.return_value = OCRResult(
-                        engine=OCREngine.EASYOCR,
-                        text="easyocr text",
-                        success=True,
-                        confidence=0.85,
-                        processing_time=0.1
-                    )
+                # Mock config_service.get_setting for _process_llm_image
+                with patch("whisperbridge.services.ocr_service.config_service") as mock_config_service:
+                    mock_config_service.get_setting.side_effect = lambda key, default=None: {
+                        "ocr_llm_prompt": "Extract plain text...",
+                        "api_provider": "openai",
+                        "openai_vision_model": "gpt-4o-mini",
+                        "ocr_enabled": True,
+                        "initialize_ocr": True
+                    }.get(key, default)
 
-                    # Mock config_service.get_setting for _process_llm_image
-                    with patch("whisperbridge.services.ocr_service.config_service") as mock_config_service:
-                        mock_config_service.get_setting.side_effect = lambda key, default=None: {
-                            "ocr_llm_prompt": "Extract plain text...",
-                            "api_provider": "openai",
-                            "openai_vision_model": "gpt-4o-mini",
-                            "ocr_enabled": True
-                        }.get(key, default)
+                    # Action
+                    tiny_image = Image.new("RGB", (8, 8))
+                    request = OCRRequest(image=tiny_image)
+                    result = service.process_image(request)
 
-                        # Action
-                        tiny_image = Image.new("RGB", (8, 8))
-                        request = OCRRequest(image=tiny_image)
-                        result = service.process_image(request)
-
-                        # Assertions
-                        assert result.engine == OCREngine.EASYOCR
-                        assert result.text == "easyocr text"
-                        assert result.success is True
+                    # Assertions
+                    assert result.engine == OCREngine.EASYOCR
+                    assert result.text == "easyocr text"
+                    assert result.success is True
 
 
 def test_llm_failure_without_fallback_when_disabled(fake_config, fake_api_manager):
