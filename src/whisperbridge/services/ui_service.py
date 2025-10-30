@@ -214,30 +214,29 @@ class UIService:
 
     @main_thread_only
     def open_settings(self):
-        """Open (or create) the settings dialog and bring it to front."""
+        """Create and open a new settings dialog with fresh state."""
         self.logger.info("UIService: open_settings() called")
         try:
-            # Create dialog if it doesn't exist or was closed
-            if self.settings_dialog is None:
-                # Ensure main_window exists for parenting
-                if self.main_window is None:
-                    self._create_main_window()
-                # Parent to main_window if available
-                parent = self.main_window if self.main_window else None
-                try:
-                    self.settings_dialog = SettingsDialog(app=self.app, parent=parent)
-                except Exception as e:
-                    self.logger.error(f"UIService: Failed to create SettingsDialog: {e}", exc_info=True)
-                    # Notify user via tray if possible
-                    notification_service = get_notification_service()
-                    notification_service.error(f"Failed to open settings: {e}", "WhisperBridge")
-                    return
+            # Always create a new dialog instance to ensure fresh state
+            # Ensure main_window exists for parenting
+            if self.main_window is None:
+                self._create_main_window()
+            # Parent to main_window if available
+            parent = self.main_window if self.main_window else None
+            try:
+                settings_dialog = SettingsDialog(app=self.app, parent=parent)
+            except Exception as e:
+                self.logger.error(f"UIService: Failed to create SettingsDialog: {e}", exc_info=True)
+                # Notify user via tray if possible
+                notification_service = get_notification_service()
+                notification_service.error(f"Failed to open settings: {e}", "WhisperBridge")
+                return
 
             # Show and activate dialog
             try:
-                self.settings_dialog.show()
-                self.settings_dialog.raise_()
-                self.settings_dialog.activateWindow()
+                settings_dialog.show()
+                settings_dialog.raise_()
+                settings_dialog.activateWindow()
             except Exception:
                 # Best-effort activation
                 pass

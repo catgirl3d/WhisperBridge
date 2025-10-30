@@ -30,6 +30,7 @@ class FakeAPIManager:
 
     def __init__(self):
         self.make_vision_request = MagicMock()
+        self.extract_text_from_response = MagicMock()
 
 
 @pytest.fixture
@@ -88,6 +89,9 @@ def test_llm_success_path_returns_llm_result(fake_config, fake_api_manager):
             mock_response.choices[0].message = MagicMock()
             mock_response.choices[0].message.content = "Hello LLM"
             fake_api_manager.make_vision_request.return_value = (mock_response, "gpt-4o-mini")
+
+            # Mock extract_text_from_response to return the expected text
+            fake_api_manager.extract_text_from_response.return_value = "Hello LLM"
 
             # Mock config_service.get_setting for _process_llm_image
             with patch("whisperbridge.services.ocr_service.config_service") as mock_config_service:

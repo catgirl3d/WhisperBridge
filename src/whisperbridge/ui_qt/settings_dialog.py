@@ -688,7 +688,8 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
     def _load_settings(self, settings=None):
         """Load current settings into the UI."""
         if settings is None:
-            settings = config_service.get_settings()
+            # Force reload from disk to avoid race conditions with async saves
+            settings = config_service.load_settings()
         self.current_settings = settings
         logger.debug(f"Loading settings - theme: '{settings.theme}'")
 
@@ -1025,40 +1026,7 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
     def on_settings_saved(self, settings):
         """Called when settings are saved."""
         logger.debug("Settings saved")
-
-        # Reinitialize API manager if API keys or provider changed.
-        # This must be done BEFORE self.current_settings is updated.
-        try:
-            old_settings = self.current_settings
-            must_reinit = settings.api_provider != old_settings.api_provider
-
-            # Reinit when any API key changed
-            if not must_reinit:
-                providers = [self.api_provider_combo.itemText(i) for i in range(self.api_provider_combo.count())]
-                for provider in providers:
-                    p_lower = provider.lower()
-                    old_key = getattr(old_settings, f"{p_lower}_api_key", None) or ""
-                    new_key = getattr(settings, f"{p_lower}_api_key", None) or ""
-                    if old_key != new_key:
-                        must_reinit = True
-                        break
-
-            # Reinit when DeepL plan changed (endpoint switch free/pro)
-            try:
-                if getattr(old_settings, "deepl_plan", "free") != getattr(settings, "deepl_plan", "free"):
-                    must_reinit = True
-            except Exception:
-                pass
-
-            if must_reinit:
-                api_manager = get_api_manager()
-                api_manager.reinitialize()
-                logger.info("API manager reinitialized after settings save due to configuration change (provider/key/plan).")
-            else:
-                logger.debug("Provider, keys and DeepL plan unchanged, skipping reinitialization.")
-        except Exception as e:
-            logger.error(f"Failed to reinitialize API manager after settings save: {e}")
-
+        # API manager reinitialization is now handled by ConfigService
         # Now, update the dialog's state with the new settings
         self.current_settings = settings
 

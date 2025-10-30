@@ -373,13 +373,14 @@ class APIManager:
 
         Clears existing clients and usage statistics, then re-runs the standard
         initialization workflow so the manager picks up refreshed credentials or
-        provider settings. Model cache is intentionally left intact to reuse any
-        previously fetched lists when still valid.
+        provider settings. Model cache is cleared to ensure fresh API calls with
+        new credentials.
         """
         logger.info("Reinitializing API manager with updated settings")
         with self._lock:
             self._clients.clear()
             self._usage.clear()
+            self._model_cache.clear()  # Clear model cache to force fresh API calls
             self._is_initialized = False
 
         return self.initialize()
@@ -663,6 +664,54 @@ class APIManager:
             # Should not reach here due to check above, but defensive
             raise ValueError(f"Unsupported vision provider: {selected_provider.value}")
 
+    def extract_text_from_response(self, response: Any) -> str:
+        """
+        Safely extracts text content from API response objects.
+
+        Handles both object-based responses (OpenAI-like) and dict-based responses.
+        Logs response structure on first extraction failure for debugging.
+
+        Args:
+            response: API response object (OpenAI-like structure or dict)
+
+        Returns:
+            Extracted text content, or empty string if extraction fails
+        """
+        try:
+            # Try dict-based structure first (Google Gemini normalized)
+            if isinstance(response, dict) and 'choices' in response and response['choices']:
+                choice = response['choices'][0]
+                if isinstance(choice, dict) and 'message' in choice:
+                    message = choice['message']
+                    if isinstance(message, dict) and 'content' in message:
+                        return message['content']
+        except (KeyError, IndexError, TypeError):
+            pass
+
+        try:
+            # Try OpenAI-like object structure
+            if hasattr(response, 'choices') and response.choices:
+                choice = response.choices[0]
+                if hasattr(choice, 'message'):
+                    message = choice.message
+                    if hasattr(message, 'content'):
+                        return getattr(message, 'content', '')
+        except (AttributeError, IndexError, TypeError):
+            pass
+
+        # Log response structure for debugging on first failure
+        if not hasattr(self, '_logged_response_structure'):
+            logger.warning(f"Failed to extract text from response. Response type: {type(response)}")
+            try:
+                logger.debug(f"Response structure: {response}")
+                if hasattr(response, '__dict__'):
+                    logger.debug(f"Response attributes: {dir(response)}")
+            except Exception as e:
+                logger.debug(f"Could not log response structure: {e}")
+            self._logged_response_structure = True
+
+        return ""
+
     def _make_openai_vision_request(self, messages: list[dict], model: str) -> tuple[object, str]:
         """Handle OpenAI vision request via make_request_sync."""
         response = self.make_request_sync(
@@ -754,7 +803,7 @@ class APIManager:
 
         gemini_response = do_gemini_call()
 
-        # Normalize to OpenAI-like structure
+        # Extract text from Gemini response
         logger.debug(f"Gemini response object: {gemini_response}")
         logger.debug(f"Gemini response attributes: {dir(gemini_response)}")
 
@@ -790,30 +839,20 @@ class APIManager:
                 + getattr(usage_metadata, "output_token_count", 0)
             )
 
-        # Create OpenAI-like response object for consistency
-        class _Message:
-            def __init__(self, content):
-                self.content = content
-
-        class _Choice:
-            def __init__(self, message):
-                self.message = message
-
-        class _Usage:
-            def __init__(self, total_tokens):
-                self.total_tokens = total_tokens
-
-        class _Response:
-            def __init__(self, choices, model, usage):
-                self.choices = choices
-                self.model = model
-                self.usage = usage
-
-        message = _Message(extracted_text)
-        choice = _Choice(message)
-        usage = _Usage(total_tokens)
-
-        normalized_response = _Response([choice], model, usage)
+        # Create standardized dict response for consistency
+        normalized_response = {
+            "choices": [
+                {
+                    "message": {
+                        "content": extracted_text
+                    }
+                }
+            ],
+            "model": model,
+            "usage": {
+                "total_tokens": total_tokens
+            }
+        }
 
         return normalized_response, model
 
@@ -964,6 +1003,9 @@ class APIManager:
 
         except Exception as e:
             logger.error(f"Failed to fetch models from {provider.value}: {e}")
+            # Clear cache entry for this provider to prevent caching empty/error results
+            with self._lock:
+                self._model_cache.pop(provider, None)
             return [], ModelSource.ERROR.value
 
     def shutdown(self):

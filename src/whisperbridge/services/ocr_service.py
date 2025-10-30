@@ -274,8 +274,8 @@ class OCRService:
 
             logger.debug(f"LLM vision API response: {response}")
 
-            # Extract text from unified response format
-            extracted_text = getattr(response.choices[0].message, 'content', '')
+            # Extract text from unified response format using safe helper
+            extracted_text = api_manager.extract_text_from_response(response)
             logger.debug(f"Extracted text: '{extracted_text}' (length: {len(extracted_text)})")
 
             logger.debug(f"Extracted text from LLM response: '{extracted_text}' (length: {len(extracted_text)})")
