@@ -88,14 +88,18 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
 
         # Connect vision model visibility signals
         self.api_provider_combo.currentTextChanged.connect(self._update_vision_model_visibility)
-        self.api_key_edit.textChanged.connect(self._update_vision_model_visibility)
+        # Connect all API key fields to vision model visibility update
+        for edit in self.api_key_edits.values():
+            edit.textChanged.connect(self._update_vision_model_visibility)
         
         # Debounce API key input to auto-load models
         self.api_key_debounce_timer = QTimer(self)
         self.api_key_debounce_timer.setSingleShot(True)
         self.api_key_debounce_timer.setInterval(500)  # 500ms delay
         self.api_key_debounce_timer.timeout.connect(self._load_models_from_key_input)
-        self.api_key_edit.textChanged.connect(self.api_key_debounce_timer.start)
+        # Connect debounce timer to all API key fields
+        for edit in self.api_key_edits.values():
+            edit.textChanged.connect(self.api_key_debounce_timer.start)
 
         # Create buttons
         self._create_buttons(layout)
@@ -224,11 +228,17 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
         self.api_provider_combo.currentTextChanged.connect(self._on_provider_changed)
         provider_layout.addRow(self._create_hint_label("Provider:", "api.provider"), self.api_provider_combo)
 
-        # API Key (dynamic based on provider)
+        # API Key fields (one for each provider)
         self.api_key_label = QLabel()  # Label will be updated dynamically
         self.api_key_label_container = self._create_hint_label(self.api_key_label, "api.key")
-        self.api_key_edit = QLineEdit()
-        self.api_key_edit.setEchoMode(QLineEdit.EchoMode.Password)
+
+        # Create separate QLineEdit for each provider
+        self.api_key_edits = {}
+        for provider in ["openai", "google", "deepl"]:
+            edit = QLineEdit()
+            edit.setEchoMode(QLineEdit.EchoMode.Password)
+            edit.setVisible(False)  # Initially hidden, will be shown based on selected provider
+            self.api_key_edits[provider] = edit
 
         self.delete_api_key_button = QPushButton("Delete")
         self.delete_api_key_button.clicked.connect(self._on_delete_api_key)
@@ -238,7 +248,9 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
 
         key_layout = QHBoxLayout()
         key_layout.setContentsMargins(0, 0, 0, 0)
-        key_layout.addWidget(self.api_key_edit)
+        # Add all provider key fields to the layout
+        for provider, edit in self.api_key_edits.items():
+            key_layout.addWidget(edit)
         key_layout.addWidget(self.delete_api_key_button)
         self.api_key_widget = QWidget()
         self.api_key_widget.setLayout(key_layout)
@@ -295,13 +307,6 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
 
         self.tab_widget.addTab(tab, "API")
 
-    def _update_api_key_field(self, settings):
-        """Update the API key field label and content for the selected provider."""
-        provider = self._get_current_provider()
-
-        self.api_key_label.setText(f"{provider.capitalize()} API Key:")
-        api_key = getattr(settings, f"{provider}_api_key", "") or ""
-        self.api_key_edit.setText(api_key)
 
     def _create_translation_tab(self):
         """Create translation settings tab."""
@@ -665,7 +670,7 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
                 ("google", self.google_vision_model_label_container, self.google_vision_model_edit),
             ]
 
-            api_key_present = bool(self.api_key_edit.text().strip())
+            api_key_present = bool(self.api_key_edits[provider].text().strip())
 
             for provider_name, label_container, edit_field in vision_controls:
                 show_field = (provider == provider_name) and ocr_build_enabled
@@ -717,8 +722,16 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
                 else:
                     getattr(widget, setter)(value)
 
-        # Special handling for API key and models
-        self._update_api_key_field(settings)
+        # Load API keys into their respective fields
+        for provider in self.api_key_edits.keys():
+            api_key = getattr(settings, f"{provider}_api_key", "") or ""
+            self.api_key_edits[provider].setText(api_key)
+
+        # Set initial visibility based on current provider
+        current_provider = self.api_provider_combo.currentText().lower()
+        for provider, edit in self.api_key_edits.items():
+            edit.setVisible(provider == current_provider)
+        self.api_key_label.setText(f"{current_provider.capitalize()} API Key:")
 
         provider_name = self.api_provider_combo.currentText()
         model_to_select = getattr(settings, f"{provider_name.lower()}_model", None)
@@ -761,12 +774,15 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
 
                 setattr(settings_to_save, key, value)
 
+            # Save API keys from all provider fields
+            for provider, edit in self.api_key_edits.items():
+                api_key_text = edit.text().strip() or None
+                setattr(settings_to_save, f"{provider}_api_key", api_key_text)
+                logger.debug(f"Saved API key for {provider}: {'****' if api_key_text else 'None'}")
+
             # Special handling for provider-specific fields
             provider = self._get_current_provider()
-            api_key_text = self.api_key_edit.text().strip() or None
             model_text = self.model_combo.currentText().strip()
- 
-            setattr(settings_to_save, f"{provider}_api_key", api_key_text)
 
             if requires_model_selection(provider):
                 # Do not save placeholder text as a model name.
@@ -815,7 +831,8 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
         if reply == QMessageBox.StandardButton.Yes:
             try:
                 if delete_api_key(provider):
-                    self.api_key_edit.setText("")  # Clear the unified input field
+                    # Clear the field for the current provider
+                    self.api_key_edits[provider].setText("")
                     QMessageBox.information(
                         self,
                         "Success",
@@ -853,7 +870,7 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
         """Handle test API button click."""
         # Get values from UI
         provider = self._get_current_provider()
-        api_key = self.api_key_edit.text().strip()
+        api_key = self.api_key_edits[provider].text().strip()
 
         # Validate input
         if not api_key:
@@ -948,7 +965,7 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
             # Derive temp_api_key from typed value if it differs from saved and has valid format
             temp_key = None
             try:
-                typed_key = self.api_key_edit.text().strip()
+                typed_key = self.api_key_edits[provider].text().strip()
                 saved_key = getattr(config_service.get_settings(), f"{provider}_api_key", None) or ""
                 if typed_key and typed_key != saved_key and validate_api_key_format(typed_key, provider):
                     temp_key = typed_key
@@ -1010,19 +1027,25 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
         logger.debug(f"Final combo box current text: '{self.model_combo.currentText()}'")
 
     def _on_provider_changed(self):
-        """Handle provider change - update API key field and reload models."""
+        """Handle provider change - update API key field visibility and reload models."""
         if not self.isVisible():
             return
 
         provider = self._get_current_provider()
         settings = config_service.get_settings()
 
+        # Update API key field visibility - show only the field for the current provider
+        for p, edit in self.api_key_edits.items():
+            edit.setVisible(p == provider)
+
+        # Update label
+        self.api_key_label.setText(f"{provider.capitalize()} API Key:")
+
         # Get the model that was saved for the new provider (only when needed)
         model_to_restore = getattr(settings, f"{provider}_model", None) if requires_model_selection(provider) else None
 
         logger.debug(f"🔄 Provider changed to {provider}, attempting to restore model: '{model_to_restore}'")
 
-        self._update_api_key_field(settings)
         self._load_models(provider_name=provider, model_to_select=model_to_restore)
         self._update_stylist_tab_visibility()
 
@@ -1062,7 +1085,7 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
     def _load_models_from_key_input(self):
         """Slot for the debounce timer to reload models based on API key input."""
         provider = self._get_current_provider()
-        api_key = self.api_key_edit.text().strip()
+        api_key = self.api_key_edits[provider].text().strip()
 
         # Check if there's any key entered
         if not api_key:
@@ -1085,3 +1108,4 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
         if current_model in self.MODEL_PLACEHOLDERS:
             current_model = None # Don't try to re-select a placeholder
         self._load_models(provider_name=provider, model_to_select=current_model)
+
