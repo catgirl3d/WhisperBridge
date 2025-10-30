@@ -77,12 +77,14 @@ class OCRSettings:
 class OCRService:
     """Main OCR service for text recognition."""
 
-    def __init__(self, settings: Optional[OCRSettings] = None):
+    def __init__(self, config_service, settings: Optional[OCRSettings] = None):
         """Initialize OCR service.
 
         Args:
+            config_service: Config service instance for settings access.
             settings: OCR settings. If None, loads from config_service.
         """
+        self.config_service = config_service
         self._settings = settings or self._load_settings()
 
         self._easyocr_reader: Optional[Any] = None
@@ -97,9 +99,9 @@ class OCRService:
         Returns:
             OCRSettings instance with validated configuration.
         """
-        threshold = config_service.get_setting("ocr_confidence_threshold")
+        threshold = self.config_service.get_setting("ocr_confidence_threshold")
         return OCRSettings(
-            ocr_languages=config_service.get_setting("ocr_languages"),
+            ocr_languages=self.config_service.get_setting("ocr_languages"),
             ocr_confidence_threshold=min(max(threshold, 0.0), 1.0),
         )
 
@@ -125,7 +127,7 @@ class OCRService:
         logger.info("Starting OCR service engine initialization")
 
         # Check if OCR is enabled at runtime
-        ocr_enabled = config_service.get_setting("ocr_enabled", use_cache=False)
+        ocr_enabled = self.config_service.get_setting("ocr_enabled", use_cache=False)
         if not ocr_enabled:
             logger.warning("OCR disabled - skipping initialization")
             return False
@@ -245,7 +247,7 @@ class OCRService:
             data_url = to_data_url_jpeg(image, max_edge=1280, quality=80)
 
             # Compose messages
-            system_prompt = config_service.get_setting("ocr_llm_prompt") or "Extract the text as-is. Keep natural reading order. Return only the text."
+            system_prompt = self.config_service.get_setting("ocr_llm_prompt") or "Extract the text as-is. Keep natural reading order. Return only the text."
             messages = [
                 {"role": "system", "content": system_prompt},
                 {
@@ -258,11 +260,11 @@ class OCRService:
             ]
 
             # Determine provider and model
-            provider = config_service.get_setting("api_provider")
+            provider = self.config_service.get_setting("api_provider")
             if provider == "openai":
-                model_hint = config_service.get_setting("openai_vision_model")
+                model_hint = self.config_service.get_setting("openai_vision_model")
             elif provider == "google":
-                model_hint = config_service.get_setting("google_vision_model")
+                model_hint = self.config_service.get_setting("google_vision_model")
             else:
                 raise ValueError("Selected provider does not support vision OCR")
 
@@ -420,7 +422,7 @@ class OCRService:
             True if EasyOCR reader is ready, False otherwise.
         """
         # Check if OCR is enabled
-        if not config_service.get_setting("ocr_enabled"):
+        if not self.config_service.get_setting("ocr_enabled"):
             logger.debug("OCR disabled, skipping EasyOCR fallback initialization")
             return False
 
@@ -456,7 +458,7 @@ class OCRService:
             True if the engine is ready by the end of wait, False otherwise.
         """
         # Fast path for LLM engine
-        engine = config_service.get_setting("ocr_engine")
+        engine = self.config_service.get_setting("ocr_engine")
         if engine == "llm":
             return True
 
@@ -481,21 +483,9 @@ class OCRService:
             f"preprocess={request.preprocess}"
         )
 
-        if not self.is_ocr_engine_ready():
-            error_msg = "OCR service is not initialized or engines not loaded."
-            logger.warning(f"OCR service not ready: {error_msg}")
-            return OCRResult(
-                text="",
-                confidence=0.0,
-                engine=OCREngine.EASYOCR,
-                processing_time=time.time() - start_time,
-                error_message=error_msg,
-                success=False,
-            )
-
         try:
             # Get engine from settings
-            engine = config_service.get_setting("ocr_engine")
+            engine = self.config_service.get_setting("ocr_engine")
 
             if engine == "llm":
                 # Use LLM vision API without EasyOCR preprocessing
@@ -509,7 +499,7 @@ class OCRService:
                     logger.warning(f"LLM OCR failed or empty: {result.error_message}")
 
                     # Fallback to EasyOCR if enabled
-                    ocr_enabled = config_service.get_setting("ocr_enabled", True)
+                    ocr_enabled = self.config_service.get_setting("ocr_enabled", True)
                     if ocr_enabled:
                         logger.info("Falling back to EasyOCR")
                         # Ensure EasyOCR is ready before proceeding
@@ -524,7 +514,18 @@ class OCRService:
                         logger.warning("EasyOCR disabled, returning LLM failure result")
                         return result
             else:
-                # Original EasyOCR path
+                # Original EasyOCR path - ensure ready before processing
+                if not self.ensure_ready(timeout=15.0):
+                    error_msg = "OCR service is not initialized or engines not loaded."
+                    logger.warning(f"OCR service not ready: {error_msg}")
+                    return OCRResult(
+                        text="",
+                        confidence=0.0,
+                        engine=OCREngine.EASYOCR,
+                        processing_time=time.time() - start_time,
+                        error_message=error_msg,
+                        success=False,
+                    )
                 return self._process_with_easyocr(request, start_time, "OCR")
 
         except Exception as e:
@@ -555,5 +556,6 @@ def get_ocr_service() -> OCRService:
     """
     global _ocr_service
     if _ocr_service is None:
-        _ocr_service = OCRService()
+        from ..services.config_service import config_service
+        _ocr_service = OCRService(config_service)
     return _ocr_service

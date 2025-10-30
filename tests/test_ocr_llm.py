@@ -16,7 +16,10 @@ class FakeConfigService:
     """Fake config service for testing."""
 
     def __init__(self):
-        self.settings = {}
+        self.settings = {
+            "ocr_confidence_threshold": 0.5,
+            "ocr_languages": ["en", "ru"]
+        }
 
     def get_setting(self, key, use_cache=True):
         return self.settings.get(key)
@@ -44,8 +47,7 @@ def fake_api_manager():
 def test_ensure_ready_fast_path_for_llm(fake_config):
     """Test ensure_ready fast-path for LLM engine."""
     # Setup
-    service = OCRService()
-    service._config_service = fake_config
+    service = OCRService(fake_config)
     fake_config.settings["ocr_engine"] = "llm"
 
     # Action
@@ -59,8 +61,7 @@ def test_ensure_ready_fast_path_for_llm(fake_config):
 def test_llm_success_path_returns_llm_result(fake_config, fake_api_manager):
     """Test LLM success path returns LLM result."""
     # Setup
-    service = OCRService()
-    service._config_service = fake_config
+    service = OCRService(fake_config)
     fake_config.settings.update({
         "ocr_engine": "llm",
         "ocr_enabled": True,
@@ -119,8 +120,7 @@ def test_llm_success_path_returns_llm_result(fake_config, fake_api_manager):
 def test_llm_failure_falls_back_to_easyocr_when_enabled(fake_config, fake_api_manager):
     """Test LLM failure falls back to EasyOCR when enabled."""
     # Setup
-    service = OCRService()
-    service._config_service = fake_config
+    service = OCRService(fake_config)
     fake_config.settings.update({
         "ocr_engine": "llm",
         "ocr_enabled": True,
@@ -171,8 +171,7 @@ def test_llm_failure_falls_back_to_easyocr_when_enabled(fake_config, fake_api_ma
 def test_llm_failure_without_fallback_when_disabled(fake_config, fake_api_manager):
     """Test LLM failure without fallback when EasyOCR disabled."""
     # Setup
-    service = OCRService()
-    service._config_service = fake_config
+    service = OCRService(fake_config)
     fake_config.settings.update({
         "ocr_engine": "llm",
         "ocr_enabled": False,
