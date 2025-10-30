@@ -251,9 +251,8 @@ QToolTip {
     background-color: #ffffe0;
     color: #000000;
     border: 1px solid #cccccc;
-    border-radius: 4px;
-    padding: 8px;
+    border-radius: 1px;
+    padding: 0px 5px;
     font-size: 11px;
-    max-width: 300px;
     white-space: pre-wrap;
 }

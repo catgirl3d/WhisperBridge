@@ -48,6 +48,7 @@ try:
     app = QApplication.instance()
     if app is None:
         app = QApplication([])
+    app.setStyle("Fusion")
     # Disable desktop settings awareness to allow full control over effects
     app.setDesktopSettingsAware(False)
     # Disable the fade effect for tooltips

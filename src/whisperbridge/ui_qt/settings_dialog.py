@@ -4,6 +4,7 @@ Settings Dialog for WhisperBridge Qt UI.
 Provides a comprehensive settings interface with tabs for different configuration categories.
 """
 from pathlib import Path
+from typing import Optional, Union
 from PySide6.QtWidgets import (
     QDialog,
     QVBoxLayout,
@@ -150,11 +151,11 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
 
         self.setStyleSheet(stylesheet)
 
-    def _create_hint_label(self, text: str, help_key: str) -> QWidget:
+    def _create_hint_label(self, text_or_widget: Union[str, QLabel], help_key: str) -> QWidget:
         """Create a label widget with hint button for form rows.
 
         Args:
-            text: The label text
+            text_or_widget: Either a string (creates new QLabel) or existing QLabel widget
             help_key: Key in HELP_TEXTS dictionary
 
         Returns:
@@ -168,7 +169,11 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(2)
 
-        label = QLabel(text)
+        if isinstance(text_or_widget, str):
+            label = QLabel(text_or_widget)
+        else:
+            label = text_or_widget
+
         layout.addWidget(label)
 
         hint_button = QToolButton()
@@ -189,45 +194,6 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
 
         return container
 
-    def _create_hint_label_from_widget(self, label_widget: QLabel, help_key: str) -> QWidget:
-        """Wrap an existing QLabel in a container with hint button.
-
-        This preserves the original label reference for dynamic updates.
-
-        Args:
-            label_widget: The existing QLabel to wrap
-            help_key: Key in HELP_TEXTS dictionary
-
-        Returns:
-            QWidget containing the original label and hint button
-        """
-        from PySide6.QtWidgets import QToolButton
-        from PySide6.QtCore import QPoint
-
-        container = QWidget(self)  # Properly parent to dialog
-        layout = QHBoxLayout(container)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(2)
-
-        layout.addWidget(label_widget)
-
-        hint_button = QToolButton()
-        hint_button.setObjectName("hintButton")
-        hint_button.setText("?")
-        hint_button.setAutoRaise(True)
-        hint_button.setToolTip(HELP_TEXTS.get(help_key, {}).get("tooltip", ""))
-
-        def show_detailed_hint():
-            detailed = HELP_TEXTS.get(help_key, {}).get("detailed", "")
-            if detailed:
-                from PySide6.QtWidgets import QToolTip
-                pos = hint_button.mapToGlobal(QPoint(0, hint_button.height()))
-                QToolTip.showText(pos, detailed, hint_button)
-
-        hint_button.clicked.connect(show_detailed_hint)
-        layout.addWidget(hint_button)
-
-        return container
 
     def _create_api_tab(self):
         """Create API settings tab."""
@@ -245,7 +211,7 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
 
         # API Key (dynamic based on provider)
         self.api_key_label = QLabel()  # Label will be updated dynamically
-        self.api_key_label_container = self._create_hint_label_from_widget(self.api_key_label, "api.key")
+        self.api_key_label_container = self._create_hint_label(self.api_key_label, "api.key")
         self.api_key_edit = QLineEdit()
         self.api_key_edit.setEchoMode(QLineEdit.EchoMode.Password)
 
@@ -272,7 +238,7 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
         model_layout = QFormLayout(model_group)
 
         self.model_label = QLabel("Model:")
-        self.model_label_container = self._create_hint_label_from_widget(self.model_label, "api.model")
+        self.model_label_container = self._create_hint_label(self.model_label, "api.model")
         self.model_combo = QComboBox()
         # Allow custom model input
         self.model_combo.setEditable(True)
@@ -287,20 +253,20 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
 
         # Vision model fields
         self.openai_vision_model_label = QLabel("OpenAI Vision Model:")
-        self.openai_vision_model_label_container = self._create_hint_label_from_widget(self.openai_vision_model_label, "api.vision_model_openai")
+        self.openai_vision_model_label_container = self._create_hint_label(self.openai_vision_model_label, "api.vision_model_openai")
         self.openai_vision_model_edit = QLineEdit()
         self.openai_vision_model_edit.setPlaceholderText("e.g., gpt-4-vision-preview")
         model_layout.addRow(self.openai_vision_model_label_container, self.openai_vision_model_edit)
 
         self.google_vision_model_label = QLabel("Google Vision Model:")
-        self.google_vision_model_label_container = self._create_hint_label_from_widget(self.google_vision_model_label, "api.vision_model_google")
+        self.google_vision_model_label_container = self._create_hint_label(self.google_vision_model_label, "api.vision_model_google")
         self.google_vision_model_edit = QLineEdit()
         self.google_vision_model_edit.setPlaceholderText("e.g., gemini-pro-vision")
         model_layout.addRow(self.google_vision_model_label_container, self.google_vision_model_edit)
 
         # DeepL plan selection (controls endpoint free/pro) - visible only for DeepL
         self.deepl_plan_label = QLabel("DeepL Plan:")
-        self.deepl_plan_label_container = self._create_hint_label_from_widget(self.deepl_plan_label, "api.deepl_plan")
+        self.deepl_plan_label_container = self._create_hint_label(self.deepl_plan_label, "api.deepl_plan")
         self.deepl_plan_combo = QComboBox()
         self.deepl_plan_combo.addItems(["free", "pro"])
         self.deepl_plan_combo.setToolTip(HELP_TEXTS.get("api.deepl_plan", {}).get("tooltip", ""))
@@ -530,15 +496,10 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
         self.tab_widget.addTab(tab, "Stylist")
         self._stylist_tab = tab
 
-    def _load_text_styles(self, settings):
-        """Populate styles_table from settings.text_styles."""
-        if not hasattr(self, "styles_table"):
-            return
+    def _populate_styles_table(self, styles):
+        """Populate styles_table with the given styles list."""
         try:
             self.styles_table.setRowCount(0)
-            styles = getattr(settings, "text_styles", []) or []
-            if not isinstance(styles, list):
-                styles = []
             for s in styles:
                 name = ""
                 prompt = ""
@@ -553,6 +514,18 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
                 self.styles_table.insertRow(row)
                 self.styles_table.setItem(row, 0, QTableWidgetItem(name))
                 self.styles_table.setItem(row, 1, QTableWidgetItem(prompt))
+        except Exception as e:
+            logger.error(f"Failed to populate styles table: {e}")
+
+    def _load_text_styles(self, settings):
+        """Populate styles_table from settings.text_styles."""
+        if not hasattr(self, "styles_table"):
+            return
+        try:
+            styles = getattr(settings, "text_styles", []) or []
+            if not isinstance(styles, list):
+                styles = []
+            self._populate_styles_table(styles)
         except Exception as e:
             logger.error(f"Failed to load styles into table: {e}")
 
@@ -581,7 +554,9 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
             self.styles_table.setItem(row, 1, QTableWidgetItem("Describe how to rewrite the text. Only return the rewritten text."))
             # Focus first cell for convenience
             self.styles_table.setCurrentCell(row, 0)
-            self.styles_table.editItem(self.styles_table.item(row, 0))
+            item = self.styles_table.item(row, 0)
+            if item:
+                self.styles_table.editItem(item)
         except Exception as e:
             logger.error(f"Failed to add style row: {e}")
 
@@ -606,14 +581,7 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
                 from ..core.config import Settings as _S
                 default_styles = _S().text_styles
 
-            self.styles_table.setRowCount(0)
-            for s in default_styles or []:
-                name = (s.get("name") or "").strip()
-                prompt = (s.get("prompt") or "").strip()
-                row = self.styles_table.rowCount()
-                self.styles_table.insertRow(row)
-                self.styles_table.setItem(row, 0, QTableWidgetItem(name))
-                self.styles_table.setItem(row, 1, QTableWidgetItem(prompt))
+            self._populate_styles_table(default_styles or [])
         except Exception as e:
             logger.error(f"Failed to reset styles to defaults: {e}")
 
@@ -636,72 +604,86 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
         """Gets the current provider name, normalized."""
         return self.api_provider_combo.currentText().strip().lower()
 
+    def _set_model_ui_visibility(self, visible: bool):
+        """Set the visibility and enablement of model selection UI elements."""
+        try:
+            if hasattr(self, "model_label_container") and self.model_label_container:
+                self.model_label_container.setVisible(visible)
+            self.model_combo.setVisible(visible)
+            self.model_combo.setEnabled(visible)
+        except Exception as e:
+            logger.debug(f"Failed to set model UI visibility: {e}")
+
+    def _update_control_visibility(self, control_type: str):
+        """Generic method to update visibility of provider-dependent controls."""
+        provider = self._get_current_provider()
+
+        if control_type == "stylist":
+            stylist_tab_index = self.tab_widget.indexOf(self._stylist_tab) if hasattr(self, '_stylist_tab') else -1
+            if stylist_tab_index == -1:
+                # Find the Stylist tab by name
+                for i in range(self.tab_widget.count()):
+                    if self.tab_widget.tabText(i) == "Stylist":
+                        stylist_tab_index = i
+                        self._stylist_tab = self.tab_widget.widget(i)
+                        break
+
+            if stylist_tab_index != -1:
+                is_visible = supports_stylist(provider)
+                self.tab_widget.setTabVisible(stylist_tab_index, is_visible)
+                logger.debug(f"Stylist tab visibility set to {is_visible} for provider {provider}")
+
+            # Also update the stylist cache checkbox visibility
+            if hasattr(self, 'stylist_cache_checkbox'):
+                visible = supports_stylist(provider)
+                self.stylist_cache_checkbox.setVisible(visible)
+                logger.debug(f"Stylist cache checkbox visibility set to {visible} for provider {provider}")
+
+        elif control_type == "vision_model":
+            # Check if OCR is enabled (both build flag and runtime setting)
+            ocr_enabled = getattr(self.current_settings, 'ocr_enabled', True) and getattr(self.current_settings, 'initialize_ocr', False)
+
+            # Define vision model controls for each provider
+            vision_controls = [
+                ("openai", self.openai_vision_model_label_container, self.openai_vision_model_edit),
+                ("google", self.google_vision_model_label_container, self.google_vision_model_edit),
+            ]
+
+            api_key_present = bool(self.api_key_edit.text().strip())
+
+            for provider_name, label_container, edit_field in vision_controls:
+                show_field = (provider == provider_name) and ocr_enabled
+
+                # Update visibility for label container
+                label_container.setVisible(show_field)
+
+                # Update visibility and enablement for edit field
+                edit_field.setVisible(show_field)
+                edit_field.setEnabled(show_field and api_key_present)
+
+        elif control_type == "deepl_plan":
+            is_deepl = provider == "deepl"
+
+            if hasattr(self, "deepl_plan_label_container"):
+                self.deepl_plan_label_container.setVisible(is_deepl)
+            if hasattr(self, "deepl_plan_combo"):
+                self.deepl_plan_combo.setVisible(is_deepl)
+                if is_deepl:
+                    # Initialize from settings with fallback
+                    current_plan = getattr(self.current_settings, "deepl_plan", None) or config_service.get_setting("deepl_plan") or "free"
+                    self.deepl_plan_combo.setCurrentText(current_plan)
+
     def _update_stylist_tab_visibility(self):
         """Update the visibility of the Stylist tab and related settings based on the current provider."""
-        provider = self._get_current_provider()
-        stylist_tab_index = self.tab_widget.indexOf(self._stylist_tab) if hasattr(self, '_stylist_tab') else -1
-        if stylist_tab_index == -1:
-            # Find the Stylist tab by name
-            for i in range(self.tab_widget.count()):
-                if self.tab_widget.tabText(i) == "Stylist":
-                    stylist_tab_index = i
-                    self._stylist_tab = self.tab_widget.widget(i)
-                    break
-
-        if stylist_tab_index != -1:
-            is_visible = supports_stylist(provider)
-            self.tab_widget.setTabVisible(stylist_tab_index, is_visible)
-            logger.debug(f"Stylist tab visibility set to {is_visible} for provider {provider}")
-
-        # Also update the stylist cache checkbox visibility
-        if hasattr(self, 'stylist_cache_checkbox'):
-            visible = supports_stylist(provider)
-            self.stylist_cache_checkbox.setVisible(visible)
-            logger.debug(f"Stylist cache checkbox visibility set to {visible} for provider {provider}")
+        self._update_control_visibility("stylist")
 
     def _update_vision_model_visibility(self):
         """Update the visibility and enablement of vision model fields based on provider, API key presence, and OCR enabled status."""
-        provider = self._get_current_provider()
-
-        # Determine visibility
-        show_openai = provider == "openai"
-        show_google = provider == "google"
-
-        # Check if OCR is enabled (both build flag and runtime setting)
-        ocr_enabled = getattr(self.current_settings, 'ocr_enabled', True) and getattr(self.current_settings, 'initialize_ocr', False)
-        show_openai = show_openai and ocr_enabled
-        show_google = show_google and ocr_enabled
-
-        # Update visibility for label containers
-        if hasattr(self, 'openai_vision_model_label_container'):
-            self.openai_vision_model_label_container.setVisible(show_openai)
-        if hasattr(self, 'google_vision_model_label_container'):
-            self.google_vision_model_label_container.setVisible(show_google)
-
-        # Update visibility for fields
-        self.openai_vision_model_edit.setVisible(show_openai)
-        self.google_vision_model_edit.setVisible(show_google)
-
-        # Update enablement based on API key presence
-        openai_key_present = bool(self.api_key_edit.text().strip()) if show_openai else False
-        google_key_present = bool(self.api_key_edit.text().strip()) if show_google else False
-
-        self.openai_vision_model_edit.setEnabled(openai_key_present)
-        self.google_vision_model_edit.setEnabled(google_key_present)
+        self._update_control_visibility("vision_model")
 
     def _update_deepl_plan_controls(self):
         """Update the visibility and value of DeepL plan controls based on the current provider."""
-        provider = self._get_current_provider()
-        is_deepl = provider == "deepl"
-
-        if hasattr(self, "deepl_plan_label_container"):
-            self.deepl_plan_label_container.setVisible(is_deepl)
-        if hasattr(self, "deepl_plan_combo"):
-            self.deepl_plan_combo.setVisible(is_deepl)
-            if is_deepl:
-                # Initialize from settings with fallback
-                current_plan = getattr(self.current_settings, "deepl_plan", None) or config_service.get_setting("deepl_plan") or "free"
-                self.deepl_plan_combo.setCurrentText(current_plan)
+        self._update_control_visibility("deepl_plan")
 
     def _load_settings(self, settings=None):
         """Load current settings into the UI."""
@@ -880,11 +862,15 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
         self.test_worker = ApiTestWorker(provider, api_key)
         self.app.create_and_run_worker(self.test_worker, self._on_test_finished, self._on_test_error)
 
+    def _reset_test_button(self):
+        """Reset the test API button to its default state."""
+        self.test_api_button.setEnabled(True)
+        self.test_api_button.setText("Test API")
+
     def _on_test_finished(self, success: bool, error_msg: str, models: list, source: str):
         """Handle API test completion (models already fetched in worker to avoid second network call)."""
         # Re-enable button
-        self.test_api_button.setEnabled(True)
-        self.test_api_button.setText("Test API")
+        self._reset_test_button()
 
         if success:
             QMessageBox.information(self, "Test Successful", "API key is working correctly!")
@@ -901,11 +887,10 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
     def _on_test_error(self, error_message: str):
         """Handle API test error."""
         # Re-enable button
-        self.test_api_button.setEnabled(True)
-        self.test_api_button.setText("Test API")
+        self._reset_test_button()
         QMessageBox.warning(self, "Test Failed", f"API test failed: {error_message}")
 
-    def _load_models(self, provider_name: str = None, model_to_select: str = None):
+    def _load_models(self, provider_name: Optional[str] = None, model_to_select: Optional[str] = None):
         """Load available models for the current provider."""
         # Normalize provider name if passed, or get from UI
         provider = (provider_name.strip().lower() if provider_name else self._get_current_provider())
@@ -914,29 +899,14 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
         logger.debug(f"Loading models for provider: {provider}")
         logger.debug(f"Model to select: '{model_to_select}'")
 
-        # Special case: providers without model selection — hide the control
-        if not requires_model_selection(provider):
-            try:
-                self.model_combo.clear()
-                self.model_combo.addItem("Translation Engine")
-                self.model_combo.setEnabled(False)
-                # Hide model selection UI
-                self.model_combo.setVisible(False)
-                if hasattr(self, "model_label_container") and self.model_label_container:
-                    self.model_label_container.setVisible(False)
-                logger.debug("Provider without model selection - model selection hidden/disabled")
-            except Exception as e:
-                logger.debug(f"Failed to apply model UI constraints: {e}")
+        # Set model UI visibility based on provider requirements
+        requires_model = requires_model_selection(provider)
+        self._set_model_ui_visibility(requires_model)
+        if not requires_model:
+            self.model_combo.clear()
+            self.model_combo.addItem("Translation Engine")
+            logger.debug("Provider without model selection - model selection hidden/disabled")
             return
-        else:
-            # Ensure model UI is visible/enabled for LLM providers
-            try:
-                if hasattr(self, "model_label_container") and self.model_label_container:
-                    self.model_label_container.setVisible(True)
-                self.model_combo.setVisible(True)
-                self.model_combo.setEnabled(True)
-            except Exception:
-                pass
 
         # Clear current models
         self.model_combo.clear()
@@ -974,7 +944,7 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
             logger.error(f"Failed to load models: {e}")
             self._apply_models_to_ui([], model_to_select, "error")
 
-    def _apply_models_to_ui(self, models: list, current_model: str, source: str = "unknown"):
+    def _apply_models_to_ui(self, models: list, current_model: Optional[str], source: str = "unknown"):
         """Apply models to the UI combo box."""
         logger.debug(f"Applying {len(models)} models to UI from source '{source}': {models}")
 
