@@ -1,6 +1,7 @@
 # Project specific
 tasks/
 temp/
+build/
 # tests/
 .toml
 .kilocode/
