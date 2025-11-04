@@ -48,13 +48,14 @@ try:
     app = QApplication.instance()
     if app is None:
         app = QApplication([])
-    app.setStyle("Fusion")
-    # Disable desktop settings awareness to allow full control over effects
-    app.setDesktopSettingsAware(False)
-    # Disable the fade effect for tooltips
-    app.setEffectEnabled(Qt.UI_FadeTooltip, False)
-    # Optionally, also disable animation
-    app.setEffectEnabled(Qt.UI_AnimateTooltip, False)
+    if isinstance(app, QApplication):
+        app.setStyle("Fusion")
+        # Disable desktop settings awareness to allow full control over effects
+        app.setDesktopSettingsAware(False)
+        # Disable the fade effect for tooltips
+        app.setEffectEnabled(Qt.UIEffect.UI_FadeTooltip, False)
+        # Optionally, also disable animation
+        app.setEffectEnabled(Qt.UIEffect.UI_AnimateTooltip, False)
 except Exception as e:
     log_crash(e)
     raise

@@ -594,12 +594,10 @@ class APIManager:
         }
 
         if selected_provider == APIProvider.OPENAI:
-            if final_model.startswith(("gpt-5", "chatgpt")):
-                api_params["extra_body"] = {"reasoning_effort": "minimal", "verbosity": "low"}
-                logger.debug("Using OpenAI GPT-5 optimizations: reasoning_effort=minimal, verbosity=low")
-            elif final_model.startswith("gpt-"):
-                api_params["extra_body"] = {"reasoning_effort": "minimal"}
-                logger.debug("Using OpenAI GPT optimizations: reasoning_effort=minimal")
+            if final_model.startswith(("gpt-5")):
+                extra_body = {"reasoning_effort": "minimal", "verbosity": "low"}
+                api_params["extra_body"] = extra_body
+                logger.debug(f"Using OpenAI GPT-5 optimizations: {', '.join(f'{k}={v}' for k, v in extra_body.items())}")
 
         logger.debug(f"Final API parameters for {selected_provider.value}: {api_params}")
 
