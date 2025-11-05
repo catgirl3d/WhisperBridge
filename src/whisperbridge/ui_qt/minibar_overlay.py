@@ -1,3 +1,21 @@
+"""
+MiniBar Overlay module for creating detachable mini companion windows.
+
+Configuration Guidelines:
+- All widget styles should be centralized in CONFIG dictionaries
+- Use consistent naming: {COMPONENT_TYPE}_CONFIG
+- Include size, style, and any widget-specific properties
+- Add objectName for widgets that need styling/testing
+- Follow DRY principle - avoid hardcoded values
+
+Key Principles:
+1. Centralized Configuration: All styles in CONFIG dictionaries at class level
+2. Explicit Mapping: Use explicit button-to-style mappings, not dynamic key generation
+3. Unified Factory: Single _create_widget_from_config method for all widgets
+4. ObjectName Usage: Set objectName for all testable/stylable widgets
+5. Separation of Concerns: Python handles logic, QSS handles appearance
+"""
+
 import weakref
 from typing import Callable, Union
 
@@ -8,6 +26,42 @@ from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QWidget
 
 
 from .base_window import BaseWindow
+
+# Configuration dictionaries for UI components
+MINIBAR_WINDOW_CONFIG = {
+    'fixed_height': 28,
+    'minimum_width': 190,
+    'layout_margins': (10, 0, 4, 0),
+    'layout_spacing': 2,
+    'title_font': ("Arial", 10, QFont.Weight.Bold),
+}
+
+MINIBAR_BUTTON_CONFIG = {
+    'expand': {
+        'size': (22, 22),
+        'icon': "fa5s.expand-alt",
+        'fallback_icon': "fa5s.chevron-up",
+        'fallback_text': "Expand",
+        'icon_color': "black",
+        'object_name': "expandBtnMini",
+    },
+    'close': {
+        'size': (22, 22),
+        'icon': "fa5s.times",
+        'fallback_text': "X",
+        'icon_color': "black",
+        'object_name': "closeBtnMini",
+    },
+}
+
+# Configuration for label widgets
+MINIBAR_LABEL_CONFIG = {
+    'title': {
+        'object_name': "titleLabelMini",
+        'font': ("Arial", 10, QFont.Weight.Bold),
+    }
+}
+
 
 
 class MiniBarOverlay(QWidget, BaseWindow):
@@ -40,17 +94,16 @@ class MiniBarOverlay(QWidget, BaseWindow):
         self.setObjectName("MiniBarOverlay")
 
         # Dimensions
-        self.setFixedHeight(28)
-        self.setMinimumWidth(190)
+        self.setFixedHeight(MINIBAR_WINDOW_CONFIG['fixed_height'])
+        self.setMinimumWidth(MINIBAR_WINDOW_CONFIG['minimum_width'])
 
         # Layout
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(10, 0, 4, 0)
-        layout.setSpacing(2)
+        layout.setContentsMargins(*MINIBAR_WINDOW_CONFIG['layout_margins'])
+        layout.setSpacing(MINIBAR_WINDOW_CONFIG['layout_spacing'])
 
         # Title (initialized from owner if available, no hardcoded text)
-        self.title_label = QLabel(self)
-        self.title_label.setFont(QFont("Arial", 10, QFont.Weight.Bold))
+        self.title_label = self._create_title_label()
         try:
             getter = getattr(owner_overlay, "get_title", None)
             if callable(getter):
@@ -67,61 +120,14 @@ class MiniBarOverlay(QWidget, BaseWindow):
         # Spacer-like stretch is implicit with layout spacing; keep compact
 
         # Expand button (top)
-        self.expand_btn = QPushButton(self)
-        self.expand_btn.setFixedSize(QSize(22, 22))
-        try:
-            self.expand_btn.setIcon(qta.icon("fa5s.expand-alt", color="black"))
-        except Exception:
-            try:
-                self.expand_btn.setIcon(qta.icon("fa5s.chevron-up", color="black"))
-            except Exception:
-                self.expand_btn.setText("Expand")
-        self.expand_btn.clicked.connect(self._handle_expand_clicked)
+        self.expand_btn = self._create_expand_button()
         layout.addWidget(self.expand_btn)
 
         # Close button(top)
-        self.close_btn = QPushButton(self)
-        self.close_btn.setObjectName("closeBtnMini")
-        self.close_btn.setFixedSize(QSize(22, 22))
-        try:
-            self.close_btn.setIcon(qta.icon("fa5s.times", color="black"))
-        except Exception:
-            self.close_btn.setText("X")
-        self.close_btn.clicked.connect(self._handle_close_clicked)
+        self.close_btn = self._create_close_button()
         layout.addWidget(self.close_btn)
 
-        # Styling consistent with overlay (light background, subtle border)
-        self.setStyleSheet(
-            """
-            MiniBarOverlay {
-                background-color: #ffffff;
-                border: 1px solid #f5f5f5;
-            }
-            QLabel {
-                color: #111111;
-                border: none;
-            }
-            QPushButton {
-                color: #111111;
-                padding: 3px 6px;
-                border: none;
-                border-radius: 3px;
-                background-color: #f0f0f0;
-            }
-            QPushButton:hover {
-                background-color: #e8e8e8;
-            }
-            QPushButton#closeBtnMini {
-                color: #111111;
-                padding: 3px 6px;
-                border-radius: 3px;
-                background-color: #fff;
-            }
-            QPushButton#closeBtnMini:hover {
-                background-color: #ff6b6b;
-            }
-            """
-        )
+        # Styling is handled by global stylesheet in style.qss
 
         # Dragging support (no manual resize)
         self._dragging = False
@@ -229,3 +235,71 @@ class MiniBarOverlay(QWidget, BaseWindow):
     def dismiss(self):
         """Dismiss the mini bar by closing it."""
         self.close()
+
+    # --- Factory methods ---
+
+    def _create_widget_from_config(self, widget_type: str, config_key: str, widget_class, **kwargs):
+        """
+        Generic factory method to create widgets from configuration dictionaries.
+        
+        Args:
+            widget_type: Type of widget ('button' or 'label')
+            config_key: Key within the configuration dictionary
+            widget_class: The widget class to instantiate
+            **kwargs: Additional arguments to pass to the widget constructor
+            
+        Returns:
+            Tuple of (widget, config)
+        """
+        config_maps = {
+            'button': MINIBAR_BUTTON_CONFIG,
+            'label': MINIBAR_LABEL_CONFIG
+        }
+        
+        config = config_maps[widget_type][config_key]
+        widget = widget_class(**kwargs)
+        
+        # Apply common configuration properties
+        if 'object_name' in config:
+            widget.setObjectName(config['object_name'])
+        if 'size' in config:
+            widget.setFixedSize(*config['size'])
+        if 'font' in config:
+            widget.setFont(QFont(*config['font']))
+            
+        return widget, config
+
+    def _create_expand_button(self) -> QPushButton:
+        """Create the expand button using configuration."""
+        btn, config = self._create_widget_from_config('button', 'expand', QPushButton)
+        
+        # Apply button-specific configuration
+        try:
+            btn.setIcon(qta.icon(config['icon'], color=config['icon_color']))
+        except Exception:
+            try:
+                btn.setIcon(qta.icon(config['fallback_icon'], color=config['icon_color']))
+            except Exception:
+                btn.setText(config['fallback_text'])
+        
+        btn.clicked.connect(self._handle_expand_clicked)
+        return btn
+
+    def _create_close_button(self) -> QPushButton:
+        """Create the close button using configuration."""
+        btn, config = self._create_widget_from_config('button', 'close', QPushButton)
+        
+        # Apply button-specific configuration
+        try:
+            btn.setIcon(qta.icon(config['icon'], color=config['icon_color']))
+        except Exception:
+            btn.setText(config['fallback_text'])
+        
+        btn.clicked.connect(self._handle_close_clicked)
+        return btn
+
+    def _create_title_label(self) -> QLabel:
+        """Create the title label using configuration."""
+        label, _ = self._create_widget_from_config('label', 'title', QLabel)
+        return label
+

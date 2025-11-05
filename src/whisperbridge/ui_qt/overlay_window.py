@@ -10,32 +10,22 @@ from PySide6.QtCore import (
     QThread,
     QTimer,
 )
-from PySide6.QtGui import QFont, QIcon, QPixmap
-import qtawesome as qta
-from pathlib import Path
 from PySide6.QtWidgets import (
     QApplication,
-    QCheckBox,
-    QComboBox,
-    QFrame,
-    QHBoxLayout,
     QLabel,
     QPushButton,
     QSizePolicy,
-    QSpacerItem,
     QTextEdit,
 )
+from PySide6.QtGui import QTextCursor
 
 from ..services.config_service import config_service, SettingsObserver
-from ..utils.language_utils import detect_language, get_language_name, get_supported_languages
+from ..utils.language_utils import detect_language, get_language_name
 from ..core.config import validate_api_key_format
 from typing import Optional
 from .styled_overlay_base import StyledOverlayWindow
 from .workers import TranslationWorker, StyleWorker
 from .overlay_ui_builder import OverlayUIBuilder, TranslatorSettingsDialog
-
-# Base path for assets
-_ASSETS_BASE = Path(__file__).parent.parent / "assets"
 
 
 class _OverlaySettingsObserver(SettingsObserver):
@@ -62,7 +52,11 @@ class OverlayWindow(StyledOverlayWindow):
     """Overlay window for displaying translation results."""
 
     def __init__(self):
-        """Initialize the overlay window."""
+        """Initialize the overlay window.
+
+        Uses OverlayUIBuilder to create all UI components, then assembles them into the layout.
+        The overlay manages signals, settings, and business logic; builder handles pure UI construction.
+        """
         super().__init__(title="Translator")
         self._translator_settings_dialog = None
         # Removed redundant flag
@@ -106,27 +100,13 @@ class OverlayWindow(StyledOverlayWindow):
         self.close_icon_hover = self.ui_builder.close_icon_hover
         self.hideable_elements = ui_components['hideable_elements']
 
-        # Mirror builder-provided assets and cached texts for downstream logic
+        # Mirror builder-provided assets for downstream logic
         self.icon_translation = self.ui_builder.icon_translation
-        self.icon_book_black = self.ui_builder.icon_book_black
-        self.icon_book_white = self.ui_builder.icon_book_white
-        self.icon_arrows_exchange = self.ui_builder.icon_arrows_exchange
-        self.icon_eraser = self.ui_builder.icon_eraser
-        self.icon_copy = self.ui_builder.icon_copy
-        self.icon_check_green = self.ui_builder.icon_check_green
-        self.icon_lock_white = self.ui_builder.icon_lock_white
-        self.icon_lock_grey = self.ui_builder.icon_lock_grey
-        self.close_icon_normal = self.ui_builder.close_icon_normal
-        self.close_icon_hover = self.ui_builder.close_icon_hover
 
-        # Initialize language controls
-        self.ui_builder._init_language_controls()
 
         # Assemble the built UI into the window's content layout
         layout = self.content_layout
         layout.setSpacing(6)
-        # Keep a reference to the info row widget
-        self.info_row_widget = ui_components['info_row']
         layout.addWidget(self.info_row_widget)
         layout.addLayout(ui_components['language_row'])
         # Apply initial mode visibility now that all controls exist
@@ -144,7 +124,6 @@ class OverlayWindow(StyledOverlayWindow):
         layout.setStretch(layout.indexOf(self.original_panel), 1)
         layout.setStretch(layout.indexOf(self.translated_panel), 1)
 
-        self.hideable_elements.extend(ui_components['hideable_elements'])
         self.add_settings_button(self._open_translator_settings)
 
         self._connect_signals()
@@ -166,9 +145,6 @@ class OverlayWindow(StyledOverlayWindow):
 
         logger.debug("OverlayWindow initialized")
 
-    def _apply_button_style(self, button: QPushButton, compact: bool):
-        """Delegate button styling to the UI builder."""
-        self.ui_builder._apply_button_style(button, compact)
 
 
     def _connect_signals(self):
@@ -214,13 +190,18 @@ class OverlayWindow(StyledOverlayWindow):
                 try:
                     compact = getattr(getattr(self, "_cached_settings", None), "compact_view", False)
                     if not compact:
-                        self.translate_btn.setText("Style" if is_style else "Translate")
-                    self.translate_btn.setIcon(self.icon_translation)
-                    self.translate_btn.setIconSize(QSize(14, 14))
+                        self.translate_btn.setText(self.ui_builder.get_translate_button_text(is_style))
+                    # Only set icon if button is enabled (not in disabled state)
+                    if self.translate_btn.isEnabled():
+                        self.translate_btn.setIcon(self.icon_translation)
+                        self.translate_btn.setIconSize(QSize(14, 14))
                 except Exception:
                     pass
 
             logger.debug(f"Mode visibility applied: mode='{mode}', is_style={is_style}")
+
+            # Ensure API state is correctly reflected after mode change
+            self._update_api_state_and_ui()
         except Exception as e:
             logger.debug(f"Failed to apply mode visibility: {e}")
 
@@ -287,36 +268,7 @@ class OverlayWindow(StyledOverlayWindow):
             except Exception:
                 compact = False
 
-            # Disable and set cursor/tooltip
-            self.translate_btn.setEnabled(False)
-            try:
-                self.translate_btn.setCursor(Qt.CursorShape.ForbiddenCursor)
-            except Exception:
-                pass
-            try:
-                self.translate_btn.setToolTip(reason_msg or "API key is not configured. Open Settings to add a key.")
-            except Exception:
-                pass
-
-            # Visual style and icon per mode
-            if compact:
-                # Compact: small square button → gray with white lock
-                self.translate_btn.setStyleSheet(
-                    "QPushButton { background-color: #9e9e9e; color: #ffffff; border: none; border-radius: 4px; font-weight: bold; padding: 0px; margin: 0px; }"
-                )
-                try:
-                    self.translate_btn.setIcon(self.icon_lock_white)
-                except Exception:
-                    pass
-            else:
-                # Full: wider button → light gray bg, muted text, gray lock icon
-                self.translate_btn.setStyleSheet(
-                    "QPushButton { background-color: #e0e0e0; color: #9e9e9e; border: 1px solid #cfcfcf; border-radius: 4px; }"
-                )
-                try:
-                    self.translate_btn.setIcon(self.icon_lock_grey)
-                except Exception:
-                    pass
+            self.ui_builder.apply_disabled_translate_visuals(self.translate_btn, reason_msg, compact)
         except Exception as e:
             logger.debug(f"Failed to apply disabled translate visuals: {e}")
 
@@ -330,38 +282,23 @@ class OverlayWindow(StyledOverlayWindow):
             if getattr(self, "_translation_start_time", None) is None:
                 self.translate_btn.setEnabled(True)
 
-            # Restore cursor/tooltip
-            try:
-                self.translate_btn.setCursor(Qt.CursorShape.ArrowCursor)
-            except Exception:
-                pass
-            try:
-                self.translate_btn.setToolTip("")
-            except Exception:
-                pass
-
-            # Re-apply normal style/icon based on compact mode
+            # Determine compact mode safely
             compact = False
             try:
                 compact = bool(getattr(getattr(self, "_cached_settings", None), "compact_view", False))
             except Exception:
                 compact = False
 
-            # Re-apply standard button styles for current mode
-            try:
-                self._apply_button_style(self.translate_btn, compact)
-            except Exception:
-                # Fallback to clearing the stylesheet
-                self.translate_btn.setStyleSheet("")
-
-            # Restore translation icon
-            try:
-                self.translate_btn.setIcon(self.icon_translation)
-                self.translate_btn.setIconSize(QSize(14, 14))
-            except Exception:
-                pass
+            self.ui_builder.restore_enabled_translate_visuals(self.translate_btn, compact)
         except Exception as e:
             logger.debug(f"Failed to restore enabled translate visuals: {e}")
+
+    def _find_index_by_text(self, combo, text: str) -> int:
+        """Helper to find index by visible text."""
+        for i in range(combo.count()):
+            if (combo.itemText(i) or "").strip().lower() == text.lower():
+                return i
+        return -1
 
     def _update_api_state_and_ui(self) -> None:
         """Enable/disable action button and set high-priority status when API key is missing/invalid."""
@@ -377,11 +314,11 @@ class OverlayWindow(StyledOverlayWindow):
             # Update status label with priority red message when not ready
             if hasattr(self, "status_label") and self.status_label:
                 if not ready:
-                    self.status_label.setStyleSheet("color: #c62828; font-weight: 600; font-size: 10px;")
+                    self.ui_builder.apply_status_style(self.status_label, 'error')
                     self.status_label.setText(msg)
                 else:
                     # Restore default style; don't override non-key statuses
-                    self.status_label.setStyleSheet("color: #666; font-size: 10px;")
+                    self.ui_builder.apply_status_style(self.status_label, 'default')
                     if "API key" in (self.status_label.text() or ""):
                         self.status_label.setText("")
 
@@ -389,19 +326,12 @@ class OverlayWindow(StyledOverlayWindow):
             try:
                 provider = (config_service.get_setting("api_provider") or "openai").strip().lower()
                 if hasattr(self, "mode_combo") and self.mode_combo:
-                    # Helper to find index by visible text
-                    def _find_index_by_text(combo, text: str) -> int:
-                        for i in range(combo.count()):
-                            if (combo.itemText(i) or "").strip().lower() == text.lower():
-                                return i
-                        return -1
-
-                    style_idx = _find_index_by_text(self.mode_combo, "Style")
+                    style_idx = self._find_index_by_text(self.mode_combo, "Style")
                     if provider == "deepl":
                         # If currently on Style, switch to Translate before removing the item
                         try:
                             if (self.mode_combo.currentText() or "").strip().lower() == "style":
-                                trans_idx = _find_index_by_text(self.mode_combo, "Translate")
+                                trans_idx = self._find_index_by_text(self.mode_combo, "Translate")
                                 if trans_idx != -1:
                                     self.mode_combo.setCurrentIndex(trans_idx)
                                     self._apply_mode_visibility("Translate")
@@ -546,6 +476,12 @@ class OverlayWindow(StyledOverlayWindow):
         # Update reader button state after setting text
         self._update_reader_button_state()
 
+        # Set focus to original text for quick typing
+        self.original_text.setFocus()
+        cursor = self.original_text.textCursor()
+        cursor.movePosition(QTextCursor.MoveOperation.End)
+        self.original_text.setTextCursor(cursor)
+
         self.show()
         self.raise_()
         self.activateWindow()
@@ -558,7 +494,7 @@ class OverlayWindow(StyledOverlayWindow):
             prev_text = button.text()
 
             try:
-                button.setIcon(self.icon_check_green)
+                button.setIcon(self.ui_builder.icon_check_green)
             except Exception:
                 pass
             button.setText("")
@@ -671,13 +607,13 @@ class OverlayWindow(StyledOverlayWindow):
         if src_data == "auto":
             new_source = tgt_data
             new_target = tgt_data
-            self._set_combo_data(self.source_combo, new_source)
+            self.ui_builder.set_combo_data(self.source_combo, new_source)
             logger.info(f"Swap with 'auto' source: source set to '{new_source}'")
         else:
             new_source = tgt_data
             new_target = src_data
-            self._set_combo_data(self.source_combo, new_source)
-            self._set_combo_data(self.target_combo, new_target)
+            self.ui_builder.set_combo_data(self.source_combo, new_source)
+            self.ui_builder.set_combo_data(self.target_combo, new_target)
             logger.info(f"Swapped languages: source='{new_source}', target='{new_target}'")
 
         # Common settings update logic
@@ -691,16 +627,6 @@ class OverlayWindow(StyledOverlayWindow):
         except Exception as e:
             logger.error(f"Failed to persist swap: {e}")
 
-    def _set_combo_data(self, combo, data_value):
-        """Set combo to the index matching the data value, with signal blocking."""
-        combo.blockSignals(True)
-        try:
-            for i in range(combo.count()):
-                if combo.itemData(i) == data_value:
-                    combo.setCurrentIndex(i)
-                    break
-        finally:
-            combo.blockSignals(False)
 
     def _on_swap_clicked(self):
         """Swap button behavior"""
@@ -793,7 +719,7 @@ class OverlayWindow(StyledOverlayWindow):
                 # Check if the result is empty (indicating safety filter block)
                 if not result.strip():
                     self.status_label.setText("Response blocked by safety filters")
-                    self.status_label.setStyleSheet("color: #c62828; font-weight: 600; font-size: 10px;")
+                    self.ui_builder.apply_status_style(self.status_label, 'error')
                     self.translated_text.setPlainText("")
                     logger.warning("Translation was blocked by API safety filters")
                 else:
@@ -855,11 +781,11 @@ class OverlayWindow(StyledOverlayWindow):
                 self._translation_start_time = None
             else:
                 self.status_label.setText("Failed")
-            # UX: emphasize error state in red (same styling priority as key-missing)
-            try:
-                self.status_label.setStyleSheet("color: #c62828; font-weight: 600; font-size: 10px;")
-            except Exception:
-                pass
+                # UX: emphasize error state in red (same styling priority as key-missing)
+                try:
+                    self.ui_builder.apply_status_style(self.status_label, 'error')
+                except Exception:
+                    pass
 
             settings = self._cached_settings
             compact = getattr(settings, "compact_view", False)
@@ -896,8 +822,10 @@ class OverlayWindow(StyledOverlayWindow):
                 logger.info("Reader mode activated with translated text")
             else:
                 logger.error("UI service not available")
+                self.status_label.setText("Reader mode unavailable")
         except Exception as e:
             logger.error(f"Failed to open reader mode: {e}")
+            self.status_label.setText("Failed to open reader")
 
 
     def dismiss(self) -> None:

@@ -1,5 +1,19 @@
 """
 Overlay UI Builder module for creating overlay window components.
+
+Configuration Guidelines:
+- All widget styles should be centralized in CONFIG dictionaries
+- Use consistent naming: {WIDGET_TYPE}_CONFIG
+- Include size, style, and any widget-specific properties
+- Add objectName for widgets that need styling/testing
+- Follow DRY principle - avoid hardcoded values
+
+Key Principles:
+1. Centralized Configuration: All styles in CONFIG dictionaries at class level
+2. Explicit Mapping: Use explicit button-to-style mappings, not dynamic key generation
+3. Unified Factory: Single _create_widget_from_config method for all widgets
+4. ObjectName Usage: Set objectName for all testable/stylable widgets
+5. Separation of Concerns: Python handles logic, QSS handles appearance
 """
 
 from pathlib import Path
@@ -11,11 +25,9 @@ from PySide6.QtCore import (
     QEvent,
     QSize,
     Qt,
-    QTimer,
 )
-from PySide6.QtGui import QFont, QIcon, QPixmap, QColor, QPainter, QPainterPath
+from PySide6.QtGui import QFont, QIcon, QPixmap
 from PySide6.QtWidgets import (
-    QApplication,
     QCheckBox,
     QComboBox,
     QDialog,
@@ -29,9 +41,8 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
-from ..services.config_service import config_service, SettingsObserver
-from ..utils.language_utils import detect_language, get_language_name, get_supported_languages
-from ..core.config import validate_api_key_format
+from ..services.config_service import config_service
+from ..utils.language_utils import get_supported_languages
 
 # Base path for assets
 _ASSETS_BASE = Path(__file__).parent.parent / "assets"
@@ -181,6 +192,7 @@ class PanelWidget(QFrame):
             self._remove_side_panel()
             self._ensure_btn_row()
             for b in self.buttons:
+                b.setVisible(True)
                 self._apply_btn_style(b, False)
 
     def eventFilter(self, obj, event):
@@ -205,6 +217,130 @@ class PanelWidget(QFrame):
 
 class OverlayUIBuilder:
     """Builder class for creating overlay window UI components."""
+
+    # Configuration for disabled button styles
+    DISABLED_STYLES = {
+        'compact': {
+            'stylesheet': (
+                "QPushButton { background-color: #9e9e9e; color: #ffffff; "
+                "border: none; border-radius: 4px; font-weight: bold; "
+                "padding: 0px; margin: 0px; }"
+            ),
+            'icon_attr': 'icon_lock_white'
+        },
+        'full': {
+            'stylesheet': (
+                "QPushButton { background-color: #e0e0e0; color: #9e9e9e; "
+                "border: 1px solid #cfcfcf; border-radius: 4px; }"
+            ),
+            'icon_attr': 'icon_lock_grey'
+        }
+    }
+
+    DEFAULT_DISABLED_TOOLTIP = "API key is not configured. Open Settings to add a key."
+
+    # Configuration for language widgets
+    LANGUAGE_WIDGET_CONFIG = {
+        'combo': {
+            'size': (125, 28),
+            'icon_size': (28, 28),
+            'style': "QComboBox { background-color: #fff; color: #111111; padding: 0px; padding-left: 8px; }"
+        },
+        'swap_button': {
+            'size': (35, 28),
+            'icon_size': (20, 24)
+        }
+    }
+
+    # Configuration for footer widgets
+    FOOTER_WIDGET_CONFIG = {
+        'status_label': {
+            'style': "color: #666; font-size: 10px;",
+            'object_name': "statusLabel"
+        },
+        'close_button': {
+            'size': (86, 28),
+            'icon_size': (16, 16),
+            'object_name': "closeButton",
+            'text': "Close"
+        }
+    }
+
+    # Configuration for status label styles
+    STATUS_STYLES = {
+        'default': {
+            'style': "color: #666; font-size: 10px;"
+        },
+        'error': {
+            'style': "color: #c62828; font-weight: 600; font-size: 10px;"
+        }
+    }
+
+    # Configuration for button styles
+    BUTTON_STYLES = {
+        'translate_compact': {
+            'text': '',
+            'size': (24, 24),
+            'icon_size': (12, 12),
+            'stylesheet': "QPushButton { background-color: #4CAF50; color: white; border: none; border-radius: 4px; font-weight: bold; padding: 0px; margin: 0px; } QPushButton:hover { background-color: #45a049; }",
+            'icon': None
+        },
+        'translate_full': {
+            'text': None,  # Will be set dynamically
+            'size': (120, 28),
+            'icon_size': (14, 14),
+            'stylesheet': "",
+            'icon': None
+        },
+        'reader_compact': {
+            'text': '',
+            'size': (24, 24),
+            'icon_size': (17, 17),
+            'stylesheet': "QPushButton { background-color: #2196F3; color: white; border: none; border-radius: 4px; font-weight: bold; padding: 0px; margin: 0px; } QPushButton:hover { background-color: #1976D2; }",
+            'icon': None  # Will be set dynamically
+        },
+        'reader_full': {
+            'text': None,  # Will be set dynamically
+            'size': (40, 28),
+            'icon_size': (19, 19),
+            'stylesheet': "",
+            'icon': None  # Will be set dynamically
+        },
+        'default_compact': {
+            'text': '',
+            'size': (24, 24),
+            'icon_size': (15, 15),
+            'stylesheet': "QPushButton { padding: 0px; margin: 0px; }",
+            'icon': None
+        },
+        'default_full': {
+            'text': '',
+            'size': (40, 28),
+            'icon_size': (16, 16),
+            'stylesheet': "",
+            'icon': None
+        }
+    }
+
+    # Configuration for info row widgets
+    INFO_WIDGET_CONFIG = {
+        'mode_combo': {
+            'size': (95, 28),
+            'object_name': 'modeCombo'
+        },
+        'style_combo': {
+            'size': (95, 28),
+            'object_name': 'styleCombo'
+        },
+        'detected_lang_label': {
+            'width': 120
+        }
+    }
+
+    # Configuration for text edit widgets
+    TEXT_EDIT_CONFIG = {
+        'style': "QTextEdit { color: #111111; background-color: #ffffff; }"
+    }
 
     def __init__(self):
         self.icon_translation = self._load_icon("translation-icon.png")
@@ -235,11 +371,11 @@ class OverlayUIBuilder:
         text_edit.setAcceptRichText(False)
         text_edit.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         text_edit.setPlaceholderText(placeholder)
-        text_edit.setStyleSheet("QTextEdit { color: #111111; background-color: #ffffff; }")
+        text_edit.setStyleSheet(self.TEXT_EDIT_CONFIG['style'])
         return text_edit
 
     def _create_button(self, parent=None, text=None, icon=None, size=(40, 28), tooltip=None):
-        """Generic button factory. Default parent is the overlay window to ensure ownership."""
+        """Generic button factory. Creates buttons without explicit parent (ownership managed by layout)."""
         btn = QPushButton(parent)
         if text:
             btn.setText(text)
@@ -251,68 +387,93 @@ class OverlayUIBuilder:
             btn.setToolTip(tooltip)
         return btn
 
-    def _apply_button_style(self, button: QPushButton, compact: bool):
+    def apply_button_style(self, button: QPushButton, compact: bool):
         """Apply styling to a button based on compact mode using configuration dictionary."""
+        mode = 'compact' if compact else 'full'
+
+        # Explicit mapping of buttons to their style configurations
+        # This makes it clear which button uses which config without dynamic key generation
         button_configs = {
             self.translate_btn: {
-                'compact': {
-                    'text': '',
-                    'size': (24, 24),
-                    'icon_size': (12, 12),
-                    'stylesheet': "QPushButton { background-color: #4CAF50; color: white; border: none; border-radius: 4px; font-weight: bold; padding: 0px; margin: 0px; } QPushButton:hover { background-color: #45a049; }",
-                    'icon': None
-                },
-                'full': {
-                    'text': self._translate_original_text if hasattr(self, "_translate_original_text") else "  Translate",
-                    'size': (120, 28),
-                    'icon_size': (14, 14),
-                    'stylesheet': "",
-                    'icon': None
-                }
+                'compact': self.BUTTON_STYLES['translate_compact'],
+                'full': self.BUTTON_STYLES['translate_full']
             },
             self.reader_mode_btn: {
-                'compact': {
-                    'text': '',
-                    'size': (24, 24),
-                    'icon_size': (17, 17),
-                    'stylesheet': "QPushButton { background-color: #2196F3; color: white; border: none; border-radius: 4px; font-weight: bold; padding: 0px; margin: 0px; } QPushButton:hover { background-color: #1976D2; }",
-                    'icon': self.icon_book_white
-                },
-                'full': {
-                    'text': self._reader_original_text if hasattr(self, "_reader_original_text") else "Reader",
-                    'size': (40, 28),
-                    'icon_size': (19, 19),
-                    'stylesheet': "",
-                    'icon': self.icon_book_black
-                }
+                'compact': self.BUTTON_STYLES['reader_compact'],
+                'full': self.BUTTON_STYLES['reader_full']
             }
         }
 
-        # Default styles for other buttons
-        default_compact = {
-            'text': '',
-            'size': (24, 24),
-            'icon_size': (15, 15),
-            'stylesheet': "QPushButton { padding: 0px; margin: 0px; }",
-            'icon': None
-        }
-        default_full = {
-            'text': '',
-            'size': (40, 28),
-            'icon_size': (16, 16),
-            'stylesheet': "",
-            'icon': None
-        }
+        # Get the specific config for the button and mode
+        config = button_configs.get(button, {}).get(mode)
 
-        mode = 'compact' if compact else 'full'
-        config = button_configs.get(button, {}).get(mode, default_compact if compact else default_full)
+        if not config:
+            # Fallback to default styles for other buttons (clear, copy, etc.)
+            config = self.BUTTON_STYLES[f'default_{mode}']
 
+        config = config.copy()  # Work with a copy to avoid modifying the original
+
+        # Apply button-specific customizations
+        if button == self.translate_btn and mode == 'full':
+            config['text'] = self._translate_original_text if hasattr(self, "_translate_original_text") else self.get_translate_button_text()
+        elif button == self.reader_mode_btn:
+            if mode == 'full':
+                config['text'] = self._reader_original_text if hasattr(self, "_reader_original_text") else "Reader"
+                config['icon'] = self.icon_book_black
+            else:  # compact mode
+                config['icon'] = self.icon_book_white
+
+        # Apply configuration to the button
         button.setText(config['text'])
         button.setFixedSize(*config['size'])
         button.setIconSize(QSize(*config['icon_size']))
         button.setStyleSheet(config['stylesheet'])
         if config.get('icon') is not None:
             button.setIcon(config['icon'])
+
+    def _create_widget_from_config(self, widget_type: str, config_key: str, widget_class, **kwargs):
+        """Generic widget factory using configuration dictionaries."""
+        config_maps = {
+            'info': self.INFO_WIDGET_CONFIG,
+            'language': self.LANGUAGE_WIDGET_CONFIG,
+            'footer': self.FOOTER_WIDGET_CONFIG
+        }
+
+        config = config_maps[widget_type][config_key]
+        widget = widget_class(**kwargs)
+
+        # Apply common configuration properties
+        if hasattr(widget, 'setFixedSize') and 'size' in config:
+            widget.setFixedSize(*config['size'])
+        if hasattr(widget, 'setObjectName') and 'object_name' in config:
+            widget.setObjectName(config['object_name'])
+        if hasattr(widget, 'setFixedWidth') and 'width' in config:
+            widget.setFixedWidth(config['width'])
+        if hasattr(widget, 'setStyleSheet') and 'style' in config:
+            widget.setStyleSheet(config['style'])
+        if hasattr(widget, 'setIconSize') and 'icon_size' in config:
+            widget.setIconSize(QSize(*config['icon_size']))
+
+        return widget, config
+
+    def _create_mode_combo(self) -> QComboBox:
+        """Create mode selector combo box using config."""
+        combo, _ = self._create_widget_from_config('info', 'mode_combo', QComboBox)
+        combo.addItem("Translate")
+        combo.addItem("Style")
+        return combo
+
+    def _create_style_combo(self) -> QComboBox:
+        """Create style presets combo box using config."""
+        combo, _ = self._create_widget_from_config('info', 'style_combo', QComboBox)
+        self._populate_styles(combo)
+        combo.setVisible(False)  # Hidden by default; shown only in Style mode
+        return combo
+
+    def _create_detected_lang_label(self) -> QLabel:
+        """Create detected language label using config."""
+        label, _ = self._create_widget_from_config('info', 'detected_lang_label', QLabel, text="Language: —")
+        return label
 
     def _create_info_row(self):
         """Create the top info row with mode selector, style presets, language detection and auto-translate."""
@@ -326,26 +487,17 @@ class OverlayUIBuilder:
         self.mode_label = QLabel("Mode:")
         info_row.addWidget(self.mode_label)
 
-        self.mode_combo = QComboBox()
-        self.mode_combo.setFixedSize(95, 28)
-        self.mode_combo.addItem("Translate")
-        self.mode_combo.addItem("Style")
+        self.mode_combo = self._create_mode_combo()
         info_row.addWidget(self.mode_combo)
 
-        # Style presets combo
-        self.style_combo = QComboBox()
-        self.style_combo.setFixedSize(95, 28)
-        self._populate_styles()
+        self.style_combo = self._create_style_combo()
         info_row.addWidget(self.style_combo)
-        # Hidden by default; shown only in Style mode via _apply_mode_visibility
-        self.style_combo.setVisible(False)
 
         # Middle: stretch to push detection + auto-swap to the right
         info_row.addItem(QSpacerItem(10, 10, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum))
 
         # Right: Detected language label + Auto-translate toggle
-        self.detected_lang_label = QLabel("Language: —")
-        self.detected_lang_label.setFixedWidth(120)
+        self.detected_lang_label = self._create_detected_lang_label()
         info_row.addWidget(self.detected_lang_label)
 
         self.auto_swap_checkbox = QCheckBox("Auto-translate EN ↔ RU")
@@ -355,6 +507,18 @@ class OverlayUIBuilder:
         # Return the container widget so it can be managed uniformly (hideable_elements)
         return container
 
+    def _create_language_combo(self) -> QComboBox:
+        """Create a standardized language combo box using config."""
+        combo, config = self._create_widget_from_config('language', 'combo', QComboBox)
+        combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
+        return combo
+
+    def _create_swap_button(self) -> QPushButton:
+        """Create language swap button using config."""
+        swap_btn, _ = self._create_widget_from_config('language', 'swap_button', QPushButton)
+        swap_btn.setIcon(self.icon_arrows_exchange)
+        return swap_btn
+
     def _create_language_row(self):
         """Create the language selection row."""
         language_row = QHBoxLayout()
@@ -363,18 +527,9 @@ class OverlayUIBuilder:
         language_row.addWidget(self.original_label, alignment=Qt.AlignmentFlag.AlignBottom)
         language_row.addItem(QSpacerItem(0, 0, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum))
 
-        self.source_combo = QComboBox()
-        self.target_combo = QComboBox()
-        for combo in [self.source_combo, self.target_combo]:
-            combo.setFixedSize(125, 28)
-            combo.setIconSize(QSize(28, 28))
-            combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
-            combo.setStyleSheet("QComboBox { background-color: #fff; color: #111111; padding: 0px; padding-left: 8px; }")
-
-        self.swap_btn = QPushButton()
-        self.swap_btn.setFixedSize(35, 28)
-        self.swap_btn.setIcon(self.icon_arrows_exchange)
-        self.swap_btn.setIconSize(QSize(20, 24))
+        self.source_combo = self._create_language_combo()
+        self.target_combo = self._create_language_combo()
+        self.swap_btn = self._create_swap_button()
 
         language_row.addWidget(self.source_combo)
         language_row.addWidget(self.swap_btn)
@@ -386,21 +541,36 @@ class OverlayUIBuilder:
 
         return language_row
 
-    def _populate_styles(self):
-        """Populate style presets from settings into style_combo."""
+    def _populate_styles(self, combo: QComboBox):
+        """Populate style presets from settings into the given combo box."""
         try:
-            self.style_combo.clear()
+            combo.clear()
             settings = config_service.get_settings()
             styles = getattr(settings, "text_styles", []) or []
             if not styles:
-                self.style_combo.addItem("Improve")  # fallback display
+                combo.addItem("Improve")  # fallback display
                 return
             for s in styles:
                 name = (s.get("name") or "").strip() if isinstance(s, dict) else str(s)
                 if name:
-                    self.style_combo.addItem(name)
+                    combo.addItem(name)
         except Exception as e:
             logger.warning(f"Failed to populate styles: {e}")
+
+    def _create_status_label(self) -> QLabel:
+        """Create standardized status label using config."""
+        status_label, _ = self._create_widget_from_config('footer', 'status_label', QLabel, text="")
+        return status_label
+
+    def _create_close_button(self) -> QPushButton:
+        """Create standardized close button using config."""
+        config = self.FOOTER_WIDGET_CONFIG['close_button']
+        close_btn, _ = self._create_widget_from_config('footer', 'close_button', QPushButton, text=config['text'])
+
+        self.close_icon_normal = qta.icon("fa5s.times", color="black")
+        self.close_icon_hover = qta.icon("fa5s.times", color="white")
+        close_btn.setIcon(self.close_icon_normal)
+        return close_btn
 
     def _create_footer(self):
         """Create the footer row with status label and close button."""
@@ -409,24 +579,15 @@ class OverlayUIBuilder:
         footer_row = QHBoxLayout(footer_widget)
         footer_row.setContentsMargins(0, 0, 0, 0)
 
-        # Status label in the bottom-left corner
-        self.status_label = QLabel("")
-        self.status_label.setStyleSheet("color: #666; font-size: 10px;")
+        self.status_label = self._create_status_label()
         footer_row.addWidget(self.status_label)
-
         footer_row.addStretch()
 
-        close_btn = QPushButton("Close")
-        close_btn.setFixedSize(86, 28)
-        close_btn.setObjectName("closeButton")
-        self.close_icon_normal = qta.icon("fa5s.times", color="black")
-        self.close_icon_hover = qta.icon("fa5s.times", color="white")
-        close_btn.setIcon(self.close_icon_normal)
-        close_btn.setIconSize(QSize(16, 16))
+        close_btn = self._create_close_button()
         footer_row.addWidget(close_btn, alignment=Qt.AlignmentFlag.AlignRight)
         return footer_widget, close_btn
 
-    def _init_language_controls(self):
+    def init_language_controls(self):
         """Populate and configure language selection combos."""
         supported_languages = get_supported_languages()
         flags_path = _ASSETS_BASE / "icons" / "flags"
@@ -442,16 +603,16 @@ class OverlayUIBuilder:
 
         settings = config_service.get_settings()
         ui_source_language = getattr(settings, "ui_source_language", "en")
-        self._set_combo_data(self.source_combo, ui_source_language)
+        self.set_combo_data(self.source_combo, ui_source_language)
         if self.source_combo.currentData() != ui_source_language:
-            self._set_combo_data(self.source_combo, "en")
+            self.set_combo_data(self.source_combo, "en")
 
         ui_target_language = getattr(settings, "ui_target_language", "en")
-        self._set_combo_data(self.target_combo, ui_target_language)
+        self.set_combo_data(self.target_combo, ui_target_language)
         if self.target_combo.currentData() != ui_target_language:
-            self._set_combo_data(self.target_combo, "en")
+            self.set_combo_data(self.target_combo, "en")
 
-    def _set_combo_data(self, combo, data_value):
+    def set_combo_data(self, combo, data_value):
         """Set combo to the index matching the data value, with signal blocking."""
         combo.blockSignals(True)
         try:
@@ -462,44 +623,117 @@ class OverlayUIBuilder:
         finally:
             combo.blockSignals(False)
 
-    def build_ui(self, owner):
-        """Build and return all UI components for the overlay window."""
-        # Create main UI widgets
-        info_row = self._create_info_row()
-        language_row = self._create_language_row()
+    def apply_disabled_translate_visuals(self, button: QPushButton, reason_msg: str, compact: bool) -> None:
+        """Apply strong disabled visuals for the Translate/Style button."""
+        if not button:
+            return
 
+        try:
+            button.setEnabled(False)
+            button.setCursor(Qt.CursorShape.ForbiddenCursor)
+            button.setToolTip(reason_msg or self.DEFAULT_DISABLED_TOOLTIP)
+
+            # Explicit mapping for disabled styles - makes it clear which mode uses which config
+            disabled_configs = {
+                True: self.DISABLED_STYLES['compact'],   # compact mode
+                False: self.DISABLED_STYLES['full']       # full mode
+            }
+
+            config = disabled_configs[compact]
+            button.setStyleSheet(config['stylesheet'])
+            icon = getattr(self, config['icon_attr'])
+            button.setIcon(icon)
+        except Exception as e:
+            logger.debug(f"Failed to apply disabled translate visuals: {e}")
+
+    def get_translate_button_text(self, is_style: bool = False) -> str:
+        """Get properly formatted text for translate button with leading space for icon alignment."""
+        return "  Style" if is_style else "  Translate"
+
+    def restore_enabled_translate_visuals(self, button: QPushButton, compact: bool) -> None:
+        """Restore normal visuals for the Translate/Style button."""
+        if not button:
+            return
+
+        try:
+            button.setCursor(Qt.CursorShape.ArrowCursor)
+            button.setToolTip("")
+
+            # Re-apply normal style/icon based on compact mode
+            self.apply_button_style(button, compact)
+
+            # Only restore translation icon for translate button, not for reader button
+            if button == self.translate_btn:
+                button.setIcon(self.icon_translation)
+                button.setIconSize(QSize(14, 14))
+        except Exception as e:
+            logger.debug(f"Failed to restore enabled translate visuals: {e}")
+
+    def apply_status_style(self, status_label: QLabel, style_type: str) -> None:
+        """Apply centralized styling to status label based on type."""
+        if not status_label:
+            return
+        
+        try:
+            config = self.STATUS_STYLES.get(style_type, self.STATUS_STYLES['default'])
+            status_label.setStyleSheet(config['style'])
+        except Exception as e:
+            logger.debug(f"Failed to apply status style: {e}")
+
+    def _create_main_buttons(self):
+        """Create main action buttons (translate and reader mode)."""
+        self.translate_btn = self._create_button(text="  Translate", size=(120, 28))
+        self.translate_btn.setObjectName("translateButton")
+        self.translate_btn.setIcon(self.icon_translation)
+        self.translate_btn.setIconSize(QSize(14, 14))
+        self._translate_original_text = self.translate_btn.text()
+
+        self.reader_mode_btn = self._create_button(text="", tooltip="Open text in reader mode for comfortable reading")
+        self.reader_mode_btn.setIcon(self.icon_book_black)
+        self.reader_mode_btn.setIconSize(QSize(14, 14))
+        self._reader_original_text = self.reader_mode_btn.text()
+        self.reader_mode_btn.setEnabled(False)  # Disable by default if no translated text
+
+    def _create_utility_buttons(self):
+        """Create utility buttons (clear and copy)."""
+        self.clear_original_btn = self._create_button(text="", icon=self.icon_eraser, size=(40, 28), tooltip="Clear text")
+        self.copy_original_btn = self._create_button(text="", icon=self.icon_copy, size=(40, 28), tooltip="Copy text")
+        self.clear_translated_btn = self._create_button(text="", icon=self.icon_eraser, size=(40, 28), tooltip="Clear text")
+        self.copy_translated_btn = self._create_button(text="", icon=self.icon_copy, size=(40, 28), tooltip="Copy text")
+
+    def _create_text_widgets(self):
+        """Create text edit widgets and labels."""
         self.original_text = self._create_text_edit("Recognized text will appear here...")
         self.translated_text = self._create_text_edit("Translation will appear here...")
 
         self.translated_label = QLabel("Translation:")
         self._set_bold_font(self.translated_label)
 
-        self.translate_btn = self._create_button(text="  Translate", size=(120, 28))
-        # Ensure stylesheet targeting and identity remain intact
-        self.translate_btn.setObjectName("translateButton")
-        # Set icon for translate button
-        self.translate_btn.setIcon(self.icon_translation)
-        self.translate_btn.setIconSize(QSize(14, 14))
-        # preserve original display text for restore
-        self._translate_original_text = self.translate_btn.text()
-        self.reader_mode_btn = self._create_button(text="", tooltip="Open text in reader mode for comfortable reading")
-        # Set icon for reader mode button
-        self.reader_mode_btn.setIcon(self.icon_book_black)
-        self.reader_mode_btn.setIconSize(QSize(14, 14))
-        # preserve original display text for restore
-        self._reader_original_text = self.reader_mode_btn.text()
-        self.reader_mode_btn.setEnabled(False)  # Disable by default if no translated text
-        self.clear_original_btn = self._create_button(text="", icon=self.icon_eraser, size=(40, 28), tooltip="Clear text")
-        self.copy_original_btn = self._create_button(text="", icon=self.icon_copy, size=(40, 28), tooltip="Copy text")
-        self.clear_translated_btn = self._create_button(text="", icon=self.icon_eraser, size=(40, 28), tooltip="Clear text")
-        self.copy_translated_btn = self._create_button(text="", icon=self.icon_copy, size=(40, 28), tooltip="Copy text")
-
+    def _create_panels(self, owner):
+        """Create panel widgets for organizing buttons and text areas."""
         self.original_buttons = [self.translate_btn, self.clear_original_btn, self.copy_original_btn]
         self.translated_buttons = [self.reader_mode_btn, self.clear_translated_btn, self.copy_translated_btn]
 
-        # Use reusable panel widgets instead of ad-hoc containers
-        self.original_panel = PanelWidget(self.original_text, self.original_buttons, self._apply_button_style, parent=owner)
-        self.translated_panel = PanelWidget(self.translated_text, self.translated_buttons, self._apply_button_style, parent=owner)
+        self.original_panel = PanelWidget(self.original_text, self.original_buttons, self.apply_button_style, parent=owner)
+        self.translated_panel = PanelWidget(self.translated_text, self.translated_buttons, self.apply_button_style, parent=owner)
+
+    def build_ui(self, owner):
+        """Build and return all UI components for the overlay window.
+
+        The builder creates all widgets and returns them in a dict.
+        Ownership is transferred to the overlay window, which manages signals, layout, and lifecycle.
+        """
+        # Create main UI widgets
+        info_row = self._create_info_row()
+        language_row = self._create_language_row()
+
+        self._create_text_widgets()
+        self._create_main_buttons()
+        self._create_utility_buttons()
+        self._create_panels(owner)
+
+        # Initialize language controls after creating combos
+        self.init_language_controls()
 
         footer_widget, close_btn = self._create_footer()
 

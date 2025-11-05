@@ -2,6 +2,13 @@
 Settings Dialog for WhisperBridge Qt UI.
 
 Provides a comprehensive settings interface with tabs for different configuration categories.
+
+Key Principles:
+1. Centralized Configuration: All styles in CONFIG dictionaries at class level
+2. Explicit Mapping: Use explicit widget-to-config mappings, not dynamic key generation
+3. Unified Factory: Single _create_widget_from_config method for all widgets
+4. ObjectName Usage: Set objectName for all testable/stylable widgets
+5. Separation of Concerns: Python handles logic, QSS handles appearance
 """
 from pathlib import Path
 from typing import Optional, Union

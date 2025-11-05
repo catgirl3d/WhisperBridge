@@ -1,3 +1,14 @@
+"""
+Styled Overlay Base module for creating overlay window components.
+
+Configuration Guidelines:
+- All widget styles should be centralized in CONFIG dictionaries
+- Use consistent naming: {COMPONENT_TYPE}_CONFIG
+- Include size, style, and any widget-specific properties
+- Add objectName for widgets that need styling/testing
+- Follow DRY principle - avoid hardcoded values
+"""
+
 import sys
 import os
 
@@ -26,6 +37,50 @@ from PySide6.QtWidgets import (
 from whisperbridge.ui_qt.base_window import BaseWindow
 from ..services.config_service import config_service
 from loguru import logger
+
+# Configuration dictionaries for UI components
+WINDOW_CONFIG = {
+    'minimum_size': (320, 200),
+    'default_size': (540, 500),
+    'root_layout_margins': (10, 7, 10, 10),
+    'root_layout_spacing': 6,
+    'content_layout_spacing': 6,
+    'title_font': ("Arial", 11, QFont.Weight.Bold),
+}
+
+TOP_BUTTONS_CONFIG = {
+    'settings': {
+        'size': (22, 22),
+        'icon_size': (18, 16),
+        'icon': "fa5s.cog",
+        'icon_color': "black",
+        'fallback_text': "⚙",
+    },
+    'close': {
+        'size': (22, 22),
+        'icon_size': (20, 16),
+        'icon': "fa5s.times",
+        'icon_color': "black",
+        'fallback_text': "X",
+    },
+    'collapse': {
+        'size': (22, 22),
+        'icon_size': (20, 16),
+        'icon': "fa5s.compress-alt",
+        'icon_color': "black",
+        'fallback_text': "▭",
+    },
+    'padding': {
+        'top': 3,
+        'right': 4,
+        'bottom': 0,
+        'left': 2,
+    },
+}
+
+RESIZE_CONFIG = {
+    'margin': 8,
+}
 
 
 class StyledOverlayWindow(QWidget, BaseWindow):
@@ -59,25 +114,25 @@ class StyledOverlayWindow(QWidget, BaseWindow):
         self.setMouseTracking(True)
 
         # Reasonable defaults, subclasses may adjust
-        self.setMinimumSize(320, 200)
-        self.resize(540, 500)
+        self.setMinimumSize(*WINDOW_CONFIG['minimum_size'])
+        self.resize(*WINDOW_CONFIG['default_size'])
 
         # ----- Layout skeleton -----
         # Root vertical layout with default margins/spacings
         self._root_layout = QVBoxLayout(self)
-        self._root_layout.setContentsMargins(10, 7, 10, 10)
-        self._root_layout.setSpacing(6)
+        self._root_layout.setContentsMargins(*WINDOW_CONFIG['root_layout_margins'])
+        self._root_layout.setSpacing(WINDOW_CONFIG['root_layout_spacing'])
 
         # Title (simple header label)
         self._title_label = QLabel(self)
-        self._title_label.setFont(QFont("Arial", 11, QFont.Weight.Bold))
+        self._title_label.setFont(QFont(*WINDOW_CONFIG['title_font']))
         self.set_title(title)
         self._root_layout.addWidget(self._title_label)
 
         # Content layout for subclasses to populate
         self.content_layout = QVBoxLayout()
         self.content_layout.setContentsMargins(0, 0, 0, 0)
-        self.content_layout.setSpacing(6)
+        self.content_layout.setSpacing(WINDOW_CONFIG['content_layout_spacing'])
         self._root_layout.addLayout(self.content_layout)
 
 
@@ -85,7 +140,7 @@ class StyledOverlayWindow(QWidget, BaseWindow):
         self.settings_btn_top: Optional[QPushButton] = None
         self.collapse_btn_top: Optional[QPushButton] = None
         self.close_btn_top: Optional[QPushButton] = None
-        self._top_button_padding = {"top": 3, "right": 4, "bottom": 0, "left": 2}
+        self._top_button_padding = TOP_BUTTONS_CONFIG['padding']
         self._create_default_top_buttons()
 
         # ----- Drag/Resize state -----
@@ -95,7 +150,7 @@ class StyledOverlayWindow(QWidget, BaseWindow):
         self._resizing = False
         self._resize_start_pos = QPoint()
         self._resize_start_geometry = QRect()
-        self._resize_margin = 8
+        self._resize_margin = RESIZE_CONFIG['margin']
         self._resize_mode: Optional[str] = None  # e.g., "right", "bottom-right", etc.
 
         # ----- Minibar integration -----
@@ -117,7 +172,7 @@ class StyledOverlayWindow(QWidget, BaseWindow):
         """Get window header title."""
         return self._title_label.text()
 
-    def set_top_button_padding(self, *, top: int = 3, right: int = 4, bottom: int = 0, left: int = 2) -> None:
+    def set_top_button_padding(self, *, top: int = TOP_BUTTONS_CONFIG['padding']['top'], right: int = TOP_BUTTONS_CONFIG['padding']['right'], bottom: int = TOP_BUTTONS_CONFIG['padding']['bottom'], left: int = TOP_BUTTONS_CONFIG['padding']['left']) -> None:
         """Adjust padding for top-right buttons positioning."""
         self._top_button_padding = {"top": top, "right": right, "bottom": bottom, "left": left}
         self._position_top_buttons()
@@ -128,18 +183,18 @@ class StyledOverlayWindow(QWidget, BaseWindow):
         Returns the created button so subclasses can further customize (icon/tooltip).
         """
         if self.settings_btn_top is None:
+            config = TOP_BUTTONS_CONFIG['settings']
             btn = QPushButton(self)
             btn.setObjectName("settingsBtnTop")
-            btn.setFixedSize(22, 22)
+            btn.setFixedSize(*config['size'])
             if qta:
                 try:
-                    btn.setIcon(qta.icon("fa5s.cog", color="black"))
+                    btn.setIcon(qta.icon(config['icon'], color=config['icon_color']))
                 except Exception:
-                    btn.setText("⚙")
+                    btn.setText(config['fallback_text'])
             else:
-                btn.setText("⚙")
-            btn.setIconSize(QSize(18, 16))
-            btn.setToolTip("Settings")
+                btn.setText(config['fallback_text'])
+            btn.setIconSize(QSize(*config['icon_size']))
             if callable(on_click):
                 btn.clicked.connect(on_click)
             self.settings_btn_top = btn
@@ -203,33 +258,33 @@ class StyledOverlayWindow(QWidget, BaseWindow):
     def _create_default_top_buttons(self) -> None:
         """Create collapse and close buttons in the top-right corner."""
         # Close button
+        config = TOP_BUTTONS_CONFIG['close']
         self.close_btn_top = QPushButton(self)
         self.close_btn_top.setObjectName("closeBtnTop")
-        self.close_btn_top.setFixedSize(22, 22)
+        self.close_btn_top.setFixedSize(*config['size'])
         if qta:
             try:
-                self.close_btn_top.setIcon(qta.icon("fa5s.times", color="black"))
+                self.close_btn_top.setIcon(qta.icon(config['icon'], color=config['icon_color']))
             except Exception:
-                self.close_btn_top.setText("X")
+                self.close_btn_top.setText(config['fallback_text'])
         else:
-            self.close_btn_top.setText("X")
-        self.close_btn_top.setIconSize(QSize(20, 16))
-        self.close_btn_top.setToolTip("Close")
+            self.close_btn_top.setText(config['fallback_text'])
+        self.close_btn_top.setIconSize(QSize(*config['icon_size']))
         self.close_btn_top.clicked.connect(self.dismiss)
 
         # Collapse button (to the left of close)
+        config = TOP_BUTTONS_CONFIG['collapse']
         self.collapse_btn_top = QPushButton(self)
         self.collapse_btn_top.setObjectName("collapseBtnTop")
-        self.collapse_btn_top.setFixedSize(22, 22)
+        self.collapse_btn_top.setFixedSize(*config['size'])
         if qta:
             try:
-                self.collapse_btn_top.setIcon(qta.icon("fa5s.compress-alt", color="black"))
+                self.collapse_btn_top.setIcon(qta.icon(config['icon'], color=config['icon_color']))
             except Exception:
-                self.collapse_btn_top.setText("▭")
+                self.collapse_btn_top.setText(config['fallback_text'])
         else:
-            self.collapse_btn_top.setText("▭")
-        self.collapse_btn_top.setIconSize(QSize(20, 16))
-        self.collapse_btn_top.setToolTip("Collapse to minibar")
+            self.collapse_btn_top.setText(config['fallback_text'])
+        self.collapse_btn_top.setIconSize(QSize(*config['icon_size']))
         self.collapse_btn_top.clicked.connect(self.collapse_to_minibar)
 
         # Calculate initial positions
@@ -237,10 +292,10 @@ class StyledOverlayWindow(QWidget, BaseWindow):
 
     def _position_top_buttons(self) -> None:
         """Position the top-right control buttons with padding."""
-        padding = getattr(self, "_top_button_padding", {"top": 0, "right": 0, "bottom": 0, "left": 0})
-        top_offset = padding.get("top", 0)
-        right_offset = padding.get("right", 0)
-        spacing = padding.get("left", 2)
+        padding = getattr(self, "_top_button_padding", TOP_BUTTONS_CONFIG['padding'])
+        top_offset = padding.get("top", TOP_BUTTONS_CONFIG['padding']['top'])
+        right_offset = padding.get("right", TOP_BUTTONS_CONFIG['padding']['right'])
+        spacing = padding.get("left", TOP_BUTTONS_CONFIG['padding']['left'])
 
         buttons = [self.close_btn_top, self.collapse_btn_top, self.settings_btn_top]
         current_x = self.width() - right_offset
@@ -345,7 +400,7 @@ class StyledOverlayWindow(QWidget, BaseWindow):
 
     def _hit_test_resize(self, pos: QPoint) -> Optional[str]:
         r = self.rect()
-        margin = getattr(self, "_resize_margin", 8)
+        margin = getattr(self, "_resize_margin", RESIZE_CONFIG['margin'])
 
         left = pos.x() <= margin
         right = pos.x() >= r.width() - margin
