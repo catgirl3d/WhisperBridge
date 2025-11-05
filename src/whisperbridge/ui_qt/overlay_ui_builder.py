@@ -218,21 +218,13 @@ class PanelWidget(QFrame):
 class OverlayUIBuilder:
     """Builder class for creating overlay window UI components."""
 
-    # Configuration for disabled button styles
+    # Configuration for disabled button visuals (QSS handles appearance;
+    # Python stores only non-visual metadata like which icon to use)
     DISABLED_STYLES = {
         'compact': {
-            'stylesheet': (
-                "QPushButton { background-color: #9e9e9e; color: #ffffff; "
-                "border: none; border-radius: 4px; font-weight: bold; "
-                "padding: 0px; margin: 0px; }"
-            ),
             'icon_attr': 'icon_lock_white'
         },
         'full': {
-            'stylesheet': (
-                "QPushButton { background-color: #e0e0e0; color: #9e9e9e; "
-                "border: 1px solid #cfcfcf; border-radius: 4px; }"
-            ),
             'icon_attr': 'icon_lock_grey'
         }
     }
@@ -255,7 +247,6 @@ class OverlayUIBuilder:
     # Configuration for footer widgets
     FOOTER_WIDGET_CONFIG = {
         'status_label': {
-            'style': "color: #666; font-size: 10px;",
             'object_name': "statusLabel"
         },
         'close_button': {
@@ -266,58 +257,42 @@ class OverlayUIBuilder:
         }
     }
 
-    # Configuration for status label styles
-    STATUS_STYLES = {
-        'default': {
-            'style': "color: #666; font-size: 10px;"
-        },
-        'error': {
-            'style': "color: #c62828; font-weight: 600; font-size: 10px;"
-        }
-    }
-
-    # Configuration for button styles
+    # Configuration for button styles (appearance moved to QSS; sizes/icons/text remain)
     BUTTON_STYLES = {
         'translate_compact': {
             'text': '',
             'size': (24, 24),
             'icon_size': (12, 12),
-            'stylesheet': "QPushButton { background-color: #4CAF50; color: white; border: none; border-radius: 4px; font-weight: bold; padding: 0px; margin: 0px; } QPushButton:hover { background-color: #45a049; }",
             'icon': None
         },
         'translate_full': {
             'text': None,  # Will be set dynamically
             'size': (120, 28),
             'icon_size': (14, 14),
-            'stylesheet': "",
             'icon': None
         },
         'reader_compact': {
             'text': '',
             'size': (24, 24),
             'icon_size': (17, 17),
-            'stylesheet': "QPushButton { background-color: #2196F3; color: white; border: none; border-radius: 4px; font-weight: bold; padding: 0px; margin: 0px; } QPushButton:hover { background-color: #1976D2; }",
             'icon': None  # Will be set dynamically
         },
         'reader_full': {
             'text': None,  # Will be set dynamically
             'size': (40, 28),
             'icon_size': (19, 19),
-            'stylesheet': "",
             'icon': None  # Will be set dynamically
         },
         'default_compact': {
             'text': '',
             'size': (24, 24),
             'icon_size': (15, 15),
-            'stylesheet': "QPushButton { padding: 0px; margin: 0px; }",
             'icon': None
         },
         'default_full': {
             'text': '',
             'size': (40, 28),
             'icon_size': (16, 16),
-            'stylesheet': "",
             'icon': None
         }
     }
@@ -388,11 +363,12 @@ class OverlayUIBuilder:
         return btn
 
     def apply_button_style(self, button: QPushButton, compact: bool):
-        """Apply styling to a button based on compact mode using configuration dictionary."""
+        """Apply styling to a button based on compact mode using configuration dictionary.
+        Visual appearance is controlled via QSS.
+        """
         mode = 'compact' if compact else 'full'
-
+    
         # Explicit mapping of buttons to their style configurations
-        # This makes it clear which button uses which config without dynamic key generation
         button_configs = {
             self.translate_btn: {
                 'compact': self.BUTTON_STYLES['translate_compact'],
@@ -403,16 +379,16 @@ class OverlayUIBuilder:
                 'full': self.BUTTON_STYLES['reader_full']
             }
         }
-
+    
         # Get the specific config for the button and mode
         config = button_configs.get(button, {}).get(mode)
-
+    
         if not config:
             # Fallback to default styles for other buttons (clear, copy, etc.)
             config = self.BUTTON_STYLES[f'default_{mode}']
-
+    
         config = config.copy()  # Work with a copy to avoid modifying the original
-
+    
         # Apply button-specific customizations
         if button == self.translate_btn and mode == 'full':
             config['text'] = self._translate_original_text if hasattr(self, "_translate_original_text") else self.get_translate_button_text()
@@ -422,14 +398,29 @@ class OverlayUIBuilder:
                 config['icon'] = self.icon_book_black
             else:  # compact mode
                 config['icon'] = self.icon_book_white
-
-        # Apply configuration to the button
-        button.setText(config['text'])
+    
+        # Apply size, text and icon
+        button.setText(config.get('text') or "")
         button.setFixedSize(*config['size'])
         button.setIconSize(QSize(*config['icon_size']))
-        button.setStyleSheet(config['stylesheet'])
         if config.get('icon') is not None:
             button.setIcon(config['icon'])
+    
+        # Set dynamic properties for QSS to pick up (compact / utility)
+        try:
+            button.setProperty("compact", compact)
+            # utility property should already be set by creators for small action buttons;
+            # ensure property exists for consistency
+            if button.property("utility") is None:
+                button.setProperty("utility", False)
+    
+            # Force style refresh so QSS reacts to the new properties
+            button.style().unpolish(button)
+            button.style().polish(button)
+            button.update()
+        except Exception:
+            # Avoid breaking UI flow on styling errors
+            pass
 
     def _create_widget_from_config(self, widget_type: str, config_key: str, widget_class, **kwargs):
         """Generic widget factory using configuration dictionaries."""
@@ -624,25 +615,34 @@ class OverlayUIBuilder:
             combo.blockSignals(False)
 
     def apply_disabled_translate_visuals(self, button: QPushButton, reason_msg: str, compact: bool) -> None:
-        """Apply strong disabled visuals for the Translate/Style button."""
+        """Apply strong disabled visuals for the Translate/Style button.
+        Visuals are controlled by QSS; here we set state, properties and the lock icon.
+        """
         if not button:
             return
-
+    
         try:
             button.setEnabled(False)
             button.setCursor(Qt.CursorShape.ForbiddenCursor)
             button.setToolTip(reason_msg or self.DEFAULT_DISABLED_TOOLTIP)
-
-            # Explicit mapping for disabled styles - makes it clear which mode uses which config
+    
+            # Explicit mapping for disabled styles - only icon metadata is needed here
             disabled_configs = {
                 True: self.DISABLED_STYLES['compact'],   # compact mode
-                False: self.DISABLED_STYLES['full']       # full mode
+                False: self.DISABLED_STYLES['full']      # full mode
             }
-
+    
             config = disabled_configs[compact]
-            button.setStyleSheet(config['stylesheet'])
+            # Set compact property so QSS selects the appropriate disabled appearance
+            button.setProperty("compact", compact)
+            # Set lock icon as visual indicator for disabled translate
             icon = getattr(self, config['icon_attr'])
             button.setIcon(icon)
+    
+            # Force style refresh
+            button.style().unpolish(button)
+            button.style().polish(button)
+            button.update()
         except Exception as e:
             logger.debug(f"Failed to apply disabled translate visuals: {e}")
 
@@ -654,29 +654,39 @@ class OverlayUIBuilder:
         """Restore normal visuals for the Translate/Style button."""
         if not button:
             return
-
+    
         try:
+            button.setEnabled(True)
             button.setCursor(Qt.CursorShape.ArrowCursor)
             button.setToolTip("")
-
-            # Re-apply normal style/icon based on compact mode
+    
+            # Ensure compact property is updated and re-apply sizes/icons
             self.apply_button_style(button, compact)
-
+    
             # Only restore translation icon for translate button, not for reader button
             if button == self.translate_btn:
                 button.setIcon(self.icon_translation)
                 button.setIconSize(QSize(14, 14))
+    
+            # Refresh style
+            button.style().unpolish(button)
+            button.style().polish(button)
+            button.update()
         except Exception as e:
             logger.debug(f"Failed to restore enabled translate visuals: {e}")
 
     def apply_status_style(self, status_label: QLabel, style_type: str) -> None:
-        """Apply centralized styling to status label based on type."""
+        """Apply centralized styling to status label based on type using dynamic properties."""
         if not status_label:
             return
         
         try:
-            config = self.STATUS_STYLES.get(style_type, self.STATUS_STYLES['default'])
-            status_label.setStyleSheet(config['style'])
+            # Set a dynamic property to control styling via QSS
+            status_label.setProperty("status", style_type)
+            # Force a style refresh to apply the new property-based style
+            status_label.style().unpolish(status_label)
+            status_label.style().polish(status_label)
+            status_label.update()
         except Exception as e:
             logger.debug(f"Failed to apply status style: {e}")
 
@@ -687,11 +697,15 @@ class OverlayUIBuilder:
         self.translate_btn.setIcon(self.icon_translation)
         self.translate_btn.setIconSize(QSize(14, 14))
         self._translate_original_text = self.translate_btn.text()
-
+    
         self.reader_mode_btn = self._create_button(text="", tooltip="Open text in reader mode for comfortable reading")
+        # Use a stable object name for QSS selectors
+        self.reader_mode_btn.setObjectName("readerButton")
         self.reader_mode_btn.setIcon(self.icon_book_black)
         self.reader_mode_btn.setIconSize(QSize(14, 14))
         self._reader_original_text = self.reader_mode_btn.text()
+        # Mark as utility=false by default; compact/full visual will be applied later
+        self.reader_mode_btn.setProperty("utility", False)
         self.reader_mode_btn.setEnabled(False)  # Disable by default if no translated text
 
     def _create_utility_buttons(self):
@@ -700,6 +714,10 @@ class OverlayUIBuilder:
         self.copy_original_btn = self._create_button(text="", icon=self.icon_copy, size=(40, 28), tooltip="Copy text")
         self.clear_translated_btn = self._create_button(text="", icon=self.icon_eraser, size=(40, 28), tooltip="Clear text")
         self.copy_translated_btn = self._create_button(text="", icon=self.icon_copy, size=(40, 28), tooltip="Copy text")
+    
+        # Mark utility buttons so QSS can style them as compact/utility actions
+        for btn in (self.clear_original_btn, self.copy_original_btn, self.clear_translated_btn, self.copy_translated_btn):
+            btn.setProperty("utility", True)
 
     def _create_text_widgets(self):
         """Create text edit widgets and labels."""

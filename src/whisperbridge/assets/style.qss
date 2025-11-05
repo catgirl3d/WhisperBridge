@@ -69,6 +69,84 @@ QPushButton#translateButton:hover {
     background-color: #2f5db3;
 }
 
+/* Translate - compact variant (applies when widget property compact="true" is set) */
+QPushButton#translateButton[compact="true"] {
+    background-color: #356bd0;
+    color: #ffffff;
+    font-weight: 600;
+    border: none;
+}
+QPushButton#translateButton[compact="true"]:hover {
+    background-color: #2f5db3;
+}
+
+/* Translate - disabled states */
+QPushButton#translateButton:disabled {
+    /* full-mode disabled */
+    background-color: #e0e0e0;
+    color: #9e9e9e;
+    border: 1px solid #cfcfcf;
+}
+QPushButton#translateButton[compact="true"]:disabled {
+    /* compact-mode disabled (strong visual) */
+    background-color: #9e9e9e;
+    color: #ffffff;
+    border: none;
+}
+
+/* Reader button styling
+   - full mode uses default neutral icon (book_black)
+   - compact mode will use compact look (blue background) and white icon
+   The code will set property compact="true" to switch variants.
+*/
+QPushButton#readerButton {
+    background-color: #f0f0f0;
+    color: #111111;
+    border: none;
+}
+QPushButton#readerButton:hover {
+    background-color: #e8e8e8;
+}
+
+/* Compact reader (icon on colored circle) */
+QPushButton#readerButton[compact="true"] {
+    background-color: #2196F3;
+    color: #ffffff;
+    border: none;
+}
+QPushButton#readerButton[compact="true"]:hover {
+    background-color: #1976D2;
+}
+
+/* Reader disabled */
+QPushButton#readerButton:disabled {
+    background-color: #f0f0f0;
+    color: #9e9e9e;
+}
+
+/* Utility / small action buttons (clear, copy) - use dynamic property utility="true" */
+QPushButton[utility="true"] {
+    padding: 0px;
+    margin: 0px;
+    background-color: #f0f0f0;
+    border: none;
+}
+QPushButton[utility="true"]:hover {
+    background-color: #e8e8e8;
+}
+
+/* Generic compact adjustments: small square appearance when compact property is set */
+QPushButton[compact="true"][utility="true"],
+QPushButton[compact="true"].small {
+    padding: 0px;
+    margin: 0px;
+}
+
+/* Generic disabled cursor enforcement for all buttons */
+QPushButton:disabled {
+    cursor: not-allowed;
+}
+
 /* Close button styling */
 QPushButton#closeButton:hover {
     background-color: #d02d2d; /* Red background on hover */
@@ -311,7 +389,7 @@ QLabel#statusLabel {
     font-size: 10px;
 }
 
-QLabel#statusLabel.error {
+QLabel#statusLabel[status="error"] {
     color: #c62828;
     font-weight: 600;
     font-size: 10px;
