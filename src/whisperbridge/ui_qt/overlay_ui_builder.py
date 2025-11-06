@@ -269,7 +269,7 @@ class OverlayUIBuilder:
 
     # Configuration for layout spacing and dimensions
     LAYOUT_CONFIG = {
-        'info_row_margins': (0, 0, 0, 0),
+        'info_row_margins': (0, 3, 0, 0),
         'info_row_spacer_width': 10,
         'info_row_spacer_height': 10,
         'footer_margins': (0, 0, 0, 0)
@@ -353,7 +353,6 @@ class OverlayUIBuilder:
             'icon_size': (12, 12)
         },
         'translate_full': {
-            'text': '  Translate',
             'size': (120, 28),
             'icon_size': (14, 14)
         },
@@ -363,7 +362,7 @@ class OverlayUIBuilder:
             'icon_size': (17, 17)
         },
         'reader_full': {
-            'text': 'Reader',
+            'text': '',
             'size': (40, 28),
             'icon_size': (19, 19),
             'tooltip': 'Open text in reader mode for comfortable reading'
@@ -633,9 +632,11 @@ class OverlayUIBuilder:
         # Создаем комбобоксы напрямую из их уникальных конфигураций
         self.source_combo, _ = self._create_widget_from_config('language', 'source_combo', QComboBox)
         self.source_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
+        self.source_combo.setMaxVisibleItems(12)
 
         self.target_combo, _ = self._create_widget_from_config('language', 'target_combo', QComboBox)
         self.target_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
+        self.target_combo.setMaxVisibleItems(12)
         
         self.swap_btn = self._create_swap_button()
 
@@ -820,14 +821,12 @@ class OverlayUIBuilder:
 
     def _create_main_buttons(self):
         """Create main action buttons (translate and reader mode)."""
-        self.translate_btn = self._create_button(text="")
+        self.translate_btn = self._create_button(text="  Translate")
         self.translate_btn.setObjectName("translateButton")
-        self._translate_original_text = self.translate_btn.text()
 
         self.reader_mode_btn = self._create_button(text="")
         # Use a stable object name for QSS selectors
         self.reader_mode_btn.setObjectName("readerButton")
-        self._reader_original_text = self.reader_mode_btn.text()
         # Mark as utility=false by default; compact/full visual will be applied later
         self.reader_mode_btn.setProperty("utility", False)
         self.reader_mode_btn.setEnabled(False)  # Disable by default if no translated text

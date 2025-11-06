@@ -14,7 +14,7 @@ QLabel {
 QLabel#boldLabel {
     font-weight: bold;
     font-family: Arial;
-    font-size: 10px;
+    font-size: 9.5px;
 }
 QPushButton {
     color: #111111;
@@ -180,7 +180,6 @@ QPushButton#translatorCloseButton:hover {
 QComboBox {
     border: 1px solid rgba(0,0,0,0.12);
     border-radius: 4px;
-    padding: 6px 8px;
     background-color: #ffffff;
     color: #111111;
     selection-color: #ffffff;
@@ -188,10 +187,19 @@ QComboBox {
 }
 
 /* Language combo box specific styling */
-QComboBox#languageCombo {
+QComboBox#sourceLanguageCombo, QComboBox#targetLanguageCombo {
     background-color: #fff;
     color: #111111;
-    padding: 0px;
+    padding-left: 8px;
+}
+
+/* Mode combo box specific styling */
+QComboBox#modeCombo {
+    padding-left: 8px;
+}
+
+/* Style combo box specific styling */
+QComboBox#styleCombo {
     padding-left: 8px;
 }
 QComboBox::drop-down {
@@ -210,21 +218,9 @@ QComboBox::down-arrow {
 }
 /* Popup list */
 QComboBox QAbstractItemView {
-    border: 1px solid rgba(0,0,0,0.12);
     background-color: #ffffff;
     color: #111111;
     selection-background-color: #0078d7;
-    selection-color: #ffffff;
-    outline: none;
-    padding: 4px;
-}
-QComboBox QAbstractItemView::item {
-    min-height: 22px;
-    padding: 4px 8px;
-}
-QComboBox QAbstractItemView::item:selected {
-    background: #0078d7;
-    color: #ffffff;
 }
 
 /* GroupBox styling */

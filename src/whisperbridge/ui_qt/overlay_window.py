@@ -192,11 +192,6 @@ class OverlayWindow(StyledOverlayWindow):
                     if not compact:
                         new_text = self.ui_builder.get_translate_button_text(is_style)
                         self.translate_btn.setText(new_text)
-                        # Keep builder's original text in sync for future style applications
-                        try:
-                            self.ui_builder._translate_original_text = new_text
-                        except Exception:
-                            pass
                     # Only set icon if button is enabled (not in disabled state)
                     if self.translate_btn.isEnabled():
                         self.translate_btn.setIcon(self.icon_translation)
