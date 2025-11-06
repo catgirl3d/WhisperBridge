@@ -51,33 +51,63 @@ _ASSETS_BASE = Path(__file__).parent.parent / "assets"
 class TranslatorSettingsDialog(QDialog):
     """Dialog for translator-specific settings."""
 
+    # Configuration for translator settings dialog
+    TRANSLATOR_DIALOG_CONFIG = {
+        'dialog': {
+            'title': "Translator Settings",
+            'object_name': "TranslatorSettingsDialog",
+            'minimum_width': 320
+        },
+        'compact_view_checkbox': {
+            'text': "Compact view",
+            'tooltip': "Hides labels and buttons for a more compact translator window"
+        },
+        'autohide_buttons_checkbox': {
+            'text': "Hide right-side buttons (show on hover)",
+            'tooltip': "If enabled, the narrow buttons on the right appear only on hover"
+        },
+        'close_button': {
+            'text': "Close",
+            'height': 26,
+            'object_name': "translatorCloseButton"
+        }
+    }
+
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Translator Settings")
-        self.setObjectName("TranslatorSettingsDialog")
+        
+        # Apply dialog configuration
+        dialog_config = self.TRANSLATOR_DIALOG_CONFIG['dialog']
+        self.setWindowTitle(dialog_config['title'])
+        self.setObjectName(dialog_config['object_name'])
         self.setModal(False)
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
-        self.setMinimumWidth(320)
+        self.setMinimumWidth(dialog_config['minimum_width'])
 
         layout = QVBoxLayout(self)
         settings = config_service.get_settings()
 
         # Compact view checkbox
-        self.compact_view_checkbox = QCheckBox("Compact view")
-        self.compact_view_checkbox.setToolTip("Hides labels and buttons for a more compact translator window")
+        compact_config = self.TRANSLATOR_DIALOG_CONFIG['compact_view_checkbox']
+        self.compact_view_checkbox = QCheckBox(compact_config['text'])
+        self.compact_view_checkbox.setToolTip(compact_config['tooltip'])
         self.compact_view_checkbox.setChecked(getattr(settings, "compact_view", False))
         self.compact_view_checkbox.stateChanged.connect(self._on_compact_view_changed)
         layout.addWidget(self.compact_view_checkbox)
 
         # Side buttons auto-hide checkbox
-        self.autohide_buttons_checkbox = QCheckBox("Hide right-side buttons (show on hover)")
-        self.autohide_buttons_checkbox.setToolTip("If enabled, the narrow buttons on the right appear only on hover")
+        autohide_config = self.TRANSLATOR_DIALOG_CONFIG['autohide_buttons_checkbox']
+        self.autohide_buttons_checkbox = QCheckBox(autohide_config['text'])
+        self.autohide_buttons_checkbox.setToolTip(autohide_config['tooltip'])
         self.autohide_buttons_checkbox.setChecked(getattr(settings, "overlay_side_buttons_autohide", False))
         self.autohide_buttons_checkbox.stateChanged.connect(self._on_autohide_buttons_changed)
         layout.addWidget(self.autohide_buttons_checkbox)
 
-        close_button = QPushButton("Close")
-        close_button.setFixedHeight(26)
+        # Close button
+        close_config = self.TRANSLATOR_DIALOG_CONFIG['close_button']
+        close_button = QPushButton(close_config['text'])
+        close_button.setObjectName(close_config['object_name'])
+        close_button.setFixedHeight(close_config['height'])
         close_button.clicked.connect(self.close)
         layout.addWidget(close_button, alignment=Qt.AlignmentFlag.AlignRight)
 
@@ -108,6 +138,17 @@ class TranslatorSettingsDialog(QDialog):
 
 class PanelWidget(QFrame):
     """Reusable panel with a text area and an optional side or bottom button area."""
+    
+    # Configuration for layout spacing and dimensions
+    LAYOUT_CONFIG = {
+        'main_vertical_spacing': 4,
+        'main_vertical_margins': (0, 0, 0, 0),
+        'top_horizontal_margins': (0, 0, 0, 0),
+        'side_panel_expanded_width': 28,
+        'side_panel_collapsed_width': 1,
+        'side_panel_spacing': 3,
+        'side_panel_margins': (0, 0, 0, 0)
+    }
 
     def __init__(self, text_edit: QTextEdit, buttons: List[QPushButton], apply_button_style_cb, parent=None):
         super().__init__(parent)
@@ -124,11 +165,11 @@ class PanelWidget(QFrame):
 
         # Main structure: top (text + optional side panel), bottom (optional btn row)
         self._main_v = QVBoxLayout(self)
-        self._main_v.setContentsMargins(0, 0, 0, 0)
-        self._main_v.setSpacing(4)
+        self._main_v.setContentsMargins(*self.LAYOUT_CONFIG['main_vertical_margins'])
+        self._main_v.setSpacing(self.LAYOUT_CONFIG['main_vertical_spacing'])
 
         self._top_h = QHBoxLayout()
-        self._top_h.setContentsMargins(0, 0, 0, 0)
+        self._top_h.setContentsMargins(*self.LAYOUT_CONFIG['top_horizontal_margins'])
         self._top_h.addWidget(self.text_edit, 1)
         self._main_v.addLayout(self._top_h, 1)
 
@@ -136,10 +177,10 @@ class PanelWidget(QFrame):
         if self.side_panel is None:
             panel = QFrame()
             panel.setFrameStyle(QFrame.Shape.NoFrame)
-            panel.setFixedWidth(28)
+            panel.setFixedWidth(self.LAYOUT_CONFIG['side_panel_expanded_width'])
             v = QVBoxLayout(panel)
-            v.setSpacing(3)
-            v.setContentsMargins(0, 0, 0, 0)
+            v.setSpacing(self.LAYOUT_CONFIG['side_panel_spacing'])
+            v.setContentsMargins(*self.LAYOUT_CONFIG['side_panel_margins'])
             v.addStretch()
             v.addStretch()
             panel.setMouseTracking(True)
@@ -184,7 +225,8 @@ class PanelWidget(QFrame):
             self._remove_btn_row()
             self._ensure_side_panel()
             if self.side_panel:
-                self.side_panel.setFixedWidth(28 if not autohide else 1)
+                width = self.LAYOUT_CONFIG['side_panel_expanded_width'] if not autohide else self.LAYOUT_CONFIG['side_panel_collapsed_width']
+                self.side_panel.setFixedWidth(width)
             for b in self.buttons:
                 b.setVisible(not autohide)
                 self._apply_btn_style(b, True)
@@ -202,12 +244,12 @@ class PanelWidget(QFrame):
             side_panel = getattr(self, 'side_panel', None)
             if autohide and side_panel and obj in (self, side_panel):
                 if event.type() == QEvent.Type.Enter:
-                    side_panel.setFixedWidth(28)
+                    side_panel.setFixedWidth(self.LAYOUT_CONFIG['side_panel_expanded_width'])
                     for b in self.buttons:
                         b.setVisible(True)
                 elif event.type() == QEvent.Type.Leave:
                     if not side_panel.underMouse() and not self.underMouse():
-                        side_panel.setFixedWidth(1)
+                        side_panel.setFixedWidth(self.LAYOUT_CONFIG['side_panel_collapsed_width'])
                         for b in self.buttons:
                             b.setVisible(False)
         except Exception as e:
@@ -217,6 +259,14 @@ class PanelWidget(QFrame):
 
 class OverlayUIBuilder:
     """Builder class for creating overlay window UI components."""
+
+    # Configuration for layout spacing and dimensions
+    LAYOUT_CONFIG = {
+        'info_row_margins': (0, 0, 0, 0),
+        'info_row_spacer_width': 10,
+        'info_row_spacer_height': 10,
+        'footer_margins': (0, 0, 0, 0)
+    }
 
     # Configuration for disabled button visuals (QSS handles appearance;
     # Python stores only non-visual metadata like which icon to use)
@@ -236,7 +286,7 @@ class OverlayUIBuilder:
         'combo': {
             'size': (125, 28),
             'icon_size': (28, 28),
-            'style': "QComboBox { background-color: #fff; color: #111111; padding: 0px; padding-left: 8px; }"
+            'object_name': 'languageCombo'
         },
         'swap_button': {
             'size': (35, 28),
@@ -314,7 +364,14 @@ class OverlayUIBuilder:
 
     # Configuration for text edit widgets
     TEXT_EDIT_CONFIG = {
-        'style': "QTextEdit { color: #111111; background-color: #ffffff; }"
+        'object_name': 'textEdit'
+    }
+
+    # Configuration for label widgets
+    LABEL_CONFIG = {
+        'bold': {
+            'object_name': 'boldLabel'
+        }
     }
 
     def __init__(self):
@@ -333,11 +390,6 @@ class OverlayUIBuilder:
         """Load icon from assets."""
         return QIcon(QPixmap(str(_ASSETS_BASE / "icons" / icon_name)))
 
-    def _set_bold_font(self, label: QLabel):
-        """Set the font of a QLabel to bold."""
-        font = QFont("Arial", 10)
-        font.setBold(True)
-        label.setFont(font)
 
     def _create_text_edit(self, placeholder):
         """Create a QTextEdit widget."""
@@ -346,7 +398,7 @@ class OverlayUIBuilder:
         text_edit.setAcceptRichText(False)
         text_edit.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         text_edit.setPlaceholderText(placeholder)
-        text_edit.setStyleSheet(self.TEXT_EDIT_CONFIG['style'])
+        text_edit.setObjectName(self.TEXT_EDIT_CONFIG['object_name'])
         return text_edit
 
     def _create_button(self, parent=None, text=None, icon=None, size=(40, 28), tooltip=None):
@@ -390,9 +442,8 @@ class OverlayUIBuilder:
         config = config.copy()  # Work with a copy to avoid modifying the original
     
         # Apply button-specific customizations
-        if button == self.translate_btn and mode == 'full':
-            config['text'] = self._translate_original_text if hasattr(self, "_translate_original_text") else self.get_translate_button_text()
-        elif button == self.reader_mode_btn:
+        # Keep translate button text as-is in full mode; OverlayWindow controls it via get_translate_button_text()
+        if button == self.reader_mode_btn:
             if mode == 'full':
                 config['text'] = self._reader_original_text if hasattr(self, "_reader_original_text") else "Reader"
                 config['icon'] = self.icon_book_black
@@ -400,15 +451,17 @@ class OverlayUIBuilder:
                 config['icon'] = self.icon_book_white
     
         # Apply size, text and icon
-        button.setText(config.get('text') or "")
+        # Only set text when the config explicitly provides it; otherwise preserve current text
+        if 'text' in config and config['text'] is not None:
+            button.setText(config['text'])
         button.setFixedSize(*config['size'])
         button.setIconSize(QSize(*config['icon_size']))
         if config.get('icon') is not None:
             button.setIcon(config['icon'])
     
-        # Set dynamic properties for QSS to pick up (compact / utility)
+        # Set dynamic properties for QSS to pick up (mode / utility)
         try:
-            button.setProperty("compact", compact)
+            button.setProperty("mode", mode)
             # utility property should already be set by creators for small action buttons;
             # ensure property exists for consistency
             if button.property("utility") is None:
@@ -440,8 +493,6 @@ class OverlayUIBuilder:
             widget.setObjectName(config['object_name'])
         if hasattr(widget, 'setFixedWidth') and 'width' in config:
             widget.setFixedWidth(config['width'])
-        if hasattr(widget, 'setStyleSheet') and 'style' in config:
-            widget.setStyleSheet(config['style'])
         if hasattr(widget, 'setIconSize') and 'icon_size' in config:
             widget.setIconSize(QSize(*config['icon_size']))
 
@@ -472,7 +523,7 @@ class OverlayUIBuilder:
         container.setFrameStyle(QFrame.Shape.NoFrame)
 
         info_row = QHBoxLayout(container)
-        info_row.setContentsMargins(0, 0, 0, 0)
+        info_row.setContentsMargins(*self.LAYOUT_CONFIG['info_row_margins'])
 
         # Left: Mode selector + Style presets (when Style mode is active)
         self.mode_label = QLabel("Mode:")
@@ -485,7 +536,9 @@ class OverlayUIBuilder:
         info_row.addWidget(self.style_combo)
 
         # Middle: stretch to push detection + auto-swap to the right
-        info_row.addItem(QSpacerItem(10, 10, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum))
+        spacer_width = self.LAYOUT_CONFIG['info_row_spacer_width']
+        spacer_height = self.LAYOUT_CONFIG['info_row_spacer_height']
+        info_row.addItem(QSpacerItem(spacer_width, spacer_height, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum))
 
         # Right: Detected language label + Auto-translate toggle
         self.detected_lang_label = self._create_detected_lang_label()
@@ -514,7 +567,7 @@ class OverlayUIBuilder:
         """Create the language selection row."""
         language_row = QHBoxLayout()
         self.original_label = QLabel("Original:")
-        self._set_bold_font(self.original_label)
+        self.original_label.setObjectName(self.LABEL_CONFIG['bold']['object_name'])
         language_row.addWidget(self.original_label, alignment=Qt.AlignmentFlag.AlignBottom)
         language_row.addItem(QSpacerItem(0, 0, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum))
 
@@ -568,7 +621,7 @@ class OverlayUIBuilder:
         footer_widget = QFrame()
         footer_widget.setFrameStyle(QFrame.Shape.NoFrame)
         footer_row = QHBoxLayout(footer_widget)
-        footer_row.setContentsMargins(0, 0, 0, 0)
+        footer_row.setContentsMargins(*self.LAYOUT_CONFIG['footer_margins'])
 
         self.status_label = self._create_status_label()
         footer_row.addWidget(self.status_label)
@@ -633,8 +686,9 @@ class OverlayUIBuilder:
             }
     
             config = disabled_configs[compact]
-            # Set compact property so QSS selects the appropriate disabled appearance
-            button.setProperty("compact", compact)
+            # Set mode property so QSS selects the appropriate disabled appearance
+            mode = 'compact' if compact else 'full'
+            button.setProperty("mode", mode)
             # Set lock icon as visual indicator for disabled translate
             icon = getattr(self, config['icon_attr'])
             button.setIcon(icon)
@@ -647,7 +701,7 @@ class OverlayUIBuilder:
             logger.debug(f"Failed to apply disabled translate visuals: {e}")
 
     def get_translate_button_text(self, is_style: bool = False) -> str:
-        """Get properly formatted text for translate button with leading space for icon alignment."""
+        """Get text for translate button with leading spaces for alignment."""
         return "  Style" if is_style else "  Translate"
 
     def restore_enabled_translate_visuals(self, button: QPushButton, compact: bool) -> None:
@@ -725,7 +779,7 @@ class OverlayUIBuilder:
         self.translated_text = self._create_text_edit("Translation will appear here...")
 
         self.translated_label = QLabel("Translation:")
-        self._set_bold_font(self.translated_label)
+        self.translated_label.setObjectName(self.LABEL_CONFIG['bold']['object_name'])
 
     def _create_panels(self, owner):
         """Create panel widgets for organizing buttons and text areas."""
