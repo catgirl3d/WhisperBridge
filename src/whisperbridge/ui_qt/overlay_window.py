@@ -668,6 +668,11 @@ class OverlayWindow(StyledOverlayWindow):
 
     def _on_translate_clicked(self):
         """Translate or Style the text from the original_text field based on mode."""
+        # Check if button is logically disabled (fake disabled state to preserve cursor events)
+        if hasattr(self, "translate_btn") and self.translate_btn and self.translate_btn.property("logically_disabled"):
+            logger.debug("Translate button clicked but is logically disabled")
+            return
+            
         text = self.original_text.toPlainText().strip()
         if not text:
             logger.info("Translate/Style button clicked with empty original_text")

@@ -93,15 +93,15 @@ QPushButton#translateButton[mode="compact"]:hover {
     background-color: #2f5db3;
 }
 
-/* Translate - disabled states */
-QPushButton#translateButton:disabled {
-    /* full-mode disabled */
+/* Translate - disabled states (logical disabled using custom property) */
+QPushButton#translateButton[logically_disabled="true"] {
+    /* full-mode logical disabled */
     background-color: #e0e0e0;
     color: #9e9e9e;
     border: 1px solid #cfcfcf;
 }
-QPushButton#translateButton[mode="compact"]:disabled {
-    /* compact-mode disabled (strong visual) */
+QPushButton#translateButton[logically_disabled="true"][mode="compact"] {
+    /* compact-mode logical disabled (strong visual) */
     background-color: #9e9e9e;
     color: #ffffff;
     border: none;

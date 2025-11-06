@@ -153,7 +153,8 @@ class PanelWidget(QFrame):
         'side_panel_expanded_width': 28,
         'side_panel_collapsed_width': 1,
         'side_panel_spacing': 3,
-        'side_panel_margins': (0, 0, 0, 0)
+        'side_panel_margins': (0, 0, 0, 0),
+        'btn_row_margins': (0, 0, 0, 0)
     }
 
     def __init__(self, text_edit: QTextEdit, buttons: List[QPushButton], apply_button_style_cb, parent=None):
@@ -210,7 +211,7 @@ class PanelWidget(QFrame):
     def _ensure_btn_row(self):
         if self.btn_row is None:
             row = QHBoxLayout()
-            row.setContentsMargins(0, 0, 0, 0)
+            row.setContentsMargins(*self.LAYOUT_CONFIG['btn_row_margins'])
             row.addStretch(1)
             for btn in self.buttons:
                 row.addWidget(btn)
@@ -352,7 +353,7 @@ class OverlayUIBuilder:
             'icon_size': (12, 12)
         },
         'translate_full': {
-            'text': None,  # Will be set dynamically
+            'text': '  Translate',
             'size': (120, 28),
             'icon_size': (14, 14)
         },
@@ -362,9 +363,10 @@ class OverlayUIBuilder:
             'icon_size': (17, 17)
         },
         'reader_full': {
-            'text': None,  # Will be set dynamically
+            'text': 'Reader',
             'size': (40, 28),
-            'icon_size': (19, 19)
+            'icon_size': (19, 19),
+            'tooltip': 'Open text in reader mode for comfortable reading'
         },
         'default_compact': {
             'text': '',
@@ -390,6 +392,13 @@ class OverlayUIBuilder:
         },
         'detected_lang_label': {
             'width': 120
+        },
+        'mode_label': {
+            'text': 'Mode:'
+        },
+        'auto_swap_checkbox': {
+            'text': 'Auto-translate EN ↔ RU',
+            'tooltip': 'If enabled, English will be translated to Russian, and Russian to English'
         }
     }
 
@@ -401,6 +410,14 @@ class OverlayUIBuilder:
     # Configuration for label widgets
     LABEL_CONFIG = {
         'bold': {
+            'object_name': 'boldLabel'
+        },
+        'original': {
+            'text': 'Original:',
+            'object_name': 'boldLabel'
+        },
+        'translation': {
+            'text': 'Translation:',
             'object_name': 'boldLabel'
         }
     }
@@ -484,10 +501,8 @@ class OverlayUIBuilder:
         config = config.copy()  # Work with a copy to avoid modifying the original
     
         # Apply button-specific customizations
-        # Keep translate button text as-is in full mode; OverlayWindow controls it via get_translate_button_text()
         if button == self.reader_mode_btn:
             if mode == 'full':
-                config['text'] = self._reader_original_text if hasattr(self, "_reader_original_text") else "Reader"
                 config['icon'] = self._make_icon_from_spec(self.ICONS_CONFIG['reader']['full'])
             else:  # compact mode
                 config['icon'] = self._make_icon_from_spec(self.ICONS_CONFIG['reader']['compact'])
@@ -498,6 +513,8 @@ class OverlayUIBuilder:
         # Only set text when the config explicitly provides it; otherwise preserve current text
         if 'text' in config and config['text'] is not None:
             button.setText(config['text'])
+        if 'tooltip' in config and config['tooltip']:
+            button.setToolTip(config['tooltip'])
         button.setFixedSize(*config['size'])
         button.setIconSize(QSize(*config['icon_size']))
         if config.get('icon') is not None:
@@ -524,7 +541,8 @@ class OverlayUIBuilder:
         config_maps = {
             'info': self.INFO_WIDGET_CONFIG,
             'language': self.LANGUAGE_WIDGET_CONFIG,
-            'footer': self.FOOTER_WIDGET_CONFIG
+            'footer': self.FOOTER_WIDGET_CONFIG,
+            'label': self.LABEL_CONFIG
         }
 
         config = config_maps[widget_type][config_key]
@@ -539,6 +557,10 @@ class OverlayUIBuilder:
             widget.setFixedWidth(config['width'])
         if hasattr(widget, 'setIconSize') and 'icon_size' in config:
             widget.setIconSize(QSize(*config['icon_size']))
+        if hasattr(widget, 'setText') and 'text' in config:
+            widget.setText(config['text'])
+        if hasattr(widget, 'setToolTip') and 'tooltip' in config:
+            widget.setToolTip(config['tooltip'])
 
         return widget, config
 
@@ -570,7 +592,7 @@ class OverlayUIBuilder:
         info_row.setContentsMargins(*self.LAYOUT_CONFIG['info_row_margins'])
 
         # Left: Mode selector + Style presets (when Style mode is active)
-        self.mode_label = QLabel("Mode:")
+        self.mode_label, _ = self._create_widget_from_config('info', 'mode_label', QLabel)
         info_row.addWidget(self.mode_label)
 
         self.mode_combo = self._create_mode_combo()
@@ -588,8 +610,7 @@ class OverlayUIBuilder:
         self.detected_lang_label = self._create_detected_lang_label()
         info_row.addWidget(self.detected_lang_label)
 
-        self.auto_swap_checkbox = QCheckBox("Auto-translate EN ↔ RU")
-        self.auto_swap_checkbox.setToolTip("If enabled, English will be translated to Russian, and Russian to English")
+        self.auto_swap_checkbox, _ = self._create_widget_from_config('info', 'auto_swap_checkbox', QCheckBox)
         info_row.addWidget(self.auto_swap_checkbox)
 
         # Return the container widget so it can be managed uniformly (hideable_elements)
@@ -605,8 +626,7 @@ class OverlayUIBuilder:
     def _create_language_row(self):
         """Create the language selection row."""
         language_row = QHBoxLayout()
-        self.original_label = QLabel("Original:")
-        self.original_label.setObjectName(self.LABEL_CONFIG['bold']['object_name'])
+        self.original_label, _ = self._create_widget_from_config('label', 'original', QLabel)
         language_row.addWidget(self.original_label, alignment=Qt.AlignmentFlag.AlignBottom)
         language_row.addItem(QSpacerItem(0, 0, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum))
 
@@ -725,7 +745,8 @@ class OverlayUIBuilder:
             return
     
         try:
-            button.setEnabled(False)
+            # Set logical disabled property (not actual disabled state to preserve cursor events)
+            button.setProperty("logically_disabled", True)
             button.setCursor(Qt.CursorShape.ForbiddenCursor)
             button.setToolTip(reason_msg or self.DEFAULT_DISABLED_TOOLTIP)
     
@@ -763,7 +784,8 @@ class OverlayUIBuilder:
             return
     
         try:
-            button.setEnabled(True)
+            # Remove logical disabled property (re-enable cursor events)
+            button.setProperty("logically_disabled", False)
             button.setCursor(Qt.CursorShape.ArrowCursor)
             button.setToolTip("")
     
@@ -798,11 +820,11 @@ class OverlayUIBuilder:
 
     def _create_main_buttons(self):
         """Create main action buttons (translate and reader mode)."""
-        self.translate_btn = self._create_button(text="  Translate")
+        self.translate_btn = self._create_button(text="")
         self.translate_btn.setObjectName("translateButton")
         self._translate_original_text = self.translate_btn.text()
 
-        self.reader_mode_btn = self._create_button(text="", tooltip="Open text in reader mode for comfortable reading")
+        self.reader_mode_btn = self._create_button(text="")
         # Use a stable object name for QSS selectors
         self.reader_mode_btn.setObjectName("readerButton")
         self._reader_original_text = self.reader_mode_btn.text()
@@ -842,8 +864,7 @@ class OverlayUIBuilder:
         self.original_text = self._create_text_edit("Recognized text will appear here...")
         self.translated_text = self._create_text_edit("Translation will appear here...")
 
-        self.translated_label = QLabel("Translation:")
-        self.translated_label.setObjectName(self.LABEL_CONFIG['bold']['object_name'])
+        self.translated_label, _ = self._create_widget_from_config('label', 'translation', QLabel)
 
     def _create_panels(self, owner):
         """Create panel widgets for organizing buttons and text areas."""
