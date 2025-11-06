@@ -235,6 +235,9 @@ class OverlayWindow(StyledOverlayWindow):
                 size = 0 if show_controls else 34  # Hide spacer when controls are visible
                 self.language_spacer.changeSize(size, 10, QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Minimum)
 
+            # Force layout recalculation to eliminate spacing artifacts
+            self.content_layout.invalidate()
+
             logger.debug(f"Language controls visibility updated: auto_swap={auto_swap}, show_controls={show_controls}")
         except Exception as e:
             logger.debug(f"Failed to update language controls visibility: {e}")
