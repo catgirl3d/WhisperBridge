@@ -53,9 +53,11 @@ try:
         # Disable desktop settings awareness to allow full control over effects
         app.setDesktopSettingsAware(False)
         # Disable the fade effect for tooltips
-        app.setEffectEnabled(Qt.UIEffect.UI_FadeTooltip, False)
-        # Optionally, also disable animation
-        app.setEffectEnabled(Qt.UIEffect.UI_AnimateTooltip, False)
+        app.setEffectEnabled(Qt.UI_FadeTooltip, False)
+        app.setEffectEnabled(Qt.UI_AnimateTooltip, False)
+        app.setEffectEnabled(Qt.UI_AnimateCombo, False)  # Отключает анимацию combo popup
+        app.setEffectEnabled(Qt.UI_FadeMenu, False)     # Если анимация от меню
+        app.setEffectEnabled(Qt.UI_AnimateMenu, False)  # Полное отключение menu animations
 except Exception as e:
     log_crash(e)
     raise

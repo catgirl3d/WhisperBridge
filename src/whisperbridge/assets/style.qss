@@ -182,26 +182,56 @@ QComboBox {
     border-radius: 4px;
     background-color: #ffffff;
     color: #111111;
-    selection-color: #ffffff;
-    selection-background-color: #0078d7;
+    padding-left:8px;
+    height:30px;
+    combobox-popup: 0;
+    outline: 0px;
 }
+
+QComboBox:focus {
+    border: 1px solid rgba(0,0,0,0.12);
+    outline: 0px;
+}
+
+/* Popup list */
+QComboBox QAbstractItemView {
+    color: #111111;
+    selection-background-color: #0078d7;
+    border: 1px solid rgba(0,0,0,0.12);
+    border-radius: 10px;
+    padding: 10px 0px;
+    background: #ffffff;
+    outline: 0px;
+}
+
+/* Popup list items with rounded corners */
+QComboBox QAbstractItemView::item {
+    padding: 8px 6px;
+    border-radius: 4px;
+    margin: 1px 4px;
+    outline: 0px;
+}
+
+QComboBox QAbstractItemView::item:selected {
+    background-color: #0078d7;
+    color: #fff;
+}
+
 
 /* Language combo box specific styling */
 QComboBox#sourceLanguageCombo, QComboBox#targetLanguageCombo {
     background-color: #fff;
     color: #111111;
-    padding-left: 8px;
 }
 
 /* Mode combo box specific styling */
 QComboBox#modeCombo {
-    padding-left: 8px;
 }
 
 /* Style combo box specific styling */
 QComboBox#styleCombo {
-    padding-left: 8px;
 }
+
 QComboBox::drop-down {
     subcontrol-origin: padding;
     subcontrol-position: top right;
@@ -215,12 +245,6 @@ QComboBox::down-arrow {
     image: url("{assets_path}/icons/chevron-down-solid-full.svg");
     width: 12px;
     height: 12px;
-}
-/* Popup list */
-QComboBox QAbstractItemView {
-    background-color: #ffffff;
-    color: #111111;
-    selection-background-color: #0078d7;
 }
 
 /* GroupBox styling */
@@ -284,8 +308,12 @@ QTabBar::tab:selected {
     color:white;
     margin-left:2px;
 }
-QTabBar::tab:!selected:hover {
+QTabBar::tab:hover {
     background: #e8e8e8;
+}
+
+QTabBar::tab:selected:hover {
+    background: #356bd0;
 }
 QPushButton#save_button {
     background-color: #356bd0;
