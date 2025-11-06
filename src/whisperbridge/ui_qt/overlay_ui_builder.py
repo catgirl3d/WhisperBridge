@@ -310,10 +310,15 @@ class OverlayUIBuilder:
 
     # Configuration for language widgets
     LANGUAGE_WIDGET_CONFIG = {
-        'combo': {
+        'source_combo': {
             'size': (125, 28),
             'icon_size': (28, 28),
-            'object_name': 'languageCombo'
+            'object_name': 'sourceLanguageCombo'
+        },
+        'target_combo': {
+            'size': (125, 28),
+            'icon_size': (28, 28),
+            'object_name': 'targetLanguageCombo'
         },
         'swap_button': {
             'size': (35, 28),
@@ -590,11 +595,6 @@ class OverlayUIBuilder:
         # Return the container widget so it can be managed uniformly (hideable_elements)
         return container
 
-    def _create_language_combo(self) -> QComboBox:
-        """Create a standardized language combo box using config."""
-        combo, config = self._create_widget_from_config('language', 'combo', QComboBox)
-        combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
-        return combo
 
     def _create_swap_button(self) -> QPushButton:
         """Create language swap button using config."""
@@ -610,8 +610,13 @@ class OverlayUIBuilder:
         language_row.addWidget(self.original_label, alignment=Qt.AlignmentFlag.AlignBottom)
         language_row.addItem(QSpacerItem(0, 0, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum))
 
-        self.source_combo = self._create_language_combo()
-        self.target_combo = self._create_language_combo()
+        # Создаем комбобоксы напрямую из их уникальных конфигураций
+        self.source_combo, _ = self._create_widget_from_config('language', 'source_combo', QComboBox)
+        self.source_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
+
+        self.target_combo, _ = self._create_widget_from_config('language', 'target_combo', QComboBox)
+        self.target_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
+        
         self.swap_btn = self._create_swap_button()
 
         language_row.addWidget(self.source_combo)
