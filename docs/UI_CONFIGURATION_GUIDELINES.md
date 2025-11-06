@@ -25,14 +25,15 @@ Each CONFIG dictionary should include:
 ```python
 WIDGET_TYPE_CONFIG = {
     'property_name': {
-        'size': (width, height),           # Required for fixed-size widgets
-        'icon_size': (width, height),      # Required for icon widgets
-        'object_name': 'widgetName',       # Required for testable/stylable widgets
+        'size': (width, height),           # Optional for fixed-size widgets
+        'icon_size': (width, height),      # Optional for icon widgets
+        'object_name': 'widgetName',       # Optional for testable/stylable widgets
         'text': 'Default text',            # Optional for text widgets
         'tooltip': 'Help text',            # Optional for interactive widgets
-        # Optional dynamic properties for QSS selectors
-        # 'properties': {'mode': 'compact'}
-        # Add widget-specific properties as needed
+        # Note: the project's factory applies the common keys above.
+        # The codebase does not automatically apply a 'properties' mapping
+        # (dynamic properties must be set explicitly or the factory extended).
+        # Add widget-specific properties as needed.
     }
 }
 ```
@@ -47,39 +48,57 @@ WIDGET_TYPE_CONFIG = {
 #### 4.1 Standard Widget Factory Method
 ```python
 def _create_widget_from_config(self, widget_type: str, config_key: str, widget_class, **kwargs):
-    """Generic widget factory using configuration dictionaries."""
+    """Generic widget factory using configuration dictionaries.
+
+    Current implementation (see `src/whisperbridge/ui_qt/overlay_ui_builder.py`)
+    applies a fixed set of common keys from the configuration:
+    - size, object_name, width, icon_size, text, tooltip
+
+    If you need dynamic properties applied from configs (e.g. 'properties'),
+    extend this method to iterate and call `widget.setProperty(...)`.
+    """
     config_maps = {
         'info': self.INFO_WIDGET_CONFIG,
         'language': self.LANGUAGE_WIDGET_CONFIG,
-        'footer': self.FOOTER_WIDGET_CONFIG
+        'footer': self.FOOTER_WIDGET_CONFIG,
+        'label': self.LABEL_CONFIG
     }
-    
+
     config = config_maps[widget_type][config_key]
     widget = widget_class(**kwargs)
-    
-    # Apply common configuration properties
+
+    # Apply common configuration properties supported by the factory
     if hasattr(widget, 'setFixedSize') and 'size' in config:
         widget.setFixedSize(*config['size'])
     if hasattr(widget, 'setObjectName') and 'object_name' in config:
         widget.setObjectName(config['object_name'])
     if hasattr(widget, 'setFixedWidth') and 'width' in config:
         widget.setFixedWidth(config['width'])
-    if 'properties' in config:
-        for k, v in config['properties'].items():
-            widget.setProperty(k, v)
     if hasattr(widget, 'setIconSize') and 'icon_size' in config:
         widget.setIconSize(QSize(*config['icon_size']))
-    
+    if hasattr(widget, 'setText') and 'text' in config:
+        widget.setText(config['text'])
+    if hasattr(widget, 'setToolTip') and 'tooltip' in config:
+        widget.setToolTip(config['tooltip'])
+
     return widget, config
 ```
 
 #### 4.2 Explicit Button Mapping (no inline styles)
 ```python
 def apply_button_style(self, button: QPushButton, compact: bool):
-    """Apply per-mode configuration (size/text/icon) and expose mode to QSS."""
+    """Apply styling to a button based on compact/full mode using configuration dictionaries.
+
+    The implementation in `overlay_ui_builder.py`:
+    - Uses an explicit mapping from known button instances to `BUTTON_STYLES`
+    - Falls back to `default_compact` / `default_full` for other buttons
+    - Uses `_make_icon_from_spec` to build QIcons for configured assets/qtawesome specs
+    - Sets dynamic properties `mode` (and ensures `utility` exists) so QSS can select styles
+    - Performs a style refresh after property changes
+    """
     mode = 'compact' if compact else 'full'
-    
-    # Explicit mapping of buttons to their configurations
+
+    # Explicit mapping of buttons to their style configurations
     button_configs = {
         self.translate_btn: {
             'compact': self.BUTTON_STYLES['translate_compact'],
@@ -90,57 +109,99 @@ def apply_button_style(self, button: QPushButton, compact: bool):
             'full': self.BUTTON_STYLES['reader_full']
         }
     }
-    
-    config = button_configs.get(button, {}).get(mode) or self.BUTTON_STYLES[f'default_{mode}']
-    config = config.copy()
-    
-    # Button-specific customizations
-    if button == self.translate_btn and mode == 'full':
-        config['text'] = getattr(self, '_translate_original_text', '  Translate')
-    elif button == self.reader_mode_btn:
-        if mode == 'full':
-            config['text'] = getattr(self, '_reader_original_text', 'Reader')
-            config['icon'] = self.icon_book_black
-        else:
-            config['icon'] = self.icon_book_white
-    
-    # Apply configuration
-    button.setText(config['text'])
-    button.setFixedSize(*config['size'])
-    button.setIconSize(QSize(*config['icon_size']))
+
+    # Get the specific config for the button and mode (fallback to defaults)
+    config = button_configs.get(button, {}).get(mode)
+    if not config:
+        config = self.BUTTON_STYLES[f'default_{mode}']
+
+    config = config.copy()  # avoid mutating class-level dicts
+
+    # Button-specific icon selection (examples)
+    if button == self.reader_mode_btn:
+        config['icon'] = self._make_icon_from_spec(self.ICONS_CONFIG['reader']['full' if mode == 'full' else 'compact'])
+    elif button == self.translate_btn:
+        config['icon'] = self._make_icon_from_spec(self.ICONS_CONFIG['translate']['all'])
+
+    # Apply size, text and icon if provided by config
+    if 'text' in config and config['text'] is not None:
+        button.setText(config['text'])
+    if 'tooltip' in config and config['tooltip']:
+        button.setToolTip(config['tooltip'])
+    if 'size' in config:
+        button.setFixedSize(*config['size'])
+    if 'icon_size' in config:
+        button.setIconSize(QSize(*config['icon_size']))
     if config.get('icon') is not None:
         button.setIcon(config['icon'])
-    
-    # Expose mode to QSS (style.qss uses selectors like QPushButton#translateBtn[mode="compact"])
-    button.setProperty('mode', mode)
-    button.style().unpolish(button); button.style().polish(button)
+
+    # Set dynamic properties for QSS to consume
+    try:
+        button.setProperty("mode", mode)
+        if button.property("utility") is None:
+            button.setProperty("utility", False)
+
+        # Force style refresh so QSS reacts to the new properties
+        button.style().unpolish(button)
+        button.style().polish(button)
+        button.update()
+    except Exception:
+        # Do not break UI on styling errors
+        pass
 ```
 
 #### 4.3 Disabled State Via QSS
 ```python
 def apply_disabled_translate_visuals(self, button: QPushButton, reason_msg: str, compact: bool) -> None:
-    """Apply disabled state; visuals are handled by QSS via :disabled and [mode] selectors."""
+    """Apply strong disabled visuals for the Translate/Style button.
+
+    Implementation note:
+    The codebase uses a logical-disabled approach (keeps the widget enabled
+    to preserve certain cursor/hover behaviors) — it sets a dynamic property
+    `logically_disabled` and updates `mode` and icon metadata for QSS to style.
+    """
     if not button:
         return
-    
+
     try:
-        button.setEnabled(False)
+        # Logical disabled state (do not call setEnabled(False) to preserve cursor events)
+        button.setProperty("logically_disabled", True)
         button.setCursor(Qt.CursorShape.ForbiddenCursor)
         button.setToolTip(reason_msg or self.DEFAULT_DISABLED_TOOLTIP)
-        
-        # Keep mode property for QSS to select the proper visuals
-        button.setProperty('mode', 'compact' if compact else 'full')
-        button.style().unpolish(button); button.style().polish(button)
-        
-        # Optional: set icon explicitly if your QSS doesn't handle icons
-        if compact:
-            button.setIcon(self.icon_translate_disabled_compact)
-        else:
-            button.setIcon(self.icon_translate_disabled_full)
+
+        # Map compact/full to the DISABLED_STYLES and set the mode property
+        config = self.DISABLED_STYLES['compact' if compact else 'full']
+        mode = 'compact' if compact else 'full'
+        button.setProperty("mode", mode)
+
+        # Apply lock/disabled icon from ICONS_CONFIG using icon_key
+        icon_key = config.get('icon_key')
+        if icon_key:
+            icon_spec = self.ICONS_CONFIG.get('translate_disabled', {}).get(icon_key)
+            if icon_spec:
+                button.setIcon(self._make_icon_from_spec(icon_spec))
+
+        # Force style refresh
+        button.style().unpolish(button)
+        button.style().polish(button)
+        button.update()
     except Exception as e:
         logger.debug(f"Failed to apply disabled translate visuals: {e}")
 ```
 
+### Dynamic properties catalog
+- The codebase uses a small, well-defined set of dynamic properties (set via `setProperty`) that QSS and code rely on:
+  - `mode` (string) — "compact" | "full": controls compact/full visual variants (buttons, panels).
+  - `utility` (bool) — true/false: marks small utility buttons so QSS can style them differently from large action buttons.
+  - `logically_disabled` (bool) — true/false: indicates a logical disabled state (used instead of `setEnabled(False)` to preserve cursor/hover behaviour).
+  - `status` (string) — e.g., "success", "error", "warning": used on status labels to select colour/indicator variants.
+- Implementation notes:
+  - Properties are applied in code via `widget.setProperty(...)` (see `src/whisperbridge/ui_qt/overlay_ui_builder.py:524` and nearby).
+  - QSS selectors should reference these properties, for example:
+    - QPushButton[mode="compact"] { ... }
+    - QLabel[status="error"] { color: #d32f2f; }
+  - If you add new dynamic properties, add them to this catalog and document where they are set.
+  
 ### 5. Styling Best Practices
 - Centralize styles in QSS files: use `src/whisperbridge/assets/style.qss` for all visual styling
 - Target widgets by objectName: use `objectName` for specific widget styling
@@ -151,19 +212,26 @@ def apply_disabled_translate_visuals(self, button: QPushButton, reason_msg: str,
 ## Existing Configurations
 
 ### Current Standard Configurations
-- `DISABLED_STYLES` - Disabled-state configuration (e.g., icons, flags), visuals in QSS
-- `LANGUAGE_WIDGET_CONFIG` - Language selection widgets
-- `FOOTER_WIDGET_CONFIG` - Footer widgets
-- `BUTTON_STYLES` - Button configuration (size/text/icon) by type and mode; visuals in QSS
-- `INFO_WIDGET_CONFIG` - Info row widgets
-- `TEXT_EDIT_CONFIG` - Text edit widgets
-- `WINDOW_CONFIG` - Window sizing and layout properties
-- `TOP_BUTTONS_CONFIG` - Top-right control button configurations
-- `RESIZE_CONFIG` - Window resize behavior settings
-- `MINIBAR_WINDOW_CONFIG` - MiniBar window sizing and layout
-- `MINIBAR_BUTTON_CONFIG` - MiniBar button configurations
-- `READER_WINDOW_CONFIG` - Reader window sizing and font settings
-- `READER_BUTTON_CONFIG` - Reader window button configurations
+- `TRANSLATOR_DIALOG_CONFIG` - Translator settings dialog configuration
+- `DISABLED_STYLES` - Disabled-state metadata (icon keys); visuals handled by QSS
+- `ICONS_CONFIG` - Centralized icon configuration (qtawesome specs or asset paths)
+- `LANGUAGE_WIDGET_CONFIG` - Language selection widget configs (size/icon_size/object_name)
+- `FOOTER_WIDGET_CONFIG` - Footer widgets configuration (status label, close button)
+- `BUTTON_STYLES` - Button configuration (size/text/icon_size/tooltip) by type and mode
+- `INFO_WIDGET_CONFIG` - Info-row widgets (mode/style combos, labels, auto-swap checkbox)
+- `TEXT_EDIT_CONFIG` - Text edit widget configuration (object_name)
+- `LABEL_CONFIG` - Label widget configuration (object_name/text)
+- `LAYOUT_CONFIG` (PanelWidget) - Panel layout spacing and dimensions
+- `LAYOUT_CONFIG` (OverlayUIBuilder) - Main overlay layout margins and spacers
+
+Component-specific configurations present in other UI modules (keep these in their module files and reference them here):
+- `READER_WINDOW_CONFIG` - Reader window sizing and font settings (see [`src/whisperbridge/ui_qt/reader_window.py:36`](src/whisperbridge/ui_qt/reader_window.py:36))
+- `READER_BUTTON_CONFIG` - Reader window button configurations (font controls, increase/decrease) (see [`src/whisperbridge/ui_qt/reader_window.py:46`](src/whisperbridge/ui_qt/reader_window.py:46))
+- `READER_LABEL_CONFIG` - Reader window label configurations (text display) (see [`src/whisperbridge/ui_qt/reader_window.py:65`](src/whisperbridge/ui_qt/reader_window.py:65))
+
+- `MINIBAR_WINDOW_CONFIG` - MiniBar window sizing and layout properties (see [`src/whisperbridge/ui_qt/minibar_overlay.py:31`](src/whisperbridge/ui_qt/minibar_overlay.py:31))
+- `MINIBAR_BUTTON_CONFIG` - MiniBar button configurations (expand/close) (see [`src/whisperbridge/ui_qt/minibar_overlay.py:39`](src/whisperbridge/ui_qt/minibar_overlay.py:39))
+- `MINIBAR_LABEL_CONFIG` - MiniBar label configurations (title) (see [`src/whisperbridge/ui_qt/minibar_overlay.py:58`](src/whisperbridge/ui_qt/minibar_overlay.py:58))
 
 ## Adding New Configurations
 
@@ -290,6 +358,13 @@ MINIBAR_BUTTON_CONFIG = {
         'fallback_text': "Expand",
         'icon_color': "black",
         'object_name': "expandBtnMini",
+    },
+    'close': {
+        'size': (22, 22),
+        'icon': "fa5s.times",
+        'fallback_text': "X",
+        'icon_color': "black",
+        'object_name': "closeBtnMini",
     }
 }
 

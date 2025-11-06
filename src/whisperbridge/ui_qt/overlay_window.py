@@ -444,6 +444,10 @@ class OverlayWindow(StyledOverlayWindow):
         # Re-apply API state after layout changes to override any button style resets
         self._update_api_state_and_ui()
 
+        # Re-apply mode-dependent UI so the Translate button text is restored in full mode
+        if hasattr(self, "mode_combo"):
+            self._apply_mode_visibility(self.mode_combo.currentText())
+
         logger.debug(f"Layout updated: compact={compact}, autohide={autohide}")
 
     def eventFilter(self, obj, event):
