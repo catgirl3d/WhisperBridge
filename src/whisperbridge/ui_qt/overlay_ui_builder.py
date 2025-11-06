@@ -68,7 +68,7 @@ class TranslatorSettingsDialog(QDialog):
         },
         'close_button': {
             'text': "Close",
-            'height': 26,
+            'size': (None, 26),
             'object_name': "translatorCloseButton"
         }
     }
@@ -107,7 +107,13 @@ class TranslatorSettingsDialog(QDialog):
         close_config = self.TRANSLATOR_DIALOG_CONFIG['close_button']
         close_button = QPushButton(close_config['text'])
         close_button.setObjectName(close_config['object_name'])
-        close_button.setFixedHeight(close_config['height'])
+        # Apply size from config
+        if 'size' in close_config:
+            width, height = close_config['size']
+            if width is not None:
+                close_button.setFixedWidth(width)
+            if height is not None:
+                close_button.setFixedHeight(height)
         close_button.clicked.connect(self.close)
         layout.addWidget(close_button, alignment=Qt.AlignmentFlag.AlignRight)
 
@@ -332,11 +338,6 @@ class OverlayUIBuilder:
         }
     }
 
-    # Configuration for utility buttons (clear/copy)
-    UTILITY_BUTTON_CONFIG = {
-        'size': (40, 28),
-        'icon_size': (16, 16)
-    }
 
     # Configuration for button styles (appearance moved to QSS; sizes/icons/text remain)
     BUTTON_STYLES = {
@@ -806,33 +807,24 @@ class OverlayUIBuilder:
 
     def _create_utility_buttons(self):
         """Create utility buttons (clear and copy)."""
-        config = self.UTILITY_BUTTON_CONFIG
         self.clear_original_btn = self._create_button(
             text="",
             icon=self._make_icon_from_spec(self.ICONS_CONFIG['utility_icons']['eraser']),
-            size=config['size'],
-            icon_size=config['icon_size'],
             tooltip="Clear text"
         )
         self.copy_original_btn = self._create_button(
             text="",
             icon=self._make_icon_from_spec(self.ICONS_CONFIG['utility_icons']['copy']),
-            size=config['size'],
-            icon_size=config['icon_size'],
             tooltip="Copy text"
         )
         self.clear_translated_btn = self._create_button(
             text="",
             icon=self._make_icon_from_spec(self.ICONS_CONFIG['utility_icons']['eraser']),
-            size=config['size'],
-            icon_size=config['icon_size'],
             tooltip="Clear text"
         )
         self.copy_translated_btn = self._create_button(
             text="",
             icon=self._make_icon_from_spec(self.ICONS_CONFIG['utility_icons']['copy']),
-            size=config['size'],
-            icon_size=config['icon_size'],
             tooltip="Copy text"
         )
 
