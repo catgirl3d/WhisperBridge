@@ -333,6 +333,10 @@ class OverlayUIBuilder:
         'status_label': {
             'object_name': "statusLabel"
         },
+        'provider_badge': {
+            'object_name': "providerBadge",
+            'text': ""  # Will be set dynamically
+        },
         'close_button': {
             'size': (86, 28),
             'icon_size': (16, 16),
@@ -698,6 +702,11 @@ class OverlayUIBuilder:
         status_label, _ = self._create_widget_from_config('footer', 'status_label', QLabel, text="")
         return status_label
 
+    def _create_provider_badge(self) -> QLabel:
+        """Create provider badge label using config."""
+        provider_badge, _ = self._create_widget_from_config('footer', 'provider_badge', QLabel, text="")
+        return provider_badge
+
     def _create_close_button(self) -> QPushButton:
         """Create standardized close button using config."""
         config = self.FOOTER_WIDGET_CONFIG['close_button']
@@ -715,11 +724,14 @@ class OverlayUIBuilder:
         return close_btn
 
     def _create_footer(self):
-        """Create the footer row with status label and close button."""
+        """Create the footer row with provider badge, status label and close button."""
         footer_widget = QFrame()
         footer_widget.setFrameStyle(QFrame.Shape.NoFrame)
         footer_row = QHBoxLayout(footer_widget)
         footer_row.setContentsMargins(*self.LAYOUT_CONFIG['footer_margins'])
+
+        self.provider_badge = self._create_provider_badge()
+        footer_row.addWidget(self.provider_badge)
 
         self.status_label = self._create_status_label()
         footer_row.addWidget(self.status_label)

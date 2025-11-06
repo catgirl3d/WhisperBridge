@@ -96,6 +96,7 @@ class OverlayWindow(StyledOverlayWindow):
         self.footer_widget = ui_components['footer_widget']
         self.close_btn = ui_components['close_btn']
         self.status_label = self.ui_builder.status_label
+        self.provider_badge = self.ui_builder.provider_badge
         self.close_icon_normal = self.ui_builder.close_icon_normal
         self.close_icon_hover = self.ui_builder.close_icon_hover
         self.hideable_elements = ui_components['hideable_elements']
@@ -308,6 +309,35 @@ class OverlayWindow(StyledOverlayWindow):
                 return i
         return -1
 
+    def _update_provider_badge(self) -> None:
+        """Update the provider badge to reflect the current API provider."""
+        try:
+            if not hasattr(self, "provider_badge") or not self.provider_badge:
+                return
+
+            provider = (config_service.get_setting("api_provider") or "openai").strip().lower()
+            if provider not in ("openai", "google", "deepl"):
+                provider = "openai"
+
+            # Map provider to display name and property
+            provider_map = {
+                "openai": ("OpenAI", "openai"),
+                "google": ("Google", "google"),
+                "deepl": ("DeepL", "deepl")
+            }
+            display_name, prop_value = provider_map[provider]
+
+            self.provider_badge.setText(display_name)
+            self.provider_badge.setProperty("provider", prop_value)
+            self.provider_badge.setToolTip(f"Using {display_name}")
+
+            # Force style refresh to apply QSS
+            self.provider_badge.style().unpolish(self.provider_badge)
+            self.provider_badge.style().polish(self.provider_badge)
+            self.provider_badge.update()
+        except Exception as e:
+            logger.debug(f"Failed to update provider badge: {e}")
+
     def _update_api_state_and_ui(self) -> None:
         """Enable/disable action button and set high-priority status when API key is missing/invalid."""
         try:
@@ -329,6 +359,9 @@ class OverlayWindow(StyledOverlayWindow):
                     self.ui_builder.apply_status_style(self.status_label, 'default')
                     if "API key" in (self.status_label.text() or ""):
                         self.status_label.setText("")
+
+            # Update provider badge
+            self._update_provider_badge()
 
             # Enforce provider capabilities (disable Style mode for DeepL)
             try:
