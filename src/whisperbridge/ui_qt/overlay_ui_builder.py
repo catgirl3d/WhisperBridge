@@ -268,14 +268,35 @@ class OverlayUIBuilder:
         'footer_margins': (0, 0, 0, 0)
     }
 
+    # Configuration for icons (centralized)
+    ICONS_CONFIG = {
+        'utility_icons': {
+            'eraser': {'icon': 'fa5s.eraser', 'color': 'black'},
+            'copy': {'icon': 'fa5.copy', 'color': 'black'},
+            'check_success': {'icon': 'fa5s.check', 'color': 'green'},
+        },
+        'translate_disabled': {
+            'compact': {'icon': 'fa5s.lock', 'color': 'white'},
+            'full': {'icon': 'fa5s.lock', 'color': '#757575'},
+        },
+        'reader': {
+            'compact': {'asset': 'book_white.png'},
+            'full': {'asset': 'book_black.png'},
+        },
+        'translate': {
+            'all': {'asset': 'translation-icon.png'},
+        },
+        'swap': {'asset': 'arrows-exchange.png'},
+    }
+
     # Configuration for disabled button visuals (QSS handles appearance;
     # Python stores only non-visual metadata like which icon to use)
     DISABLED_STYLES = {
         'compact': {
-            'icon_attr': 'icon_lock_white'
+            'icon_key': 'compact'
         },
         'full': {
-            'icon_attr': 'icon_lock_grey'
+            'icon_key': 'full'
         }
     }
 
@@ -303,8 +324,18 @@ class OverlayUIBuilder:
             'size': (86, 28),
             'icon_size': (16, 16),
             'object_name': "closeButton",
-            'text': "Close"
+            'text': "Close",
+            'icons': {
+                'normal': {'icon': 'fa5s.times', 'color': 'black'},
+                'hover': {'icon': 'fa5s.times', 'color': 'white'}
+            }
         }
+    }
+
+    # Configuration for utility buttons (clear/copy)
+    UTILITY_BUTTON_CONFIG = {
+        'size': (40, 28),
+        'icon_size': (16, 16)
     }
 
     # Configuration for button styles (appearance moved to QSS; sizes/icons/text remain)
@@ -312,38 +343,32 @@ class OverlayUIBuilder:
         'translate_compact': {
             'text': '',
             'size': (24, 24),
-            'icon_size': (12, 12),
-            'icon': None
+            'icon_size': (12, 12)
         },
         'translate_full': {
             'text': None,  # Will be set dynamically
             'size': (120, 28),
-            'icon_size': (14, 14),
-            'icon': None
+            'icon_size': (14, 14)
         },
         'reader_compact': {
             'text': '',
             'size': (24, 24),
-            'icon_size': (17, 17),
-            'icon': None  # Will be set dynamically
+            'icon_size': (17, 17)
         },
         'reader_full': {
             'text': None,  # Will be set dynamically
             'size': (40, 28),
-            'icon_size': (19, 19),
-            'icon': None  # Will be set dynamically
+            'icon_size': (19, 19)
         },
         'default_compact': {
             'text': '',
             'size': (24, 24),
-            'icon_size': (15, 15),
-            'icon': None
+            'icon_size': (15, 15)
         },
         'default_full': {
             'text': '',
             'size': (40, 28),
-            'icon_size': (16, 16),
-            'icon': None
+            'icon_size': (16, 16)
         }
     }
 
@@ -375,21 +400,30 @@ class OverlayUIBuilder:
     }
 
     def __init__(self):
-        self.icon_translation = self._load_icon("translation-icon.png")
-        self.icon_book_black = self._load_icon("book_black.png")
-        self.icon_book_white = self._load_icon("book_white.png")
-        self.icon_arrows_exchange = self._load_icon("arrows-exchange.png")
-        self.icon_eraser = qta.icon("fa5s.eraser", color="black")
-        self.icon_copy = qta.icon("fa5.copy", color="black")
-        self.icon_check_green = qta.icon("fa5s.check", color="green")
-        # Disabled-state visuals
-        self.icon_lock_white = qta.icon("fa5s.lock", color="white")
-        self.icon_lock_grey = qta.icon("fa5s.lock", color="#757575")
+        # Expose icons for external use (config-driven)
+        self.icon_translation = self._make_icon_from_spec(self.ICONS_CONFIG['translate']['all'])
+        self.icon_check_green = self._make_icon_from_spec(self.ICONS_CONFIG['utility_icons']['check_success'])
 
     def _load_icon(self, icon_name: str) -> QIcon:
         """Load icon from assets."""
         return QIcon(QPixmap(str(_ASSETS_BASE / "icons" / icon_name)))
 
+    def _make_qta_icon(self, spec: dict) -> QIcon:
+        """Create a qtawesome icon from spec {'icon': str, 'color': str}."""
+        if not spec:
+            return QIcon()
+        try:
+            return qta.icon(spec['icon'], color=spec.get('color'))
+        except Exception:
+            return QIcon()
+
+    def _make_icon_from_spec(self, spec: dict) -> QIcon:
+        """Create QIcon from spec. Supports {'icon','color'} for qtawesome or {'asset'} for PNG."""
+        if not spec:
+            return QIcon()
+        if 'asset' in spec:
+            return self._load_icon(spec['asset'])
+        return self._make_qta_icon(spec)
 
     def _create_text_edit(self, placeholder):
         """Create a QTextEdit widget."""
@@ -401,15 +435,17 @@ class OverlayUIBuilder:
         text_edit.setObjectName(self.TEXT_EDIT_CONFIG['object_name'])
         return text_edit
 
-    def _create_button(self, parent=None, text=None, icon=None, size=(40, 28), tooltip=None):
+    def _create_button(self, parent=None, text=None, icon=None, size=None, icon_size=None, tooltip=None):
         """Generic button factory. Creates buttons without explicit parent (ownership managed by layout)."""
         btn = QPushButton(parent)
         if text:
             btn.setText(text)
         if icon:
             btn.setIcon(icon)
-            btn.setIconSize(QSize(16, 16))
-        btn.setFixedSize(*size)
+            if icon_size:
+                btn.setIconSize(QSize(*icon_size))
+        if size:
+            btn.setFixedSize(*size)
         if tooltip:
             btn.setToolTip(tooltip)
         return btn
@@ -446,9 +482,11 @@ class OverlayUIBuilder:
         if button == self.reader_mode_btn:
             if mode == 'full':
                 config['text'] = self._reader_original_text if hasattr(self, "_reader_original_text") else "Reader"
-                config['icon'] = self.icon_book_black
+                config['icon'] = self._make_icon_from_spec(self.ICONS_CONFIG['reader']['full'])
             else:  # compact mode
-                config['icon'] = self.icon_book_white
+                config['icon'] = self._make_icon_from_spec(self.ICONS_CONFIG['reader']['compact'])
+        elif button == self.translate_btn:
+            config['icon'] = self._make_icon_from_spec(self.ICONS_CONFIG['translate']['all'])
     
         # Apply size, text and icon
         # Only set text when the config explicitly provides it; otherwise preserve current text
@@ -560,7 +598,7 @@ class OverlayUIBuilder:
     def _create_swap_button(self) -> QPushButton:
         """Create language swap button using config."""
         swap_btn, _ = self._create_widget_from_config('language', 'swap_button', QPushButton)
-        swap_btn.setIcon(self.icon_arrows_exchange)
+        swap_btn.setIcon(self._make_icon_from_spec(self.ICONS_CONFIG['swap']))
         return swap_btn
 
     def _create_language_row(self):
@@ -611,9 +649,15 @@ class OverlayUIBuilder:
         config = self.FOOTER_WIDGET_CONFIG['close_button']
         close_btn, _ = self._create_widget_from_config('footer', 'close_button', QPushButton, text=config['text'])
 
-        self.close_icon_normal = qta.icon("fa5s.times", color="black")
-        self.close_icon_hover = qta.icon("fa5s.times", color="white")
-        close_btn.setIcon(self.close_icon_normal)
+        # Prepare and expose hover/normal icons for external use (OverlayWindow hover handling)
+        icons = config.get('icons', {})
+        self.close_icon_normal = self._make_icon_from_spec(icons.get('normal'))
+        self.close_icon_hover = self._make_icon_from_spec(icons.get('hover'))
+
+        try:
+            close_btn.setIcon(self.close_icon_normal)
+        except Exception:
+            pass
         return close_btn
 
     def _create_footer(self):
@@ -684,14 +728,17 @@ class OverlayUIBuilder:
                 True: self.DISABLED_STYLES['compact'],   # compact mode
                 False: self.DISABLED_STYLES['full']      # full mode
             }
-    
+
             config = disabled_configs[compact]
             # Set mode property so QSS selects the appropriate disabled appearance
             mode = 'compact' if compact else 'full'
             button.setProperty("mode", mode)
-            # Set lock icon as visual indicator for disabled translate
-            icon = getattr(self, config['icon_attr'])
-            button.setIcon(icon)
+            # Set lock icon as visual indicator for disabled translate (from config spec)
+            icon_key = config.get('icon_key')
+            if icon_key:
+                icon_spec = self.ICONS_CONFIG['translate_disabled'].get(icon_key)
+                if icon_spec:
+                    button.setIcon(self._make_icon_from_spec(icon_spec))
     
             # Force style refresh
             button.style().unpolish(button)
@@ -719,8 +766,7 @@ class OverlayUIBuilder:
     
             # Only restore translation icon for translate button, not for reader button
             if button == self.translate_btn:
-                button.setIcon(self.icon_translation)
-                button.setIconSize(QSize(14, 14))
+                button.setIcon(self._make_icon_from_spec(self.ICONS_CONFIG['translate']['all']))
     
             # Refresh style
             button.style().unpolish(button)
@@ -746,17 +792,13 @@ class OverlayUIBuilder:
 
     def _create_main_buttons(self):
         """Create main action buttons (translate and reader mode)."""
-        self.translate_btn = self._create_button(text="  Translate", size=(120, 28))
+        self.translate_btn = self._create_button(text="  Translate")
         self.translate_btn.setObjectName("translateButton")
-        self.translate_btn.setIcon(self.icon_translation)
-        self.translate_btn.setIconSize(QSize(14, 14))
         self._translate_original_text = self.translate_btn.text()
-    
+
         self.reader_mode_btn = self._create_button(text="", tooltip="Open text in reader mode for comfortable reading")
         # Use a stable object name for QSS selectors
         self.reader_mode_btn.setObjectName("readerButton")
-        self.reader_mode_btn.setIcon(self.icon_book_black)
-        self.reader_mode_btn.setIconSize(QSize(14, 14))
         self._reader_original_text = self.reader_mode_btn.text()
         # Mark as utility=false by default; compact/full visual will be applied later
         self.reader_mode_btn.setProperty("utility", False)
@@ -764,11 +806,36 @@ class OverlayUIBuilder:
 
     def _create_utility_buttons(self):
         """Create utility buttons (clear and copy)."""
-        self.clear_original_btn = self._create_button(text="", icon=self.icon_eraser, size=(40, 28), tooltip="Clear text")
-        self.copy_original_btn = self._create_button(text="", icon=self.icon_copy, size=(40, 28), tooltip="Copy text")
-        self.clear_translated_btn = self._create_button(text="", icon=self.icon_eraser, size=(40, 28), tooltip="Clear text")
-        self.copy_translated_btn = self._create_button(text="", icon=self.icon_copy, size=(40, 28), tooltip="Copy text")
-    
+        config = self.UTILITY_BUTTON_CONFIG
+        self.clear_original_btn = self._create_button(
+            text="",
+            icon=self._make_icon_from_spec(self.ICONS_CONFIG['utility_icons']['eraser']),
+            size=config['size'],
+            icon_size=config['icon_size'],
+            tooltip="Clear text"
+        )
+        self.copy_original_btn = self._create_button(
+            text="",
+            icon=self._make_icon_from_spec(self.ICONS_CONFIG['utility_icons']['copy']),
+            size=config['size'],
+            icon_size=config['icon_size'],
+            tooltip="Copy text"
+        )
+        self.clear_translated_btn = self._create_button(
+            text="",
+            icon=self._make_icon_from_spec(self.ICONS_CONFIG['utility_icons']['eraser']),
+            size=config['size'],
+            icon_size=config['icon_size'],
+            tooltip="Clear text"
+        )
+        self.copy_translated_btn = self._create_button(
+            text="",
+            icon=self._make_icon_from_spec(self.ICONS_CONFIG['utility_icons']['copy']),
+            size=config['size'],
+            icon_size=config['icon_size'],
+            tooltip="Copy text"
+        )
+
         # Mark utility buttons so QSS can style them as compact/utility actions
         for btn in (self.clear_original_btn, self.copy_original_btn, self.clear_translated_btn, self.copy_translated_btn):
             btn.setProperty("utility", True)
