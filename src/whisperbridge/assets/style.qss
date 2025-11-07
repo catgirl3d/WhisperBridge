@@ -476,3 +476,10 @@ QLabel#providerBadge[provider="deepl"] {
     color: #ffffff;
 }
 
+/* Hotkeys help label styling */
+QLabel#hotkeysHelpLabel {
+    color: #757575;
+    font-style: italic;
+    font-size: 11px;
+}
+

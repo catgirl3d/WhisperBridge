@@ -19,10 +19,6 @@ if src_path not in sys.path:
 
 from typing import Callable, Optional, Union
 
-try:
-    import qtawesome as qta
-except Exception:  # pragma: no cover - optional at runtime
-    qta = None  # type: ignore
 
 from PySide6.QtCore import QPoint, QRect, QSize, Qt
 from PySide6.QtGui import QFont
@@ -46,31 +42,7 @@ WINDOW_CONFIG = {
     'root_layout_spacing': 6,
     'content_layout_spacing': 6,
     'title_font': ("Arial", 11, QFont.Weight.Bold),
-}
-
-TOP_BUTTONS_CONFIG = {
-    'settings': {
-        'size': (22, 22),
-        'icon_size': (18, 16),
-        'icon': "fa5s.cog",
-        'icon_color': "black",
-        'fallback_text': "⚙",
-    },
-    'close': {
-        'size': (22, 22),
-        'icon_size': (20, 16),
-        'icon': "fa5s.times",
-        'icon_color': "black",
-        'fallback_text': "X",
-    },
-    'collapse': {
-        'size': (22, 22),
-        'icon_size': (20, 16),
-        'icon': "fa5s.compress-alt",
-        'icon_color': "black",
-        'fallback_text': "▭",
-    },
-    'padding': {
+    'top_button_padding': {
         'top': 3,
         'right': 4,
         'bottom': 0,
@@ -124,7 +96,9 @@ class StyledOverlayWindow(QWidget, BaseWindow):
         self._root_layout.setSpacing(WINDOW_CONFIG['root_layout_spacing'])
 
         # Title (simple header label)
-        self._title_label = QLabel(self)
+        from .overlay_ui_builder import OverlayUIBuilder
+        self._top_ui = OverlayUIBuilder()
+        self._title_label = self._top_ui.create_top_label(text=title)
         self._title_label.setFont(QFont(*WINDOW_CONFIG['title_font']))
         self.set_title(title)
         self._root_layout.addWidget(self._title_label)
@@ -140,7 +114,7 @@ class StyledOverlayWindow(QWidget, BaseWindow):
         self.settings_btn_top: Optional[QPushButton] = None
         self.collapse_btn_top: Optional[QPushButton] = None
         self.close_btn_top: Optional[QPushButton] = None
-        self._top_button_padding = TOP_BUTTONS_CONFIG['padding']
+        self._top_button_padding = WINDOW_CONFIG['top_button_padding']
         self._create_default_top_buttons()
 
         # ----- Drag/Resize state -----
@@ -172,7 +146,7 @@ class StyledOverlayWindow(QWidget, BaseWindow):
         """Get window header title."""
         return self._title_label.text()
 
-    def set_top_button_padding(self, *, top: int = TOP_BUTTONS_CONFIG['padding']['top'], right: int = TOP_BUTTONS_CONFIG['padding']['right'], bottom: int = TOP_BUTTONS_CONFIG['padding']['bottom'], left: int = TOP_BUTTONS_CONFIG['padding']['left']) -> None:
+    def set_top_button_padding(self, *, top: int = WINDOW_CONFIG['top_button_padding']['top'], right: int = WINDOW_CONFIG['top_button_padding']['right'], bottom: int = WINDOW_CONFIG['top_button_padding']['bottom'], left: int = WINDOW_CONFIG['top_button_padding']['left']) -> None:
         """Adjust padding for top-right buttons positioning."""
         self._top_button_padding = {"top": top, "right": right, "bottom": bottom, "left": left}
         self._position_top_buttons()
@@ -183,18 +157,8 @@ class StyledOverlayWindow(QWidget, BaseWindow):
         Returns the created button so subclasses can further customize (icon/tooltip).
         """
         if self.settings_btn_top is None:
-            config = TOP_BUTTONS_CONFIG['settings']
-            btn = QPushButton(self)
-            btn.setObjectName("settingsBtnTop")
-            btn.setFixedSize(*config['size'])
-            if qta:
-                try:
-                    btn.setIcon(qta.icon(config['icon'], color=config['icon_color']))
-                except Exception:
-                    btn.setText(config['fallback_text'])
-            else:
-                btn.setText(config['fallback_text'])
-            btn.setIconSize(QSize(*config['icon_size']))
+            btn = self._top_ui.create_top_button('settings_button')
+            btn.setParent(self)
             if callable(on_click):
                 btn.clicked.connect(on_click)
             self.settings_btn_top = btn
@@ -258,33 +222,13 @@ class StyledOverlayWindow(QWidget, BaseWindow):
     def _create_default_top_buttons(self) -> None:
         """Create collapse and close buttons in the top-right corner."""
         # Close button
-        config = TOP_BUTTONS_CONFIG['close']
-        self.close_btn_top = QPushButton(self)
-        self.close_btn_top.setObjectName("closeBtnTop")
-        self.close_btn_top.setFixedSize(*config['size'])
-        if qta:
-            try:
-                self.close_btn_top.setIcon(qta.icon(config['icon'], color=config['icon_color']))
-            except Exception:
-                self.close_btn_top.setText(config['fallback_text'])
-        else:
-            self.close_btn_top.setText(config['fallback_text'])
-        self.close_btn_top.setIconSize(QSize(*config['icon_size']))
+        self.close_btn_top = self._top_ui.create_top_button('close_button')
+        self.close_btn_top.setParent(self)
         self.close_btn_top.clicked.connect(self.dismiss)
 
         # Collapse button (to the left of close)
-        config = TOP_BUTTONS_CONFIG['collapse']
-        self.collapse_btn_top = QPushButton(self)
-        self.collapse_btn_top.setObjectName("collapseBtnTop")
-        self.collapse_btn_top.setFixedSize(*config['size'])
-        if qta:
-            try:
-                self.collapse_btn_top.setIcon(qta.icon(config['icon'], color=config['icon_color']))
-            except Exception:
-                self.collapse_btn_top.setText(config['fallback_text'])
-        else:
-            self.collapse_btn_top.setText(config['fallback_text'])
-        self.collapse_btn_top.setIconSize(QSize(*config['icon_size']))
+        self.collapse_btn_top = self._top_ui.create_top_button('collapse_button')
+        self.collapse_btn_top.setParent(self)
         self.collapse_btn_top.clicked.connect(self.collapse_to_minibar)
 
         # Calculate initial positions
@@ -292,10 +236,10 @@ class StyledOverlayWindow(QWidget, BaseWindow):
 
     def _position_top_buttons(self) -> None:
         """Position the top-right control buttons with padding."""
-        padding = getattr(self, "_top_button_padding", TOP_BUTTONS_CONFIG['padding'])
-        top_offset = padding.get("top", TOP_BUTTONS_CONFIG['padding']['top'])
-        right_offset = padding.get("right", TOP_BUTTONS_CONFIG['padding']['right'])
-        spacing = padding.get("left", TOP_BUTTONS_CONFIG['padding']['left'])
+        padding = getattr(self, "_top_button_padding", WINDOW_CONFIG['top_button_padding'])
+        top_offset = padding.get("top", WINDOW_CONFIG['top_button_padding']['top'])
+        right_offset = padding.get("right", WINDOW_CONFIG['top_button_padding']['right'])
+        spacing = padding.get("left", WINDOW_CONFIG['top_button_padding']['left'])
 
         buttons = [self.close_btn_top, self.collapse_btn_top, self.settings_btn_top]
         current_x = self.width() - right_offset

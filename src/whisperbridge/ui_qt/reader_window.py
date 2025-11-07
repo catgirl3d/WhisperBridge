@@ -16,8 +16,6 @@ Key Principles:
 5. Separation of Concerns: Python handles logic, QSS handles appearance
 """
 
-from pathlib import Path
-
 import qtawesome as qta
 from loguru import logger
 from PySide6.QtCore import QSize, Qt
@@ -140,20 +138,30 @@ class ReaderWindow(StyledOverlayWindow):
         """Create the decrease font size button using configuration."""
         btn, config = self._create_widget_from_config('button', 'decrease', QPushButton)
         btn_config = READER_BUTTON_CONFIG['font_controls']
-        
+
         # Apply button-specific configuration
         btn.setIcon(qta.icon(config['icon'], color=btn_config['icon_color']))
         btn.setToolTip(config['tooltip'])
+        # Apply shared size/icon_size from font_controls if not set in specific config
+        if 'size' not in config:
+            btn.setFixedSize(*btn_config['size'])
+        if 'icon_size' not in config:
+            btn.setIconSize(QSize(*btn_config['icon_size']))
         return btn
 
     def _create_increase_button(self) -> QPushButton:
         """Create the increase font size button using configuration."""
         btn, config = self._create_widget_from_config('button', 'increase', QPushButton)
         btn_config = READER_BUTTON_CONFIG['font_controls']
-        
+
         # Apply button-specific configuration
         btn.setIcon(qta.icon(config['icon'], color=btn_config['icon_color']))
         btn.setToolTip(config['tooltip'])
+        # Apply shared size/icon_size from font_controls if not set in specific config
+        if 'size' not in config:
+            btn.setFixedSize(*btn_config['size'])
+        if 'icon_size' not in config:
+            btn.setIconSize(QSize(*btn_config['icon_size']))
         return btn
 
     def _decrease_font_size(self):

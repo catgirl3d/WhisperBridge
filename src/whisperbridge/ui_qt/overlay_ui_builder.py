@@ -61,11 +61,13 @@ class TranslatorSettingsDialog(QDialog):
         },
         'compact_view_checkbox': {
             'text': "Compact view",
-            'tooltip': "Hides labels and buttons for a more compact translator window"
+            'tooltip': "Hides labels and buttons for a more compact translator window",
+            'object_name': "compact_view_checkbox"
         },
         'autohide_buttons_checkbox': {
             'text': "Hide right-side buttons (show on hover)",
-            'tooltip': "If enabled, the narrow buttons on the right appear only on hover"
+            'tooltip': "If enabled, the narrow buttons on the right appear only on hover",
+            'object_name': "autohide_buttons_checkbox"
         },
         'close_button': {
             'text': "Close",
@@ -76,7 +78,10 @@ class TranslatorSettingsDialog(QDialog):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        
+
+        # Create builder instance for unified widget creation
+        self.builder = OverlayUIBuilder()
+
         # Apply dialog configuration
         dialog_config = self.TRANSLATOR_DIALOG_CONFIG['dialog']
         self.setWindowTitle(dialog_config['title'])
@@ -89,32 +94,19 @@ class TranslatorSettingsDialog(QDialog):
         settings = config_service.get_settings()
 
         # Compact view checkbox
-        compact_config = self.TRANSLATOR_DIALOG_CONFIG['compact_view_checkbox']
-        self.compact_view_checkbox = QCheckBox(compact_config['text'])
-        self.compact_view_checkbox.setToolTip(compact_config['tooltip'])
+        self.compact_view_checkbox, _ = self.builder._create_widget_from_config('translator', 'compact_view_checkbox', QCheckBox)
         self.compact_view_checkbox.setChecked(getattr(settings, "compact_view", False))
         self.compact_view_checkbox.stateChanged.connect(self._on_compact_view_changed)
         layout.addWidget(self.compact_view_checkbox)
 
         # Side buttons auto-hide checkbox
-        autohide_config = self.TRANSLATOR_DIALOG_CONFIG['autohide_buttons_checkbox']
-        self.autohide_buttons_checkbox = QCheckBox(autohide_config['text'])
-        self.autohide_buttons_checkbox.setToolTip(autohide_config['tooltip'])
+        self.autohide_buttons_checkbox, _ = self.builder._create_widget_from_config('translator', 'autohide_buttons_checkbox', QCheckBox)
         self.autohide_buttons_checkbox.setChecked(getattr(settings, "overlay_side_buttons_autohide", False))
         self.autohide_buttons_checkbox.stateChanged.connect(self._on_autohide_buttons_changed)
         layout.addWidget(self.autohide_buttons_checkbox)
 
         # Close button
-        close_config = self.TRANSLATOR_DIALOG_CONFIG['close_button']
-        close_button = QPushButton(close_config['text'])
-        close_button.setObjectName(close_config['object_name'])
-        # Apply size from config
-        if 'size' in close_config:
-            width, height = close_config['size']
-            if width is not None:
-                close_button.setFixedWidth(width)
-            if height is not None:
-                close_button.setFixedHeight(height)
+        close_button, _ = self.builder._create_widget_from_config('translator', 'close_button', QPushButton)
         close_button.clicked.connect(self.close)
         layout.addWidget(close_button, alignment=Qt.AlignmentFlag.AlignRight)
 
@@ -349,6 +341,35 @@ class OverlayUIBuilder:
         }
     }
 
+    # Configuration for top-bar widgets
+    OVERLAY_TOP_CONTROLS_CONFIG = {
+        'title_label': {
+            'object_name': 'overlayTitleLabel',
+            'text': ''  # set by caller as needed
+        },
+        'settings_button': {
+            'object_name': 'settingsBtnTop',
+            'size': (22, 22),
+            'icon': {'icon': 'fa5s.cog', 'color': 'black'},
+            'icon_size': (18, 16),
+            'tooltip': 'Settings'
+        },
+        'close_button': {
+            'object_name': 'closeBtnTop',
+            'size': (22, 22),
+            'icon': {'icon': 'fa5s.times', 'color': 'black'},
+            'icon_size': (20, 16),
+            'tooltip': 'Close'
+        },
+        'collapse_button': {
+            'object_name': 'collapseBtnTop',
+            'size': (22, 22),
+            'icon': {'icon': 'fa5s.compress-alt', 'color': 'black'},
+            'icon_size': (20, 16),
+            'tooltip': 'Collapse'
+        }
+    }
+
 
     # Configuration for button styles (appearance moved to QSS; sizes/icons/text remain)
     BUTTON_STYLES = {
@@ -551,15 +572,23 @@ class OverlayUIBuilder:
             'info': self.INFO_WIDGET_CONFIG,
             'language': self.LANGUAGE_WIDGET_CONFIG,
             'footer': self.FOOTER_WIDGET_CONFIG,
-            'label': self.LABEL_CONFIG
+            'label': self.LABEL_CONFIG,
+            'top': self.OVERLAY_TOP_CONTROLS_CONFIG,
+            'translator': TranslatorSettingsDialog.TRANSLATOR_DIALOG_CONFIG
         }
 
         config = config_maps[widget_type][config_key]
         widget = widget_class(**kwargs)
 
         # Apply common configuration properties
-        if hasattr(widget, 'setFixedSize') and 'size' in config:
-            widget.setFixedSize(*config['size'])
+        if hasattr(widget, 'setFixedSize') and 'size' in config and config['size'] is not None:
+            width, height = config['size']
+            if width is not None and height is not None:
+                widget.setFixedSize(width, height)
+            elif width is not None:
+                widget.setFixedWidth(width)
+            elif height is not None:
+                widget.setFixedHeight(height)
         if hasattr(widget, 'setObjectName') and 'object_name' in config:
             widget.setObjectName(config['object_name'])
         if hasattr(widget, 'setFixedWidth') and 'width' in config:
@@ -836,7 +865,7 @@ class OverlayUIBuilder:
         """Apply centralized styling to status label based on type using dynamic properties."""
         if not status_label:
             return
-        
+
         try:
             # Set a dynamic property to control styling via QSS
             status_label.setProperty("status", style_type)
@@ -844,6 +873,22 @@ class OverlayUIBuilder:
             self._refresh_widget_style(status_label)
         except Exception as e:
             logger.debug(f"Failed to apply status style: {e}")
+
+    def create_top_label(self, text: str = "") -> QLabel:
+        """Create a top-bar title label using config."""
+        lbl, cfg = self._create_widget_from_config('top', 'title_label', QLabel, text=text)
+        return lbl
+
+    def create_top_button(self, key: str) -> QPushButton:
+        """Create a top-bar button using config."""
+        btn, cfg = self._create_widget_from_config('top', key, QPushButton)
+        if 'icon' in cfg:
+            btn.setIcon(self._make_icon_from_spec(cfg['icon']))
+        if 'icon_size' in cfg:
+            btn.setIconSize(QSize(*cfg['icon_size']))
+        # Preserve legacy QSS: do not set extra properties that could change styling
+        self._refresh_widget_style(btn)
+        return btn
 
     def _create_main_buttons(self):
         """Create main action buttons (translate and reader mode)."""

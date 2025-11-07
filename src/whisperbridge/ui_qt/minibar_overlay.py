@@ -38,17 +38,23 @@ MINIBAR_WINDOW_CONFIG = {
 
 MINIBAR_BUTTON_CONFIG = {
     'expand': {
+        # Legacy objectName preserved to keep QSS working. Future alias proposal: miniBarExpandButton
         'size': (22, 22),
+        'icon_size': (18, 16),
         'icon': "fa5s.expand-alt",
         'fallback_icon': "fa5s.chevron-up",
         'fallback_text': "Expand",
+        'tooltip': "Expand",
         'icon_color': "black",
         'object_name': "expandBtnMini",
     },
     'close': {
+        # Legacy objectName preserved to keep QSS working. Future alias proposal: miniBarCloseButton
         'size': (22, 22),
+        'icon_size': (20, 16),
         'icon': "fa5s.times",
         'fallback_text': "X",
+        'tooltip': "Close",
         'icon_color': "black",
         'object_name': "closeBtnMini",
     },
@@ -241,13 +247,13 @@ class MiniBarOverlay(QWidget, BaseWindow):
     def _create_widget_from_config(self, widget_type: str, config_key: str, widget_class, **kwargs):
         """
         Generic factory method to create widgets from configuration dictionaries.
-        
+    
         Args:
             widget_type: Type of widget ('button' or 'label')
             config_key: Key within the configuration dictionary
             widget_class: The widget class to instantiate
             **kwargs: Additional arguments to pass to the widget constructor
-            
+    
         Returns:
             Tuple of (widget, config)
         """
@@ -255,46 +261,56 @@ class MiniBarOverlay(QWidget, BaseWindow):
             'button': MINIBAR_BUTTON_CONFIG,
             'label': MINIBAR_LABEL_CONFIG
         }
-        
+    
         config = config_maps[widget_type][config_key]
         widget = widget_class(**kwargs)
-        
+    
         # Apply common configuration properties
         if 'object_name' in config:
             widget.setObjectName(config['object_name'])
-        if 'size' in config:
+        if 'size' in config and hasattr(widget, 'setFixedSize'):
             widget.setFixedSize(*config['size'])
-        if 'font' in config:
+        if 'font' in config and hasattr(widget, 'setFont'):
             widget.setFont(QFont(*config['font']))
-            
+        # Extended alignment with OverlayUIBuilder: support icon_size and tooltip
+        if 'icon_size' in config and hasattr(widget, 'setIconSize'):
+            widget.setIconSize(QSize(*config['icon_size']))
+        if 'tooltip' in config and hasattr(widget, 'setToolTip'):
+            widget.setToolTip(config['tooltip'])
+    
         return widget, config
-
-    def _create_expand_button(self) -> QPushButton:
-        """Create the expand button using configuration."""
-        btn, config = self._create_widget_from_config('button', 'expand', QPushButton)
-        
-        # Apply button-specific configuration
+    
+    def create_button(self, key: str) -> QPushButton:
+        """
+        Unified button factory mirroring OverlayUIBuilder.create_top_button behavior.
+        Uses configuration to set icon, icon_size, tooltip; preserves legacy objectName values.
+        """
+        btn, cfg = self._create_widget_from_config('button', key, QPushButton)
+        # Apply qtawesome icon with graceful fallbacks
         try:
-            btn.setIcon(qta.icon(config['icon'], color=config['icon_color']))
+            btn.setIcon(qta.icon(cfg.get('icon', ''), color=cfg.get('icon_color')))
         except Exception:
             try:
-                btn.setIcon(qta.icon(config['fallback_icon'], color=config['icon_color']))
+                fallback = cfg.get('fallback_icon')
+                if fallback:
+                    btn.setIcon(qta.icon(fallback, color=cfg.get('icon_color')))
+                else:
+                    raise Exception()
             except Exception:
-                btn.setText(config['fallback_text'])
-        
+                text = cfg.get('fallback_text')
+                if text:
+                    btn.setText(text)
+        return btn
+    
+    def _create_expand_button(self) -> QPushButton:
+        """Create the expand button using the unified factory."""
+        btn = self.create_button('expand')
         btn.clicked.connect(self._handle_expand_clicked)
         return btn
-
+    
     def _create_close_button(self) -> QPushButton:
-        """Create the close button using configuration."""
-        btn, config = self._create_widget_from_config('button', 'close', QPushButton)
-        
-        # Apply button-specific configuration
-        try:
-            btn.setIcon(qta.icon(config['icon'], color=config['icon_color']))
-        except Exception:
-            btn.setText(config['fallback_text'])
-        
+        """Create the close button using the unified factory."""
+        btn = self.create_button('close')
         btn.clicked.connect(self._handle_close_clicked)
         return btn
 

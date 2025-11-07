@@ -1,14 +1,15 @@
 # Project specific
 tasks/
 temp/
-build/
-# tests/
 .toml
 .kilocode/
 .kilocodeignore
-_build_flags.py
 *.iss
 _version.py
+
+# DWW
+*internal*
+docs/internal
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
@@ -20,6 +21,7 @@ __pycache__/
 
 # Distribution / packaging
 .Python
+.build/
 build/
 develop-eggs/
 dist/

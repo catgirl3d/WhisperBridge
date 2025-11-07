@@ -45,10 +45,14 @@ from ..utils.help_texts import HELP_TEXTS
 
 
 from .base_window import BaseWindow
+from .settings_ui_factory import SettingsUIFactory
 
 
 class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
     """Settings dialog with tabbed interface for configuration."""
+
+    # Class-level factory instance
+    factory = SettingsUIFactory()
 
     MODEL_PLACEHOLDERS = {
         "No API key configured",
@@ -82,7 +86,7 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
         layout = QVBoxLayout(self)
 
         # Create tab widget
-        self.tab_widget = QTabWidget()
+        self.tab_widget = self.factory.create_tab_widget("tabWidget")
         layout.addWidget(self.tab_widget)
 
         # Create tabs
@@ -187,23 +191,22 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
         Returns:
             QWidget containing label and hint button
         """
-        from PySide6.QtWidgets import QToolButton
         from PySide6.QtCore import QPoint
 
-        container = QWidget(self)  # Properly parent to dialog
+        container = self.factory.create_widget("containerWidget")
         layout = QHBoxLayout(container)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(2)
 
         if isinstance(text_or_widget, str):
-            label = QLabel(text_or_widget)
+            label = self.factory.create_label("hintLabel")
+            label.setText(text_or_widget)
         else:
             label = text_or_widget
 
         layout.addWidget(label)
 
-        hint_button = QToolButton()
-        hint_button.setObjectName("hintButton")
+        hint_button = self.factory.create_tool_button("hintButton")
         hint_button.setText("?")
         hint_button.setAutoRaise(True)
         hint_button.setToolTip(HELP_TEXTS.get(help_key, {}).get("tooltip", ""))
@@ -223,34 +226,31 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
 
     def _create_api_tab(self):
         """Create API settings tab."""
-        tab = QWidget()
+        tab = self.factory.create_widget("apiTab")
         layout = QVBoxLayout(tab)
 
         # API Provider
-        provider_group = QGroupBox("API Provider")
+        provider_group = self.factory.create_group_box("apiProviderGroup")
         provider_layout = QFormLayout(provider_group)
 
-        self.api_provider_combo = QComboBox()
-        self.api_provider_combo.addItems(["openai", "google", "deepl"])
+        self.api_provider_combo = self.factory.create_combo("apiProviderCombo")
         self.api_provider_combo.currentTextChanged.connect(self._on_provider_changed)
         provider_layout.addRow(self._create_hint_label("Provider:", "api.provider"), self.api_provider_combo)
 
         # API Key fields (one for each provider)
-        self.api_key_label = QLabel()  # Label will be updated dynamically
+        self.api_key_label = self.factory.create_label("apiKeyLabel")
         self.api_key_label_container = self._create_hint_label(self.api_key_label, "api.key")
 
         # Create separate QLineEdit for each provider
         self.api_key_edits = {}
-        for provider in ["openai", "google", "deepl"]:
-            edit = QLineEdit()
-            edit.setEchoMode(QLineEdit.EchoMode.Password)
-            edit.setVisible(False)  # Initially hidden, will be shown based on selected provider
-            self.api_key_edits[provider] = edit
+        self.api_key_edits["openai"] = self.factory.create_line_edit("openaiApiKeyEdit")
+        self.api_key_edits["google"] = self.factory.create_line_edit("googleApiKeyEdit")
+        self.api_key_edits["deepl"] = self.factory.create_line_edit("deeplApiKeyEdit")
 
-        self.delete_api_key_button = QPushButton("Delete")
+        self.delete_api_key_button = self.factory.create_button("apiDeleteButton")
         self.delete_api_key_button.clicked.connect(self._on_delete_api_key)
 
-        self.test_api_button = QPushButton("Test API")
+        self.test_api_button = self.factory.create_button("apiTestButton")
         self.test_api_button.clicked.connect(self._on_test_api)
 
         key_layout = QHBoxLayout()
@@ -259,7 +259,7 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
         for provider, edit in self.api_key_edits.items():
             key_layout.addWidget(edit)
         key_layout.addWidget(self.delete_api_key_button)
-        self.api_key_widget = QWidget()
+        self.api_key_widget = self.factory.create_widget("apiKeyWidget")
         self.api_key_widget.setLayout(key_layout)
 
         provider_layout.addRow(self.api_key_label_container, self.api_key_widget)
@@ -268,41 +268,39 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
         layout.addWidget(provider_group)
 
         # Model and Timeout
-        model_group = QGroupBox("Model Settings")
+        model_group = self.factory.create_group_box("modelSettingsGroup")
         model_layout = QFormLayout(model_group)
 
-        self.model_label = QLabel("Model:")
+        self.model_label = self.factory.create_label("modelLabel")
+        self.model_label.setText("Model:")
         self.model_label_container = self._create_hint_label(self.model_label, "api.model")
-        self.model_combo = QComboBox()
-        # Allow custom model input
-        self.model_combo.setEditable(True)
+        self.model_combo = self.factory.create_combo("modelCombo")
         model_layout.addRow(self.model_label_container, self.model_combo)
 
         # Don't load models here - they will be loaded in _load_settings
         logger.debug("Skipping model loading in _create_api_tab - will load in _load_settings")
 
-        self.api_timeout_spin = QSpinBox()
-        self.api_timeout_spin.setRange(1, 300)
+        self.api_timeout_spin = self.factory.create_spin("apiTimeoutSpin")
         model_layout.addRow(self._create_hint_label("Timeout (seconds):", "api.timeout"), self.api_timeout_spin)
 
         # Vision model fields
-        self.openai_vision_model_label = QLabel("OpenAI Vision Model:")
+        self.openai_vision_model_label = self.factory.create_label("openaiVisionModelLabel")
+        self.openai_vision_model_label.setText("OpenAI Vision Model:")
         self.openai_vision_model_label_container = self._create_hint_label(self.openai_vision_model_label, "api.vision_model_openai")
-        self.openai_vision_model_edit = QLineEdit()
-        self.openai_vision_model_edit.setPlaceholderText("e.g., gpt-4-vision-preview")
+        self.openai_vision_model_edit = self.factory.create_line_edit("openaiVisionModelEdit")
         model_layout.addRow(self.openai_vision_model_label_container, self.openai_vision_model_edit)
 
-        self.google_vision_model_label = QLabel("Google Vision Model:")
+        self.google_vision_model_label = self.factory.create_label("googleVisionModelLabel")
+        self.google_vision_model_label.setText("Google Vision Model:")
         self.google_vision_model_label_container = self._create_hint_label(self.google_vision_model_label, "api.vision_model_google")
-        self.google_vision_model_edit = QLineEdit()
-        self.google_vision_model_edit.setPlaceholderText("e.g., gemini-pro-vision")
+        self.google_vision_model_edit = self.factory.create_line_edit("googleVisionModelEdit")
         model_layout.addRow(self.google_vision_model_label_container, self.google_vision_model_edit)
 
         # DeepL plan selection (controls endpoint free/pro) - visible only for DeepL
-        self.deepl_plan_label = QLabel("DeepL Plan:")
+        self.deepl_plan_label = self.factory.create_label("deeplPlanLabel")
+        self.deepl_plan_label.setText("DeepL Plan:")
         self.deepl_plan_label_container = self._create_hint_label(self.deepl_plan_label, "api.deepl_plan")
-        self.deepl_plan_combo = QComboBox()
-        self.deepl_plan_combo.addItems(["free", "pro"])
+        self.deepl_plan_combo = self.factory.create_combo("deeplPlanCombo")
         self.deepl_plan_combo.setToolTip(HELP_TEXTS.get("api.deepl_plan", {}).get("tooltip", ""))
         self.deepl_plan_label_container.setVisible(False)
         self.deepl_plan_combo.setVisible(False)
@@ -317,21 +315,20 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
 
     def _create_translation_tab(self):
         """Create translation settings tab."""
-        tab = QWidget()
+        tab = self.factory.create_widget("translationTab")
         layout = QVBoxLayout(tab)
 
         # Translation options: Auto-swap and System Prompt
         # Auto-swap checkbox (EN <-> RU)
-        self.ocr_auto_swap_checkbox = QCheckBox("Auto-swap EN ↔ RU")
+        self.ocr_auto_swap_checkbox = self.factory.create_check("autoSwapCheck")
         self.ocr_auto_swap_checkbox.setToolTip(HELP_TEXTS.get("translation.auto_swap", {}).get("tooltip", ""))
         layout.addWidget(self.ocr_auto_swap_checkbox)
 
         # System Prompt
-        prompt_group = QGroupBox("System Prompt")
+        prompt_group = self.factory.create_group_box("systemPromptGroup")
         prompt_layout = QVBoxLayout(prompt_group)
-        self.system_prompt_edit = QTextEdit()
+        self.system_prompt_edit = self.factory.create_text_edit("systemPromptEdit")
         self.system_prompt_edit.setAcceptRichText(False)
-        self.system_prompt_edit.setPlaceholderText("Enter the system prompt for the translation model.")
         prompt_layout.addWidget(self._create_hint_label("System Prompt:", "translation.system_prompt"))
         prompt_layout.addWidget(self.system_prompt_edit)
         layout.addWidget(prompt_group)
@@ -341,43 +338,37 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
 
     def _create_ocr_tab(self):
         """Create OCR settings tab."""
-        tab = QWidget()
+        tab = self.factory.create_widget("ocrTab")
         layout = QVBoxLayout(tab)
 
         # OCR settings
-        ocr_group = QGroupBox("OCR Configuration")
+        ocr_group = self.factory.create_group_box("ocrConfigGroup")
         ocr_layout = QFormLayout(ocr_group)
 
         # Initialize OCR on startup (enable/disable local OCR features)
-        self.initialize_ocr_check = QCheckBox("Initialize local OCR engine (EasyOCR) on startup")
+        self.initialize_ocr_check = self.factory.create_check("initializeOcrCheck")
         self.initialize_ocr_check.setToolTip(HELP_TEXTS.get("ocr.initialize", {}).get("tooltip", ""))
         self.initialize_ocr_check.stateChanged.connect(self._update_vision_model_visibility)
         ocr_layout.addRow(self.initialize_ocr_check)
 
         # OCR Engine selector
-        self.ocr_engine_combo = QComboBox()
-        self.ocr_engine_combo.addItems(["easyocr", "llm"])
+        self.ocr_engine_combo = self.factory.create_combo("ocrEngineCombo")
         ocr_layout.addRow(self._create_hint_label("OCR Engine:", "ocr.engine"), self.ocr_engine_combo)
 
         # LLM OCR Prompt
-        self.ocr_llm_prompt_edit = QTextEdit()
+        self.ocr_llm_prompt_edit = self.factory.create_text_edit("ocrLlmPromptEdit")
         self.ocr_llm_prompt_edit.setAcceptRichText(False)
-        self.ocr_llm_prompt_edit.setPlaceholderText("Enter the prompt for LLM-based OCR.")
         ocr_layout.addRow(self._create_hint_label("LLM OCR Prompt:", "ocr.llm_prompt"), self.ocr_llm_prompt_edit)
 
         # OCR Languages
-        self.ocr_languages_edit = QLineEdit()
-        self.ocr_languages_edit.setPlaceholderText("e.g., en,ru,es")
+        self.ocr_languages_edit = self.factory.create_line_edit("ocrLanguagesEdit")
         ocr_layout.addRow(self._create_hint_label("OCR Languages:", "ocr.languages"), self.ocr_languages_edit)
 
         # Confidence threshold
-        self.ocr_confidence_spin = QDoubleSpinBox()
-        self.ocr_confidence_spin.setRange(0.0, 1.0)
-        self.ocr_confidence_spin.setSingleStep(0.05)
+        self.ocr_confidence_spin = self.factory.create_double_spin("ocrConfidenceSpin")
         self.ocr_confidence_spin.setValue(0.7)
         ocr_layout.addRow(self._create_hint_label("Confidence Threshold:", "ocr.confidence_threshold"), self.ocr_confidence_spin)
-        self.ocr_timeout_spin = QSpinBox()
-        self.ocr_timeout_spin.setRange(1, 300)
+        self.ocr_timeout_spin = self.factory.create_spin("ocrTimeoutSpin")
         ocr_layout.addRow(self._create_hint_label("OCR Timeout (seconds):", "ocr.timeout"), self.ocr_timeout_spin)
 
         layout.addWidget(ocr_group)
@@ -388,49 +379,46 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
 
     def _create_hotkeys_tab(self):
         """Create hotkeys settings tab."""
-        tab = QWidget()
+        tab = self.factory.create_widget("hotkeysTab")
         layout = QVBoxLayout(tab)
 
         # Hotkey settings group
-        hotkey_group = QGroupBox("Hotkey Configuration")
+        hotkey_group = self.factory.create_group_box("hotkeyConfigGroup")
         hotkey_layout = QFormLayout(hotkey_group)
 
-        self.quick_translate_hotkey_edit = QLineEdit()
+        self.quick_translate_hotkey_edit = self.factory.create_line_edit("quickTranslateHotkeyEdit")
         hotkey_layout.addRow(self._create_hint_label("Show Translator Window:", "hotkeys.show_translator"), self.quick_translate_hotkey_edit)
-        self.activation_hotkey_edit = QLineEdit()
+        self.activation_hotkey_edit = self.factory.create_line_edit("activationHotkeyEdit")
         hotkey_layout.addRow(self._create_hint_label("Translate:", "hotkeys.translate"), self.activation_hotkey_edit)
 
-        self.translate_hotkey_edit = QLineEdit()
+        self.translate_hotkey_edit = self.factory.create_line_edit("translateHotkeyEdit")
         hotkey_layout.addRow(self._create_hint_label("Capture screen region (OCR):", "hotkeys.capture_screen"), self.translate_hotkey_edit)
 
-        self.copy_translate_hotkey_edit = QLineEdit()
+        self.copy_translate_hotkey_edit = self.factory.create_line_edit("copyTranslateHotkeyEdit")
         hotkey_layout.addRow(self._create_hint_label("Copy→Translate Hotkey:", "hotkeys.copy_translate"), self.copy_translate_hotkey_edit)
 
         layout.addWidget(hotkey_group)
 
         # Help text
-        help_label = QLabel("Use format like 'ctrl+shift+t' or 'alt+f1'")
-        help_label.setStyleSheet("color: gray; font-style: italic;")
+        help_label = self.factory.create_label("hotkeysHelpLabel")
         layout.addWidget(help_label)
 
         # Copy-translate options in a separate group box
-        copy_group = QGroupBox("Copy-Translate Options")
+        copy_group = self.factory.create_group_box("copyTranslateOptionsGroup")
         copy_layout = QFormLayout(copy_group)
 
         # Automatically copy translated text to clipboard (hotkey mode)
-        self.auto_copy_translated_check = QCheckBox("Automatically copy translated text to clipboard (hotkey mode)")
+        self.auto_copy_translated_check = self.factory.create_check("autoCopyTranslatedCheck")
         self.auto_copy_translated_check.setToolTip(HELP_TEXTS.get("hotkeys.auto_copy_hotkey", {}).get("tooltip", ""))
         copy_layout.addRow(self.auto_copy_translated_check)
 
         # Automatically copy translated text to clipboard (main translator window)
-        self.auto_copy_translated_main_window_check = QCheckBox("Automatically copy translated text to clipboard (main translator window)")
+        self.auto_copy_translated_main_window_check = self.factory.create_check("autoCopyTranslatedMainCheck")
         self.auto_copy_translated_main_window_check.setToolTip(HELP_TEXTS.get("hotkeys.auto_copy_main", {}).get("tooltip", ""))
         copy_layout.addRow(self.auto_copy_translated_main_window_check)
 
         # Clipboard polling timeout (ms)
-        self.clipboard_poll_timeout_spin = QSpinBox()
-        self.clipboard_poll_timeout_spin.setRange(500, 10000)
-        self.clipboard_poll_timeout_spin.setSingleStep(100)
+        self.clipboard_poll_timeout_spin = self.factory.create_spin("clipboardPollTimeoutSpin")
         copy_layout.addRow("Clipboard polling timeout (ms):", self.clipboard_poll_timeout_spin)
         layout.addWidget(copy_group)
 
@@ -440,38 +428,37 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
 
     def _create_general_tab(self):
         """Create general settings tab."""
-        tab = QWidget()
+        tab = self.factory.create_widget("generalTab")
         layout = QVBoxLayout(tab)
 
         # UI settings
-        ui_group = QGroupBox("User Interface")
+        ui_group = self.factory.create_group_box("uiGroup")
         ui_layout = QFormLayout(ui_group)
 
         # Theme selection (support system option as well)
-        self.theme_combo = QComboBox()
-        self.theme_combo.addItems(["dark", "light", "system"])
+        self.theme_combo = self.factory.create_combo("themeCombo")
         ui_layout.addRow(self._create_hint_label("Theme:", "general.theme"), self.theme_combo)
 
         # Log level selection (exposed to users so they can change verbosity)
-        self.log_level_combo = QComboBox()
-        self.log_level_combo.addItems(["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"])
+        self.log_level_combo = self.factory.create_combo("logLevelCombo")
         ui_layout.addRow(self._create_hint_label("Log level:", "general.log_level"), self.log_level_combo)
 
-        self.show_notifications_check = QCheckBox("Show notifications")
+        self.show_notifications_check = self.factory.create_check("showNotificationsCheck")
         ui_layout.addRow(self.show_notifications_check)
 
         # Text Stylist caching
-        self.stylist_cache_checkbox = QCheckBox("Enable caching for Text Stylist mode")
+        self.stylist_cache_checkbox = self.factory.create_check("stylistCacheCheck")
         self.stylist_cache_checkbox.setToolTip(HELP_TEXTS.get("general.stylist_cache", {}).get("tooltip", ""))
         ui_layout.addRow(self.stylist_cache_checkbox)
 
         # Translation caching
-        self.translation_cache_checkbox = QCheckBox("Enable caching for translations")
+        self.translation_cache_checkbox = self.factory.create_check("translationCacheCheck")
         self.translation_cache_checkbox.setToolTip(HELP_TEXTS.get("general.translation_cache", {}).get("tooltip", ""))
         ui_layout.addRow(self.translation_cache_checkbox)
 
         # Application version (read from package metadata / setuptools-scm)
-        version_value = QLabel(get_version())
+        version_value = self.factory.create_label("versionLabel")
+        version_value.setText(get_version())
         ui_layout.addRow("Version:", version_value)
 
         layout.addWidget(ui_group)
@@ -481,16 +468,14 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
 
     def _create_stylist_tab(self):
         """Create Text Stylist presets management tab."""
-        tab = QWidget()
+        tab = self.factory.create_widget("stylistTab")
         layout = QVBoxLayout(tab)
 
-        group = QGroupBox("Text Stylist Presets")
+        group = self.factory.create_group_box("textStylistPresetsGroup")
         gl = QVBoxLayout(group)
 
         # Table with two columns: Name, Prompt
-        self.styles_table = QTableWidget()
-        self.styles_table.setColumnCount(2)
-        self.styles_table.setHorizontalHeaderLabels(["Name", "Prompt"])
+        self.styles_table = self.factory.create_table("textStylistTable")
         header = self.styles_table.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
@@ -503,9 +488,9 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
 
         # Buttons row
         btn_row = QHBoxLayout()
-        self.add_style_btn = QPushButton("Add")
-        self.del_style_btn = QPushButton("Delete Selected")
-        self.reset_style_btn = QPushButton("Reset to Defaults")
+        self.add_style_btn = self.factory.create_button("addStyleButton")
+        self.del_style_btn = self.factory.create_button("deleteStyleButton")
+        self.reset_style_btn = self.factory.create_button("resetStyleButton")
 
         self.add_style_btn.clicked.connect(self._on_add_style)
         self.del_style_btn.clicked.connect(self._on_delete_selected_styles)
@@ -616,12 +601,11 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
         """Create dialog buttons."""
         button_layout = QHBoxLayout()
 
-        self.save_button = QPushButton("Save")
-        self.save_button.setObjectName("save_button")  # Set object name for specific styling
+        self.save_button = self.factory.create_button("saveButton")
         self.save_button.clicked.connect(self._on_save)
         button_layout.addWidget(self.save_button)
 
-        self.cancel_button = QPushButton("Cancel")
+        self.cancel_button = self.factory.create_button("cancelButton")
         self.cancel_button.clicked.connect(self.reject)
         button_layout.addWidget(self.cancel_button)
 
