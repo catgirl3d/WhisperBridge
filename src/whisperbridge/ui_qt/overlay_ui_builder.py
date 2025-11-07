@@ -452,6 +452,13 @@ class OverlayUIBuilder:
             return self._load_icon(spec['asset'])
         return self._make_qta_icon(spec)
 
+    def _apply_custom_dropdown_style(self, combo: QComboBox):
+        """Apply custom styling to the dropdown view of a QComboBox."""
+        view = QListView()
+        combo.setView(view)
+        view.window().setWindowFlags(Qt.WindowType.Popup | Qt.WindowType.FramelessWindowHint | Qt.WindowType.NoDropShadowWindowHint)
+        view.window().setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+
     def _create_text_edit(self, placeholder):
         """Create a QTextEdit widget."""
         text_edit = QTextEdit()
@@ -573,13 +580,10 @@ class OverlayUIBuilder:
         combo, _ = self._create_widget_from_config('info', 'mode_combo', QComboBox)
         combo.addItem("Translate")
         combo.addItem("Style")
-        
+
         # Apply rounded corners to dropdown list
-        view = QListView()
-        combo.setView(view)
-        view.window().setWindowFlags(Qt.WindowType.Popup | Qt.WindowType.FramelessWindowHint | Qt.WindowType.NoDropShadowWindowHint)
-        view.window().setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        
+        self._apply_custom_dropdown_style(combo)
+
         return combo
 
     def _create_style_combo(self) -> QComboBox:
@@ -587,13 +591,10 @@ class OverlayUIBuilder:
         combo, _ = self._create_widget_from_config('info', 'style_combo', QComboBox)
         self._populate_styles(combo)
         combo.setVisible(False)  # Hidden by default; shown only in Style mode
-        
+
         # Apply rounded corners to dropdown list
-        view = QListView()
-        combo.setView(view)
-        view.window().setWindowFlags(Qt.WindowType.Popup | Qt.WindowType.FramelessWindowHint | Qt.WindowType.NoDropShadowWindowHint)
-        view.window().setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        
+        self._apply_custom_dropdown_style(combo)
+
         return combo
 
     def _create_detected_lang_label(self) -> QLabel:
@@ -652,22 +653,16 @@ class OverlayUIBuilder:
         self.source_combo, _ = self._create_widget_from_config('language', 'source_combo', QComboBox)
         self.source_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
         self.source_combo.setMaxVisibleItems(12)
-        
+
         # Apply rounded corners to dropdown list
-        source_view = QListView()
-        self.source_combo.setView(source_view)
-        source_view.window().setWindowFlags(Qt.WindowType.Popup | Qt.WindowType.FramelessWindowHint | Qt.WindowType.NoDropShadowWindowHint)
-        source_view.window().setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self._apply_custom_dropdown_style(self.source_combo)
 
         self.target_combo, _ = self._create_widget_from_config('language', 'target_combo', QComboBox)
         self.target_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
         self.target_combo.setMaxVisibleItems(12)
-        
+
         # Apply rounded corners to dropdown list
-        target_view = QListView()
-        self.target_combo.setView(target_view)
-        target_view.window().setWindowFlags(Qt.WindowType.Popup | Qt.WindowType.FramelessWindowHint | Qt.WindowType.NoDropShadowWindowHint)
-        target_view.window().setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self._apply_custom_dropdown_style(self.target_combo)
         
         self.swap_btn = self._create_swap_button()
 
