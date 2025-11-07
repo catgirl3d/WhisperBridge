@@ -355,22 +355,26 @@ class OverlayUIBuilder:
         'translate_compact': {
             'text': '',
             'size': (24, 24),
-            'icon_size': (12, 12)
+            'icon_size': (12, 12),
+            'icon_spec': {'asset': 'translation-icon.png'}
         },
         'translate_full': {
             'size': (120, 28),
-            'icon_size': (14, 14)
+            'icon_size': (14, 14),
+            'icon_spec': {'asset': 'translation-icon.png'}
         },
         'reader_compact': {
             'text': '',
             'size': (24, 24),
-            'icon_size': (17, 17)
+            'icon_size': (17, 17),
+            'icon_spec': {'asset': 'book_white.png'}
         },
         'reader_full': {
             'text': '',
             'size': (40, 28),
             'icon_size': (19, 19),
-            'tooltip': 'Open text in reader mode for comfortable reading'
+            'tooltip': 'Open text in reader mode for comfortable reading',
+            'icon_spec': {'asset': 'book_black.png'}
         },
         'default_compact': {
             'text': '',
@@ -495,7 +499,7 @@ class OverlayUIBuilder:
         Visual appearance is controlled via QSS.
         """
         mode = 'compact' if compact else 'full'
-    
+
         # Explicit mapping of buttons to their style configurations
         button_configs = {
             self.translate_btn: {
@@ -507,36 +511,26 @@ class OverlayUIBuilder:
                 'full': self.BUTTON_STYLES['reader_full']
             }
         }
-    
+
         # Get the specific config for the button and mode
         config = button_configs.get(button, {}).get(mode)
-    
+
         if not config:
             # Fallback to default styles for other buttons (clear, copy, etc.)
             config = self.BUTTON_STYLES[f'default_{mode}']
-    
+
         config = config.copy()  # Work with a copy to avoid modifying the original
-    
-        # Apply button-specific customizations
-        if button == self.reader_mode_btn:
-            if mode == 'full':
-                config['icon'] = self._make_icon_from_spec(self.ICONS_CONFIG['reader']['full'])
-            else:  # compact mode
-                config['icon'] = self._make_icon_from_spec(self.ICONS_CONFIG['reader']['compact'])
-        elif button == self.translate_btn:
-            config['icon'] = self._make_icon_from_spec(self.ICONS_CONFIG['translate']['all'])
-    
-        # Apply size, text and icon
-        # Only set text when the config explicitly provides it; otherwise preserve current text
+
+        # Apply size, text, tooltip, and icon from config
         if 'text' in config and config['text'] is not None:
             button.setText(config['text'])
         if 'tooltip' in config and config['tooltip']:
             button.setToolTip(config['tooltip'])
         button.setFixedSize(*config['size'])
         button.setIconSize(QSize(*config['icon_size']))
-        if config.get('icon') is not None:
-            button.setIcon(config['icon'])
-    
+        if 'icon_spec' in config:
+            button.setIcon(self._make_icon_from_spec(config['icon_spec']))
+
         # Set dynamic properties for QSS to pick up (mode / utility)
         try:
             button.setProperty("mode", mode)
@@ -544,7 +538,7 @@ class OverlayUIBuilder:
             # ensure property exists for consistency
             if button.property("utility") is None:
                 button.setProperty("utility", False)
-    
+
             # Force style refresh so QSS reacts to the new properties
             self._refresh_widget_style(button)
         except Exception:
@@ -653,7 +647,7 @@ class OverlayUIBuilder:
         language_row.addWidget(self.original_label, alignment=Qt.AlignmentFlag.AlignBottom)
         language_row.addItem(QSpacerItem(0, 0, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum))
 
-        # Создаем комбобоксы напрямую из их уникальных конфигураций
+        # We create comboboxes directly from their unique configurations
         self.source_combo, _ = self._create_widget_from_config('language', 'source_combo', QComboBox)
         self.source_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
         self.source_combo.setMaxVisibleItems(12)
