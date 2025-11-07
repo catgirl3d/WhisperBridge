@@ -452,6 +452,12 @@ class OverlayUIBuilder:
             return self._load_icon(spec['asset'])
         return self._make_qta_icon(spec)
 
+    def _refresh_widget_style(self, widget):
+        """Refresh widget style after property changes."""
+        widget.style().unpolish(widget)
+        widget.style().polish(widget)
+        widget.update()
+
     def _apply_custom_dropdown_style(self, combo: QComboBox):
         """Apply custom styling to the dropdown view of a QComboBox."""
         view = QListView()
@@ -540,9 +546,7 @@ class OverlayUIBuilder:
                 button.setProperty("utility", False)
     
             # Force style refresh so QSS reacts to the new properties
-            button.style().unpolish(button)
-            button.style().polish(button)
-            button.update()
+            self._refresh_widget_style(button)
         except Exception:
             # Avoid breaking UI flow on styling errors
             pass
@@ -803,9 +807,7 @@ class OverlayUIBuilder:
                     button.setIcon(self._make_icon_from_spec(icon_spec))
     
             # Force style refresh
-            button.style().unpolish(button)
-            button.style().polish(button)
-            button.update()
+            self._refresh_widget_style(button)
         except Exception as e:
             logger.debug(f"Failed to apply disabled translate visuals: {e}")
 
@@ -832,9 +834,7 @@ class OverlayUIBuilder:
                 button.setIcon(self._make_icon_from_spec(self.ICONS_CONFIG['translate']['all']))
     
             # Refresh style
-            button.style().unpolish(button)
-            button.style().polish(button)
-            button.update()
+            self._refresh_widget_style(button)
         except Exception as e:
             logger.debug(f"Failed to restore enabled translate visuals: {e}")
 
@@ -847,9 +847,7 @@ class OverlayUIBuilder:
             # Set a dynamic property to control styling via QSS
             status_label.setProperty("status", style_type)
             # Force a style refresh to apply the new property-based style
-            status_label.style().unpolish(status_label)
-            status_label.style().polish(status_label)
-            status_label.update()
+            self._refresh_widget_style(status_label)
         except Exception as e:
             logger.debug(f"Failed to apply status style: {e}")
 
