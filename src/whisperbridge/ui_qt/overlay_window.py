@@ -819,23 +819,44 @@ class OverlayWindow(StyledOverlayWindow):
     def _on_translation_error(self, error_message: str):
         """Handle error from background translation."""
         try:
-            from PySide6.QtWidgets import QMessageBox
-            QMessageBox.warning(self, "Translation failed", f"Translation error: {error_message}")
+            # Parse error message for status label
+            status_text = "Failed"
+            err_lower = error_message.lower()
+            
+            if "quota" in err_lower:
+                status_text = "Quota exceeded"
+            elif "rate limit" in err_lower or "429" in err_lower:
+                status_text = "Rate limit exceeded"
+            elif "timeout" in err_lower:
+                status_text = "Request timed out"
+            elif "connection" in err_lower or "network" in err_lower:
+                status_text = "Network error"
+            elif "server error" in err_lower or "500" in err_lower:
+                status_text = "Server error"
+            elif "503" in err_lower:
+                status_text = "Service unavailable"
+
+            # Only show popup for unknown errors; suppress for known API issues
+            if status_text == "Failed":
+                from PySide6.QtWidgets import QMessageBox
+                QMessageBox.warning(self, "Translation failed", f"Translation error: {error_message}")
+            
             logger.error(f"Translation failed: {error_message}")
         finally:
             # Update status with error indication
             if self._translation_start_time is not None:
                 import time
                 elapsed = time.time() - self._translation_start_time
-                self.status_label.setText(f"Failed after {elapsed:.1f}s")
+                self.status_label.setText(f"{status_text} ({elapsed:.1f}s)")
                 self._translation_start_time = None
             else:
-                self.status_label.setText("Failed")
-                # UX: emphasize error state in red (same styling priority as key-missing)
-                try:
-                    self.ui_builder.apply_status_style(self.status_label, 'error')
-                except Exception:
-                    pass
+                self.status_label.setText(status_text)
+            
+            # UX: emphasize error state in red (same styling priority as key-missing)
+            try:
+                self.ui_builder.apply_status_style(self.status_label, 'error')
+            except Exception:
+                pass
 
             settings = self._cached_settings
             compact = getattr(settings, "compact_view", False)

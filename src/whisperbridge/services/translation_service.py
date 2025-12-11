@@ -12,6 +12,7 @@ from collections import OrderedDict
 from typing import Any, Dict, Optional
 
 from loguru import logger
+from tenacity import RetryError
 
 from ..core.api_manager import get_api_manager
 from ..services.config_service import config_service
@@ -265,6 +266,18 @@ class TranslationService:
 
             return response
 
+        except RetryError as e:
+            # Unwrap the original exception from the RetryError
+            original_error = e.last_attempt.exception()
+            error_msg = str(original_error) if original_error else str(e)
+            logger.error(f"Translation failed (retries exhausted): {error_msg}")
+            return self._make_response(
+                success=False,
+                error_message=error_msg,
+                source_lang=source_lang,
+                target_lang=target_lang,
+            )
+
         except Exception as e:
             logger.error(f"Translation failed: {e}")
             return self._make_response(
@@ -388,6 +401,18 @@ class TranslationService:
                 target_lang=style_name,
                 model=final_model,
                 tokens_used=response.usage.total_tokens if response.usage else 0,
+            )
+
+        except RetryError as e:
+            # Unwrap the original exception from the RetryError
+            original_error = e.last_attempt.exception()
+            error_msg = str(original_error) if original_error else str(e)
+            logger.error(f"Styling failed (retries exhausted): {error_msg}")
+            return self._make_response(
+                success=False,
+                error_message=error_msg,
+                source_lang="style",
+                target_lang=style_name,
             )
 
         except Exception as e:

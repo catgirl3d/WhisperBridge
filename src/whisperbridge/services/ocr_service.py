@@ -5,6 +5,7 @@ This module provides the main OCR service that integrates with EasyOCR engine,
 handles image preprocessing, and provides a unified interface for text recognition.
 """
 
+import sys
 import threading
 import time
 from dataclasses import dataclass
@@ -141,8 +142,20 @@ class OCRService:
         # Lazy import EasyOCR
         try:
             import easyocr
-        except ImportError:
+        except ImportError as e:
             logger.warning("EasyOCR not available - skipping initialization")
+            logger.debug(f"EasyOCR import error: {e}")
+            logger.debug(f"sys.path: {sys.path}")
+            try:
+                import torch
+                logger.debug(f"torch available: {torch.__version__}")
+            except ImportError as te:
+                logger.debug(f"torch import error: {te}")
+            try:
+                import torchvision
+                logger.debug(f"torchvision available: {torchvision.__version__}")
+            except ImportError as tve:
+                logger.debug(f"torchvision import error: {tve}")
             return False
 
         # Get OCR languages from settings
@@ -346,11 +359,13 @@ class OCRService:
 
             if on_complete:
                 try:
+                    logger.debug(f"Calling on_complete callback: {on_complete!r}")
                     on_complete()
+                    logger.debug("on_complete callback executed successfully")
                 except Exception as e:
-                    logger.error(f"Init callback error: {e}")
+                    logger.exception(f"Init callback error for callback={on_complete!r}")
         except Exception as e:
-            logger.error(f"Background init task error: {e}")
+            logger.exception("Background init task error")
         finally:
             self._is_initializing = False
 
