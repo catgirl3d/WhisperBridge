@@ -222,8 +222,8 @@ class QtApp(QObject, SettingsObserver):
                 self.services.reload_hotkeys()
 
     def _handle_ocr_setting_change(self, key: str, old_value, new_value):
-        """Handle changes to OCR initialization setting."""
-        if key not in ["initialize_ocr", "ocr_engine"]:
+        """Handle changes to OCR settings."""
+        if key not in ["ocr_engine"]:
             return
             
         try:
@@ -238,13 +238,6 @@ class QtApp(QObject, SettingsObserver):
 
         if self.ui and self.ui.tray_manager:
             self.ui.tray_manager.update_ocr_action_state()
-
-        # If EasyOCR is now needed, ensure it's initialized
-        engine = config_service.get_setting("ocr_engine")
-        initialize_ocr = config_service.get_setting("initialize_ocr")
-        if engine == "easyocr" and initialize_ocr and not ocr_service.is_ocr_engine_ready():
-            if self.services:
-                self.services.initialize_ocr_async()
         
         logger.info(f"OCR state updated. Available: {is_available}")
 
@@ -349,13 +342,13 @@ class QtApp(QObject, SettingsObserver):
         if self.ui:
             self.ui.activate_ocr()
 
-    @Slot(str, str, str)
-    def _handle_worker_finished(self, original_text: str, translated_text: str, overlay_id: str):
+    @Slot(str, str, str, str)
+    def _handle_worker_finished(self, original_text: str, translated_text: str, overlay_id: str, error_message: str = ""):
         """Slot to handle worker finished signal — delegate to UIService."""
         try:
             logger.info("Worker finished slot invoked in main thread (delegating to UIService)")
             if self.ui:
-                self.ui.handle_worker_finished(original_text, translated_text, overlay_id)
+                self.ui.handle_worker_finished(original_text, translated_text, overlay_id, error_message)
         except Exception as e:
             logger.error(f"Error in _handle_worker_finished delegate: {e}", exc_info=True)
 

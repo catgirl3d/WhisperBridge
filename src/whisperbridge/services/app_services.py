@@ -14,15 +14,7 @@ from .notification_service import get_notification_service
 from .copy_translate_service import CopyTranslateService
 from .config_service import config_service
 
-# Conditional import for OCR service
-ocr_enabled = config_service.get_settings().ocr_enabled
-if ocr_enabled:
-    from .ocr_service import get_ocr_service
-else:
-    def get_ocr_service():
-        """Stub function when OCR is disabled."""
-        return None
-
+from .ocr_service import get_ocr_service
 from .translation_service import get_translation_service
 from ..core.api_manager import init_api_manager
 from .clipboard_service import get_clipboard_service
@@ -135,43 +127,14 @@ class AppServices(QObject):
                 logger.error(f"AppServices: Failed to create/register hotkeys: {e}")
                 self.hotkey_service = None
 
-        # OCR conditional init
-        try:
-            initialize_ocr = config_service.get_setting("initialize_ocr", use_cache=False)
-            if ocr_enabled and initialize_ocr:
-                logger.info("AppServices: OCR initialization enabled; starting background init")
-                self.initialize_ocr_async()
-            elif not ocr_enabled:
-                logger.info("AppServices: OCR disabled at build time - skipping initialization")
-            else:
-                logger.info("AppServices: OCR initialization disabled by settings")
-        except Exception as e:
-            logger.warning(f"AppServices: Error checking OCR init setting: {e}")
-
         # Translation service
         self.initialize_translation_service()
 
         logger.info("AppServices: services setup completed")
 
     def initialize_ocr_async(self):
-        logger.info("AppServices: starting OCR service initialization")
-        try:
-            ocr_service = get_ocr_service()
-            if ocr_service is None:
-                logger.warning("AppServices: OCR service not available (disabled at build time)")
-                return
-
-            def on_complete():
-                try:
-                    # Route to Qt main thread via app's signal
-                    self.app.ocr_ready_signal.emit()
-                except Exception as e:
-                    logger.debug(f"AppServices: Failed to emit OCR ready signal: {e}")
-
-            ocr_service.initialize(on_complete=on_complete)
-            logger.info("AppServices: OCR service initialization triggered")
-        except Exception as e:
-            logger.error(f"AppServices: Failed to start OCR service initialization: {e}", exc_info=True)
+        """Deprecated: OCR service (LLM) does not require initialization."""
+        pass
 
     def initialize_translation_service(self):
         try:

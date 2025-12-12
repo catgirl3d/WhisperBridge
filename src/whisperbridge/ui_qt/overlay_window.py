@@ -498,7 +498,7 @@ class OverlayWindow(StyledOverlayWindow):
 
         return super().eventFilter(obj, event)
 
-    def show_overlay(self, original_text: str = "", translated_text: str = "", position: tuple[int, int] | None = None):
+    def show_overlay(self, original_text: str = "", translated_text: str = "", position: tuple[int, int] | None = None, error_message: str = ""):
         """Show the overlay with specified content."""
         logger.info("Showing overlay window")
         # Ensure button/state reflect API key presence at time of showing
@@ -517,6 +517,32 @@ class OverlayWindow(StyledOverlayWindow):
 
         self.original_text.setPlainText(original_text)
         self.translated_text.setPlainText(translated_text)
+
+        # Update status based on error or success
+        if error_message:
+            # Re-use the existing error parsing logic for consistent messages
+            status_text = "Failed"
+            err_lower = error_message.lower()
+            if "quota" in err_lower:
+                status_text = "Quota exceeded"
+            elif "rate limit" in err_lower or "429" in err_lower:
+                status_text = "Rate limit exceeded"
+            elif "timeout" in err_lower:
+                status_text = "Request timed out"
+            elif "connection" in err_lower or "network" in err_lower:
+                status_text = "Network error"
+            elif "server error" in err_lower or "500" in err_lower:
+                status_text = "Server error"
+            elif "503" in err_lower:
+                status_text = "Service unavailable"
+            
+            self.status_label.setText(status_text)
+            self.ui_builder.apply_status_style(self.status_label, 'error')
+        elif original_text:
+            self.status_label.setText("Completed")
+            self.ui_builder.apply_status_style(self.status_label, 'default')
+        else:
+            self.status_label.setText("")
 
         # Update reader button state after setting text
         self._update_reader_button_state()

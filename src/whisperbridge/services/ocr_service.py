@@ -1,45 +1,26 @@
 """
 OCR Service for WhisperBridge.
 
-This module provides the main OCR service that integrates with EasyOCR engine,
-handles image preprocessing, and provides a unified interface for text recognition.
+This module provides the main OCR service using LLM vision capabilities.
 """
 
-import sys
-import threading
 import time
 from dataclasses import dataclass
 from enum import Enum
 from time import perf_counter
-from typing import Any, List, Optional
+from typing import Optional
 
 from loguru import logger
 from PIL import Image
-from PySide6.QtCore import QThread
 
 from ..core.api_manager import get_api_manager
 from ..services.config_service import config_service
-from ..services.notification_service import get_notification_service
-from ..utils.image_utils import preprocess_for_ocr, to_data_url_jpeg
-import numpy as np
-
-
-class OCREngineInitializer(QThread):
-    """QThread for background OCR engine initialization."""
-
-    def __init__(self, ocr_service, on_complete):
-        super().__init__()
-        self.ocr_service = ocr_service
-        self.on_complete = on_complete
-
-    def run(self):
-        self.ocr_service._background_init_task(self.on_complete)
+from ..utils.image_utils import to_data_url_jpeg
 
 
 class OCREngine(Enum):
     """Supported OCR engines."""
 
-    EASYOCR = "easyocr"
     LLM = "llm"
 
 
@@ -63,49 +44,16 @@ class OCRRequest:
     preprocess: bool = True
 
 
-@dataclass(frozen=True)
-class OCRSettings:
-    """OCR configuration settings (immutable).
-
-    Attributes:
-        ocr_languages: Languages for text recognition
-        ocr_confidence_threshold: Minimum confidence for valid results
-    """
-
-    ocr_languages: List[str]
-    ocr_confidence_threshold: float
-
-
 class OCRService:
     """Main OCR service for text recognition."""
 
-    def __init__(self, config_service, settings: Optional[OCRSettings] = None):
+    def __init__(self, config_service):
         """Initialize OCR service.
 
         Args:
             config_service: Config service instance for settings access.
-            settings: OCR settings. If None, loads from config_service.
         """
         self.config_service = config_service
-        self._settings = settings or self._load_settings()
-
-        self._easyocr_reader: Optional[Any] = None
-        self._lock = threading.RLock()
-        self._is_initializing = False
-        self._ready_event = threading.Event()
-        self._init_thread: Optional[OCREngineInitializer] = None
-
-    def _load_settings(self) -> OCRSettings:
-        """Load and validate OCR settings from config service.
-
-        Returns:
-            OCRSettings instance with validated configuration.
-        """
-        threshold = self.config_service.get_setting("ocr_confidence_threshold")
-        return OCRSettings(
-            ocr_languages=self.config_service.get_setting("ocr_languages"),
-            ocr_confidence_threshold=min(max(threshold, 0.0), 1.0),
-        )
 
     def _handle_ocr_error(self, e: Exception, start_time: float, context: str) -> OCRResult:
         """Unified error handling for OCR operations."""
@@ -117,152 +65,11 @@ class OCRService:
         return OCRResult(
             text="",
             confidence=0.0,
-            engine=OCREngine.EASYOCR,
+            engine=OCREngine.LLM,
             processing_time=processing_time,
             error_message=error_msg,
             success=False,
         )
-
-    def _initialize_engines(self):
-        """Initialize EasyOCR engine."""
-        start_time = time.time()
-        logger.info("Starting OCR service engine initialization")
-
-        # Check both build-time and runtime flags
-        ocr_build_enabled = self.config_service.get_setting("ocr_enabled", use_cache=False)
-        ocr_runtime_enabled = self.config_service.get_setting("initialize_ocr", use_cache=False)
-
-        if not ocr_build_enabled or not ocr_runtime_enabled:
-            logger.warning(
-                f"OCR initialization skipped (build_enabled={ocr_build_enabled}, "
-                f"runtime_enabled={ocr_runtime_enabled})"
-            )
-            return False
-
-        # Lazy import EasyOCR
-        try:
-            import easyocr
-        except ImportError as e:
-            logger.warning("EasyOCR not available - skipping initialization")
-            logger.debug(f"EasyOCR import error: {e}")
-            logger.debug(f"sys.path: {sys.path}")
-            try:
-                import torch
-                logger.debug(f"torch available: {torch.__version__}")
-            except ImportError as te:
-                logger.debug(f"torch import error: {te}")
-            try:
-                import torchvision
-                logger.debug(f"torchvision available: {torchvision.__version__}")
-            except ImportError as tve:
-                logger.debug(f"torchvision import error: {tve}")
-            return False
-
-        # Get OCR languages from settings
-        languages = self._settings.ocr_languages
-        logger.debug(f"OCR languages from settings: {languages}")
-
-        try:
-            with self._lock:
-                logger.info(f"Initializing EasyOCR with languages: {languages}")
-                self._easyocr_reader = easyocr.Reader(languages)
-
-            initialization_time = time.time() - start_time
-            logger.info(f"EasyOCR engine initialized successfully in {initialization_time:.2f}s")
-            logger.debug(f"OCR service ready with {len(languages)} languages: {languages}")
-            return True
-
-        except Exception as e:
-            initialization_time = time.time() - start_time
-            logger.error(f"Error initializing OCR engines after {initialization_time:.2f}s: {e}")
-            logger.debug(f"Initialization error details: {type(e).__name__}: {str(e)}", exc_info=True)
-            self._easyocr_reader = None
-            return False
-
-    def is_ocr_engine_ready(self) -> bool:
-        """Check if OCR engine is ready for use.
-
-        Returns:
-            True if engine is available and ready for use
-        """
-        return self._easyocr_reader is not None
-
-    def is_ocr_available(self) -> bool:
-        """Check if OCR is available based on current settings."""
-        ocr_build_enabled = self.config_service.get_setting("ocr_enabled", use_cache=False)
-        if not ocr_build_enabled:
-            return False
-
-        engine = self.config_service.get_setting("ocr_engine", use_cache=False)
-        if engine == "llm":
-            return True
-
-        if engine == "easyocr":
-            return self.config_service.get_setting("initialize_ocr", use_cache=False)
-
-        return False
-
-    def _process_easyocr_array(self, image_array: Any, ocr_confidence_threshold: float) -> OCRResult:
-        """Process image array with EasyOCR.
-
-        Args:
-            image_array: Numpy array of image
-            ocr_confidence_threshold: Minimum confidence threshold for success
-
-        Returns:
-            OCRResult with processing results
-        """
-        start_time = time.time()
-        logger.debug("Processing image array with EasyOCR")
-        logger.debug(f"Image array shape: {image_array.shape}, dtype: {image_array.dtype}")
-
-        try:
-            with self._lock:
-                # EasyOCR can process numpy arrays directly
-                results = self._easyocr_reader.readtext(image_array)
-
-                processing_time = time.time() - start_time
-
-                if not results:
-                    logger.info("EasyOCR: No text detected in image array")
-                    return OCRResult(
-                        text="",
-                        confidence=0.0,
-                        engine=OCREngine.EASYOCR,
-                        processing_time=processing_time,
-                        error_message="No text detected",
-                        success=False,
-                    )
-
-                logger.info(f"EasyOCR: Found {len(results)} text fragments in image array")
-
-                # Combine all detected text
-                text_parts = []
-                confidences = []
-
-                for i, detection in enumerate(results):
-                    bbox, text, confidence = detection
-                    text_parts.append(text)
-                    confidences.append(confidence)
-                    logger.debug(f"EasyOCR Fragment {i+1}: bbox={bbox}, text='{text}', confidence={confidence:.3f}")
-
-                combined_text = " ".join(text_parts)
-                avg_confidence = sum(confidences) / len(confidences) if confidences else 0.0
-                success = bool(combined_text.strip()) and avg_confidence >= ocr_confidence_threshold
-
-                logger.info(f"EasyOCR: Combined text length={len(combined_text)}, average confidence={avg_confidence:.3f}, success={success}")
-                logger.debug(f"EasyOCR: Full combined text='{combined_text}'")
-
-                return OCRResult(
-                    text=combined_text,
-                    confidence=avg_confidence,
-                    engine=OCREngine.EASYOCR,
-                    processing_time=processing_time,
-                    success=success,
-                )
-
-        except Exception as e:
-            return self._handle_ocr_error(e, start_time, "_process_easyocr_array")
 
     def _process_llm_image(self, image: "Image.Image") -> OCRResult:
         """Process image with LLM vision API.
@@ -341,145 +148,42 @@ class OCRService:
                 success=False,
             )
 
-    def _background_init_task(self, on_complete):
-        """Task to initialize engines and call completion callback.
-
-        Background thread task that initializes OCR engines and executes
-        the completion callback when done. Handles exceptions in callback.
-
-        Args:
-            on_complete: Optional callback function to call when initialization completes
-        """
-        try:
-            success = self._initialize_engines()
-            logger.debug(f"Background init task completed (success={success})")
-
-            if success:
-                self._ready_event.set()
-
-            if on_complete:
-                try:
-                    logger.debug(f"Calling on_complete callback: {on_complete!r}")
-                    on_complete()
-                    logger.debug("on_complete callback executed successfully")
-                except Exception as e:
-                    logger.exception(f"Init callback error for callback={on_complete!r}")
-        except Exception as e:
-            logger.exception("Background init task error")
-        finally:
-            self._is_initializing = False
-
-    def _start_background_initialization(self, on_complete=None):
-        """Start background initialization of OCR engines.
-
-        Args:
-            on_complete: Callback when complete
-        """
-        logger.info("Starting background initialization of OCR engines...")
-        with self._lock:
-            if not self._is_initializing:
-                self._is_initializing = True
-                self._ready_event.clear()
-                self._init_thread = OCREngineInitializer(self, on_complete)
-                self._init_thread.finished.connect(self._on_init_finished)
-                self._init_thread.start()
-
-    def _on_init_finished(self):
-        """Called when initialization thread finishes."""
-        self._init_thread = None
-
     def initialize(self, on_complete=None) -> None:
-        """Initialize OCR engine (always asynchronous).
+        """Initialize OCR engine.
 
-        Starts background initialization of OCR engines. This method never blocks
-        and always returns immediately. The optional on_complete callback will be
-        invoked from the background thread upon completion; use Qt signals to
-        notify the UI thread if needed.
+        For LLM-only mode, this is a no-op as no background initialization is needed.
+        The callback is called immediately.
 
         Args:
             on_complete: Optional callback invoked when initialization completes.
-
-        Returns:
-            None
         """
-        logger.info("Starting background OCR initialization (async-only)")
-        self._start_background_initialization(on_complete)
+        if on_complete:
+            on_complete()
         return None
-
-    def _process_with_easyocr(self, request: OCRRequest, start_time: float, context: str = "OCR") -> OCRResult:
-        """Process image with EasyOCR engine.
-
-        Common helper for both primary EasyOCR path and LLM fallback path.
-
-        Args:
-            request: OCR request with image and preprocessing flag
-            start_time: Processing start time for timing
-            context: Context string for logging ("OCR" or "EasyOCR fallback")
-
-        Returns:
-            OCRResult with EasyOCR processing results
-        """
-        # Preprocess image if requested
-        processed_image = request.image
-        if request.preprocess:
-            logger.debug(f"Applying image preprocessing for {context}")
-            processed_image = preprocess_for_ocr(request.image)
-            logger.debug(f"Preprocessed image size: {processed_image.size}")
-
-        # Convert PIL image to numpy array for EasyOCR
-        image_array = np.array(processed_image)
-        logger.debug(f"Converted to numpy array: shape={image_array.shape}, dtype={image_array.dtype}")
-
-        # Process with EasyOCR engine using settings
-        result = self._process_easyocr_array(image_array, self._settings.ocr_confidence_threshold)
-
-        # Update processing time to include preprocessing and conversion
-        result.processing_time = time.time() - start_time
-
-        logger.info(f"{context} processing completed in {result.processing_time:.2f}s")
-        logger.info(f"{context} results: confidence={result.confidence:.3f}, success={result.success}")
-        if context == "OCR":
-            logger.debug(f"{context} text length: {len(result.text)} characters")
-
-        return result
-
 
     def ensure_ready(self, timeout: Optional[float] = 15.0) -> bool:
         """Ensure OCR engine is initialized and ready for use.
 
-        Lazy initialization method.
-        - Call only from worker/background threads before using OCR.
-        - Never starts or blocks in the main/UI thread.
-        - Idempotent and safe to call multiple times.
+        For LLM-only mode, this always returns True as no initialization is needed.
 
         Args:
-            timeout: Maximum time to wait for initialization to complete. None = wait indefinitely.
+            timeout: Ignored in LLM-only mode.
 
         Returns:
-            True if the engine is ready by the end of wait, False otherwise.
+            True always.
         """
-        # Fast path for LLM engine - no initialization needed
-        engine = self.config_service.get_setting("ocr_engine")
-        if engine == "llm":
-            return True
+        return True
 
-        # For EasyOCR engine, check if initialization is enabled
-        if not self.config_service.get_setting("ocr_enabled") or not self.config_service.get_setting("initialize_ocr"):
-            logger.debug("EasyOCR disabled by build or runtime settings, skipping initialization")
-            return False
+    def is_ocr_engine_ready(self) -> bool:
+        """Check if OCR engine is ready (compatibility method)."""
+        return True
 
-        # Fast path
-        if self.is_ocr_engine_ready():
-            return True
-
-        # Start initialization if not already started
-        self._start_background_initialization(None)
-
-        # Wait for readiness
-        return self._ready_event.wait(timeout)
+    def is_ocr_available(self) -> bool:
+        """Check if OCR is available (compatibility method)."""
+        return True
 
     def process_image(self, request: OCRRequest) -> OCRResult:
-        """Process image with OCR."""
+        """Process image with OCR using LLM vision API."""
 
         start_time = time.time()
 
@@ -490,77 +194,23 @@ class OCRService:
         )
 
         try:
-            # Get engine from settings
-            engine = self.config_service.get_setting("ocr_engine")
+            # Use LLM vision API
+            # Note: request.preprocess is ignored for LLM as it handles raw images better
+            result = self._process_llm_image(request.image)
 
-            if engine == "llm":
-                # Use LLM vision API without EasyOCR preprocessing
-                result = self._process_llm_image(request.image)
-
-                # Check if LLM succeeded
-                if result.success and result.text.strip():
-                    logger.info(f"LLM OCR succeeded: confidence={result.confidence:.3f}, text_length={len(result.text)}")
-                    return result
-                else:
-                    logger.warning(f"LLM OCR failed or empty: {result.error_message}")
-
-                    # Fallback to EasyOCR if enabled
-                    ocr_enabled = self.config_service.get_setting("ocr_enabled", True)
-                    initialize_ocr = self.config_service.get_setting("initialize_ocr", False)
-
-                    if ocr_enabled and initialize_ocr:
-                        logger.info("Falling back to EasyOCR")
-                        # Notify user about fallback
-                        notification_service = get_notification_service()
-                        notification_service.warning(
-                            "LLM OCR failed. Falling back to local OCR engine...",
-                            "WhisperBridge OCR"
-                        )
-
-                        # Ensure EasyOCR is ready before proceeding
-                        if not self.ensure_ready(timeout=5.0):
-                            logger.warning("EasyOCR fallback initialization failed, returning LLM failure result")
-                            notification_service.error(
-                                "Local OCR engine failed to initialize. OCR unavailable.",
-                                "WhisperBridge OCR"
-                            )
-                            return result
-
-                        # Process with EasyOCR fallback
-                        result = self._process_with_easyocr(request, start_time, "EasyOCR fallback")
-                        return result
-                    else:
-                        logger.warning("EasyOCR disabled or not initialized, returning LLM failure result")
-                        return result
+            if result.success and result.text.strip():
+                logger.info(f"LLM OCR succeeded: confidence={result.confidence:.3f}, text_length={len(result.text)}")
             else:
-                # Original EasyOCR path - ensure ready before processing
-                if not self.ensure_ready(timeout=15.0):
-                    error_msg = "OCR service is not initialized or engines not loaded."
-                    logger.warning(f"OCR service not ready: {error_msg}")
-                    return OCRResult(
-                        text="",
-                        confidence=0.0,
-                        engine=OCREngine.EASYOCR,
-                        processing_time=time.time() - start_time,
-                        error_message=error_msg,
-                        success=False,
-                    )
-                return self._process_with_easyocr(request, start_time, "OCR")
+                logger.warning(f"LLM OCR failed or empty: {result.error_message}")
+
+            return result
 
         except Exception as e:
             return self._handle_ocr_error(e, start_time, "process_image")
 
     def shutdown(self):
-        """Shutdown OCR service and cleanup resources."""
+        """Shutdown OCR service."""
         logger.info("Shutting down OCR service")
-
-        # Clear EasyOCR reader
-        with self._lock:
-            self._easyocr_reader = None
-
-        self._ready_event.clear()
-        self._is_initializing = False
-        logger.info("OCR service shutdown complete")
 
 
 # Global OCR service instance

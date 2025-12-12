@@ -266,6 +266,7 @@ class UIService:
         translated_text: str,
         position: Optional[Tuple[int, int]] = None,
         overlay_id: str = "main",
+        error_message: str = "",
     ):
         """Show or create an overlay window with translation results.
 
@@ -276,7 +277,7 @@ class UIService:
             # Log truncated versions for parity with previous implementation
             self.logger.info(f"Original text: '{(original_text or '')[:50]}{'...' if original_text and len(original_text) > 50 else ''}'")
             self.logger.info(f"Translated text: '{(translated_text or '')[:50]}{'...' if translated_text and len(translated_text) > 50 else ''}'")
-            self.logger.info(f"Position: {position}, Overlay ID: {overlay_id}")
+            self.logger.info(f"Position: {position}, Overlay ID: {overlay_id}, Error: {error_message}")
 
             # Create overlay window if missing
             if overlay_id not in self.overlay_windows:
@@ -296,7 +297,7 @@ class UIService:
             try:
                 pos = position
                 overlay.show_overlay(
-                    original_text or "", translated_text or "", pos
+                    original_text or "", translated_text or "", pos, error_message=error_message
                 )
                 self.logger.info(
                     f"Overlay '{overlay_id}' displayed successfully by UIService"
@@ -443,9 +444,9 @@ class UIService:
     # --- Slots / handlers -----------------------------------------------------
 
     @main_thread_only
-    @Slot(str, str, str)
+    @Slot(str, str, str, str)
     def handle_worker_finished(
-        self, original_text: str, translated_text: str, overlay_id: str
+        self, original_text: str, translated_text: str, overlay_id: str, error_message: str = ""
     ):
         """
         Handler for worker finished events.
@@ -458,7 +459,7 @@ class UIService:
             canonical_overlay_id = "ocr"
             # Always show OCR results in canonical overlay
             self.show_overlay_window(
-                original_text, translated_text, overlay_id=canonical_overlay_id
+                original_text, translated_text, overlay_id=canonical_overlay_id, error_message=error_message
             )
         except Exception as e:
             self.logger.error(

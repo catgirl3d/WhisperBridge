@@ -81,20 +81,8 @@ class Settings(BaseSettings):
     )
 
     # OCR Settings
-    ocr_languages: List[str] = Field(default=["en", "ru"], description="OCR languages")
-    ocr_confidence_threshold: float = Field(default=0.7, description="OCR confidence threshold")
-    ocr_timeout: int = Field(default=10, description="OCR timeout in seconds")
-    # OCR build-time flag (default: enabled) - reads from OCR_ENABLED env var
-    ocr_enabled: bool = Field(
-        default=True,
-        description="OCR feature enabled at build time (OCR_ENABLED env var)",
-    )
-    # OCR initialization flag (default: disabled)
-    initialize_ocr: bool = Field(
-        default=False,
-        description="Initialize OCR service on startup and enable OCR actions",
-    )
-    ocr_engine: Literal["easyocr", "llm"] = Field(default="easyocr", description="OCR engine to use")
+    ocr_enabled: bool = Field(default=True, description="Enable OCR features")
+    ocr_engine: Literal["llm"] = Field(default="llm", description="OCR engine to use (LLM only)")
     ocr_llm_prompt: str = Field(
         default="Extract plain text from the image in natural reading order. Output only the text.",
         description="Prompt for LLM-based OCR",
@@ -160,45 +148,6 @@ class Settings(BaseSettings):
         # Go up to src/whisperbridge/core, then up 3 more levels to project root
         return current.parent.parent.parent.parent
 
-    @field_validator("ocr_enabled", mode='before')
-    @classmethod
-    def set_ocr_enabled(cls, v):
-        """
-        Set ocr_enabled from build-time flag, falling back to an environment variable.
-
-        Priority:
-        1. `_build_flags.py` (baked into the executable)
-        2. `OCR_ENABLED` environment variable
-        3. Default to True if neither is found.
-        """
-        # Debug logging
-        env_file_path = cls.model_config.get('env_file')
-        print(f"DEBUG: Pydantic passed ocr_enabled value: {v}")
-        print(f"DEBUG: Pydantic env_file config: {env_file_path}")
-        print(f"DEBUG: Current working directory: {Path.cwd()}")
-        print(f"DEBUG: env_file exists: {env_file_path.exists() if env_file_path else 'N/A'}")
-        if env_file_path and env_file_path.exists():
-            print(f"DEBUG: env_file contents: {env_file_path.read_text().strip()}")
-
-        logger.debug(f"Pydantic passed ocr_enabled value: {v}")
-        logger.debug(f"Pydantic env_file config: {env_file_path}")
-        logger.debug(f"Current working directory: {Path.cwd()}")
-
-        try:
-            # Highest priority: the build-time flag
-            from _build_flags import OCR_ENABLED
-            print(f"DEBUG: Using build-time flag: {OCR_ENABLED}")
-            logger.info(f"OCR enabled: {OCR_ENABLED} (source: build-time flag from _build_flags.py)")
-            return OCR_ENABLED
-        except ImportError:
-            # Pydantic already loaded OCR_ENABLED from .env or environment variables
-            # Just return the value that Pydantic processed
-            print(f"DEBUG: Using Pydantic value: {v}")
-            logger.info(f"OCR enabled: {v} (source: Pydantic environment handling)")
-            return v
-
-    # Build-time flag import is handled by the field_validator above
-
     @field_validator("ui_source_language", "ui_target_language")
     @classmethod
     def validate_language(cls, v: str) -> str:
@@ -248,12 +197,16 @@ class Settings(BaseSettings):
             raise ValueError(f"Invalid log level: {v}. Must be one of {valid_levels}")
         return v.upper()
 
-    @field_validator("ocr_engine")
+    @field_validator("ocr_engine", mode="before")
     @classmethod
     def validate_ocr_engine(cls, v: str) -> str:
-        """Validate OCR engine."""
-        if v not in ["easyocr", "llm"]:
-            raise ValueError(f"Invalid OCR engine: {v}. Must be one of ['easyocr', 'llm']")
+        """Validate OCR engine.
+        
+        Using mode='before' allows us to intercept and correct 'easyocr'
+        values coming from existing config files before Pydantic validation runs.
+        """
+        if v != "llm":
+            return "llm"  # Force LLM if anything else is set
         return v
 
 

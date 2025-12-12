@@ -35,7 +35,6 @@ dependencies = [
     "pystray>=0.19.4",
     "pillow>=10.0.0",
     "mss>=9.0.1",
-    "easyocr>=1.7.0",
     "numpy>=1.24.0",
     "openai>=1.3.0",
     "google-generativeai>=0.8.0",
@@ -117,7 +116,7 @@ profile = "black"
 multi_line_output = 3
 line_length = 200
 known_first_party = ["whisperbridge"]
-known_third_party = ["PIL", "pynput", "pystray", "mss", "easyocr", "openai", "httpx", "tenacity", "pydantic", "keyring", "appdirs", "loguru", "click"]
+known_third_party = ["PIL", "pynput", "pystray", "mss", "openai", "httpx", "tenacity", "pydantic", "keyring", "appdirs", "loguru", "click"]
 
 [tool.mypy]
 python_version = "3.8"
@@ -140,13 +139,12 @@ module = [
     "pynput.*",
     "pystray.*",
     "mss.*",
-    "easyocr.*",
 ]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 minversion = "7.4"
-addopts = "-ra -q --cov=whisperbridge --cov-report=html --cov-report=term-missing"
+addopts = "-ra -q"
 testpaths = ["tests"]
 python_files = "test_*.py"
 python_classes = "Test*"

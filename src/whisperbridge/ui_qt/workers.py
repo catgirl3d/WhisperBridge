@@ -28,7 +28,7 @@ class CaptureOcrTranslateWorker(QObject):
     started = Signal()
     progress = Signal(str)
     ocr_finished = Signal(str)
-    finished = Signal(str, str, str)
+    finished = Signal(str, str, str, str)  # original, translated, overlay_id, error_message
     error = Signal(str)
 
     def __init__(self, region=None, image=None, capture_options=None):
@@ -61,7 +61,7 @@ class CaptureOcrTranslateWorker(QObject):
                 logger.debug("Processing pre-captured image")
                 self.progress.emit("Starting OCR and translation")
                 coordinator = get_ocr_translation_coordinator()
-                original_text, translated_text = coordinator.process_image_with_translation(
+                original_text, translated_text, error_message = coordinator.process_image_with_translation(
                     self.image, preprocess=True
                 )
                 overlay_id = "ocr"
@@ -79,7 +79,7 @@ class CaptureOcrTranslateWorker(QObject):
                 logger.debug("Capture completed, starting OCR and translation")
                 self.progress.emit("Capture completed, starting OCR and translation")
                 coordinator = get_ocr_translation_coordinator()
-                original_text, translated_text = coordinator.process_image_with_translation(
+                original_text, translated_text, error_message = coordinator.process_image_with_translation(
                     capture_result.image, preprocess=True
                 )
                 overlay_id = "ocr"
@@ -92,7 +92,7 @@ class CaptureOcrTranslateWorker(QObject):
 
             self.progress.emit("Processing completed")
             self.ocr_finished.emit(original_text)
-            self.finished.emit(original_text, translated_text, overlay_id)
+            self.finished.emit(original_text, translated_text, overlay_id, error_message)
 
             logger.info("CaptureOcrTranslateWorker run completed successfully")
 
@@ -103,7 +103,7 @@ class CaptureOcrTranslateWorker(QObject):
     def process_and_emit(self, text):
         """Backward compatibility method for existing callers in _process_selection."""
         self.ocr_finished.emit(text)
-        self.finished.emit(text, "", "")
+        self.finished.emit(text, "", "", "")
 
 
 class ApiTestWorker(QObject):

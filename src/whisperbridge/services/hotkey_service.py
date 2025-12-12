@@ -152,19 +152,19 @@ class HotkeyService:
             current_settings = config_service.get_settings()
 
             # Check whether OCR features should be enabled
-            initialize_ocr = bool(getattr(current_settings, "initialize_ocr", False))
+            # Note: OCR is now always enabled if built with OCR support (OCR_ENABLED flag),
             ocr_build_enabled = getattr(current_settings, 'ocr_enabled', True)
 
-            # Register main translation hotkey only if OCR is enabled at build AND runtime
-            if ocr_build_enabled and initialize_ocr:
+            # Register main translation hotkey
+            if ocr_build_enabled:
                 self.keyboard_manager.register_hotkey(
                     current_settings.translate_hotkey,
                     on_translate,
                     "Main translation (OCR) hotkey",
                 )
-                logger.info(f"Registered OCR-dependent hotkey: {current_settings.translate_hotkey}")
+                logger.info(f"Registered OCR hotkey: {current_settings.translate_hotkey}")
             else:
-                logger.info(f"OCR disabled (build: {ocr_build_enabled}, runtime: {initialize_ocr}): skipping registration of main translate hotkey")
+                logger.info(f"OCR disabled by build flag: skipping registration of main translate hotkey")
 
             # Register quick translate hotkey (shows overlay translator window)
             if current_settings.quick_translate_hotkey != current_settings.translate_hotkey:
@@ -193,7 +193,7 @@ class HotkeyService:
 
             # Log based on flag
             translate_status = (
-                current_settings.translate_hotkey if (ocr_build_enabled and initialize_ocr) else "SKIPPED"
+                current_settings.translate_hotkey if ocr_build_enabled else "SKIPPED"
             )
             quick_status = (
                 current_settings.quick_translate_hotkey
@@ -201,7 +201,7 @@ class HotkeyService:
                 else "SKIPPED"
             )
             logger.info(
-                f"Registered hotkeys (OCR build={ocr_build_enabled}, runtime={initialize_ocr}): "
+                f"Registered hotkeys: "
                 f"translate={translate_status}, quick={quick_status}, "
                 f"activation={current_settings.activation_hotkey}, "
                 f"copy_translate={current_settings.copy_translate_hotkey}"

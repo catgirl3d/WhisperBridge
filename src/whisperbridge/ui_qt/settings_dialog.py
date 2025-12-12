@@ -142,16 +142,7 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
             "deepl_plan": (self.deepl_plan_combo, "currentText", "setCurrentText"),
             "auto_swap_en_ru": (self.ocr_auto_swap_checkbox, "isChecked", "setChecked"),
             "system_prompt": (self.system_prompt_edit, "toPlainText", "setPlainText"),
-            "initialize_ocr": (self.initialize_ocr_check, "isChecked", "setChecked"),
-            "ocr_engine": (self.ocr_engine_combo, "currentText", "setCurrentText"),
             "ocr_llm_prompt": (self.ocr_llm_prompt_edit, "toPlainText", "setPlainText"),
-            "ocr_languages": (
-                self.ocr_languages_edit,
-                lambda w: [lang.strip() for lang in w.text().split(",") if lang.strip()],
-                lambda w, v: w.setText(",".join(v)),
-            ),
-            "ocr_confidence_threshold": (self.ocr_confidence_spin, "value", "setValue"),
-            "ocr_timeout": (self.ocr_timeout_spin, "value", "setValue"),
             "openai_vision_model": (self.openai_vision_model_edit, "text", "setText"),
             "google_vision_model": (self.google_vision_model_edit, "text", "setText"),
             "translate_hotkey": (self.translate_hotkey_edit, "text", "setText"),
@@ -345,31 +336,10 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
         ocr_group = self.factory.create_group_box("ocrConfigGroup")
         ocr_layout = QFormLayout(ocr_group)
 
-        # Initialize OCR on startup (enable/disable local OCR features)
-        self.initialize_ocr_check = self.factory.create_check("initializeOcrCheck")
-        self.initialize_ocr_check.setToolTip(HELP_TEXTS.get("ocr.initialize", {}).get("tooltip", ""))
-        self.initialize_ocr_check.stateChanged.connect(self._update_vision_model_visibility)
-        ocr_layout.addRow(self.initialize_ocr_check)
-
-        # OCR Engine selector
-        self.ocr_engine_combo = self.factory.create_combo("ocrEngineCombo")
-        ocr_layout.addRow(self._create_hint_label("OCR Engine:", "ocr.engine"), self.ocr_engine_combo)
-
         # LLM OCR Prompt
         self.ocr_llm_prompt_edit = self.factory.create_text_edit("ocrLlmPromptEdit")
         self.ocr_llm_prompt_edit.setAcceptRichText(False)
         ocr_layout.addRow(self._create_hint_label("LLM OCR Prompt:", "ocr.llm_prompt"), self.ocr_llm_prompt_edit)
-
-        # OCR Languages
-        self.ocr_languages_edit = self.factory.create_line_edit("ocrLanguagesEdit")
-        ocr_layout.addRow(self._create_hint_label("OCR Languages:", "ocr.languages"), self.ocr_languages_edit)
-
-        # Confidence threshold
-        self.ocr_confidence_spin = self.factory.create_double_spin("ocrConfidenceSpin")
-        self.ocr_confidence_spin.setValue(0.7)
-        ocr_layout.addRow(self._create_hint_label("Confidence Threshold:", "ocr.confidence_threshold"), self.ocr_confidence_spin)
-        self.ocr_timeout_spin = self.factory.create_spin("ocrTimeoutSpin")
-        ocr_layout.addRow(self._create_hint_label("OCR Timeout (seconds):", "ocr.timeout"), self.ocr_timeout_spin)
 
         layout.addWidget(ocr_group)
         layout.addStretch()
@@ -653,8 +623,7 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
         elif control_type == "vision_model":
             # For vision models, we only need API key presence and OCR build flag
             # The initialize_ocr setting doesn't affect LLM OCR availability
-            ocr_build_enabled = getattr(self.current_settings, 'ocr_enabled', True)
-
+            
             # Define vision model controls for each provider
             vision_controls = [
                 ("openai", self.openai_vision_model_label_container, self.openai_vision_model_edit),
@@ -664,7 +633,7 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
             api_key_present = bool(self.api_key_edits[provider].text().strip())
 
             for provider_name, label_container, edit_field in vision_controls:
-                show_field = (provider == provider_name) and ocr_build_enabled
+                show_field = (provider == provider_name)
 
                 # Update visibility for label container
                 label_container.setVisible(show_field)
@@ -738,14 +707,6 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
         provider = self._get_current_provider()
         if hasattr(self, 'stylist_cache_checkbox'):
             self.stylist_cache_checkbox.setVisible(supports_stylist(provider))
-
-        # Update OCR tab visibility based on ocr_enabled build flag
-        if hasattr(self, '_ocr_tab'):
-            ocr_tab_index = self.tab_widget.indexOf(self._ocr_tab)
-            if ocr_tab_index != -1:
-                ocr_visible = getattr(settings, 'ocr_enabled', True)
-                self.tab_widget.setTabVisible(ocr_tab_index, ocr_visible)
-                logger.debug(f"OCR tab visibility set to {ocr_visible} based on ocr_enabled={ocr_visible}")
 
         # Update DeepL plan controls visibility and value
         self._update_deepl_plan_controls()

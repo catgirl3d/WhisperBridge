@@ -72,30 +72,9 @@ class SettingsUIFactory:
             'object_name': 'systemPromptEdit',
             'placeholder': 'Enter the system prompt for the translation model.'
         },
-        'initializeOcrCheck': {
-            'object_name': 'initializeOcrCheck',
-            'text': 'Initialize local OCR engine (EasyOCR) on startup'
-        },
-        'ocrEngineCombo': {
-            'object_name': 'ocrEngineCombo',
-            'items': ['easyocr', 'llm']
-        },
         'ocrLlmPromptEdit': {
             'object_name': 'ocrLlmPromptEdit',
             'placeholder': 'Enter the prompt for LLM-based OCR.'
-        },
-        'ocrLanguagesEdit': {
-            'object_name': 'ocrLanguagesEdit',
-            'placeholder': 'e.g., en,ru,es'
-        },
-        'ocrConfidenceSpin': {
-            'object_name': 'ocrConfidenceSpin',
-            'range': (0.0, 1.0),
-            'single_step': 0.05
-        },
-        'ocrTimeoutSpin': {
-            'object_name': 'ocrTimeoutSpin',
-            'range': (1, 300)
         },
         'quickTranslateHotkeyEdit': {
             'object_name': 'quickTranslateHotkeyEdit'

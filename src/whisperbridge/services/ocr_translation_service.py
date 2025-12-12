@@ -26,7 +26,7 @@ class OCRTranslationCoordinator:
 
     def process_image_with_translation(
         self, image: Image.Image, preprocess: bool = True
-    ) -> Tuple[str, str]:
+    ) -> Tuple[str, str, str]:
         """Process image with OCR and translation.
 
         Args:
@@ -34,7 +34,7 @@ class OCRTranslationCoordinator:
             preprocess: Whether to apply preprocessing
 
         Returns:
-            Tuple of (original_text, translated_text)
+            Tuple of (original_text, translated_text, error_message)
         """
         logger.info("Starting OCR + translation coordination")
         try:
@@ -46,15 +46,16 @@ class OCRTranslationCoordinator:
             original_text = ocr_response.text
 
             if not original_text:
-                return "", ""
+                error_msg = ocr_response.error_message if not ocr_response.success else "OCR detected no text"
+                return "", "", error_msg or "OCR detected no text"
 
-            translated_text = self._translate_if_needed(original_text)
-            return original_text, translated_text
+            translated_text, error_message = self._translate_if_needed(original_text)
+            return original_text, translated_text, error_message
         except Exception as e:
             logger.error(f"Error during OCR/translation processing: {e}")
-            return "Processing error", ""
+            return "Processing error", "", str(e)
         
-    def _translate_if_needed(self, text: str) -> str:
+    def _translate_if_needed(self, text: str) -> Tuple[str, str]:
         """Translate text if translation service is available.
 
         Helper method for process_image_with_translation() that handles the translation
@@ -65,11 +66,11 @@ class OCRTranslationCoordinator:
             text: Text to translate
 
         Returns:
-            Translated text if successful, empty string otherwise
+            Tuple of (translated_text, error_message)
         """
         if not text.strip():
-            return ""
-
+            return "", ""
+        
         logger.info("OCR completed, checking translation availability")
 
         # Notify user that OCR is complete and translation is in progress
@@ -81,7 +82,7 @@ class OCRTranslationCoordinator:
 
         if not self.translation_service.is_available:
             logger.debug("Translation service not available, skipping translation")
-            return ""
+            return "", "Translation service not configured"
 
         # Determine languages
         source_lang, target_lang = self._determine_translation_languages(text)
@@ -94,14 +95,14 @@ class OCRTranslationCoordinator:
 
             if response.success:
                 logger.debug("Translation completed successfully")
-                return response.translated_text
+                return response.translated_text, ""
             else:
                 logger.warning(f"Translation failed: {response.error_message}")
-                return ""
+                return "", response.error_message
 
         except Exception as e:
             logger.error(f"Translation error: {e}")
-            return ""
+            return "", str(e)
     def _determine_translation_languages(self, text: str) -> Tuple[str, str]:
         """Determine languages for translation based on settings.
 

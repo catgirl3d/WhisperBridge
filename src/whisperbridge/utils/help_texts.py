@@ -49,29 +49,13 @@ HELP_TEXTS = {
     },
 
     # OCR Tab
-    "ocr.initialize": {
-        "tooltip": "Enable local OCR engine (EasyOCR) initialization on startup for fallback support.",
-        "detailed": "<b>Initialize Local OCR</b><br>When enabled, the local EasyOCR engine will be loaded on startup. This provides fallback support when LLM OCR fails, but uses more memory and startup time."
-    },
     "ocr.engine": {
-        "tooltip": "Choose OCR method: easyocr (local) or llm (AI-powered).",
-        "detailed": "<b>OCR Engine</b><br><b>easyocr:</b> Fast, local, works offline<br><b>llm:</b> Uses AI for better accuracy, requires API key"
+        "tooltip": "OCR method (LLM-only).",
+        "detailed": "<b>OCR Engine</b><br><b>llm:</b> Uses AI for text recognition."
     },
     "ocr.llm_prompt": {
         "tooltip": "Instructions for LLM-based OCR processing.",
         "detailed": "<b>LLM OCR Prompt</b><br>Tell the AI how to extract and format text from images."
-    },
-    "ocr.languages": {
-        "tooltip": "Comma-separated list of languages for OCR (e.g., en,ru,es).",
-        "detailed": "<b>OCR Languages</b><br>Languages to detect in images. Use ISO codes: en, ru, es, fr, de, etc. Multiple languages improve detection."
-    },
-    "ocr.confidence_threshold": {
-        "tooltip": "Minimum confidence level for OCR text recognition (0.0-1.0).",
-        "detailed": "<b>Confidence Threshold</b><br>Lower values accept more text but may include errors. Higher values are more accurate but may miss text."
-    },
-    "ocr.timeout": {
-        "tooltip": "Maximum time to wait for OCR processing (seconds).",
-        "detailed": "<b>OCR Timeout</b><br>How long to wait for OCR to complete. Increase for large images or slow hardware."
     },
 
     # Hotkeys Tab
