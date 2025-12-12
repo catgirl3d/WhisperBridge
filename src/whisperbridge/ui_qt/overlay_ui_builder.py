@@ -296,16 +296,6 @@ class OverlayUIBuilder:
         'swap': {'asset': 'arrows-exchange.png'},
     }
 
-    # Configuration for disabled button visuals (QSS handles appearance;
-    DISABLED_STYLES = {
-        'compact': {
-            'icon_key': 'compact'
-        },
-        'full': {
-            'icon_key': 'full'
-        }
-    }
-
     DEFAULT_DISABLED_TOOLTIP = "API key is not configured. Open Settings to add a key."
 
     # Configuration for language widgets
@@ -815,30 +805,22 @@ class OverlayUIBuilder:
         """
         if not button:
             return
-    
+
         try:
             # Set logical disabled property (not actual disabled state to preserve cursor events)
             button.setProperty("logically_disabled", True)
             button.setCursor(Qt.CursorShape.ForbiddenCursor)
             button.setToolTip(reason_msg or self.DEFAULT_DISABLED_TOOLTIP)
-    
-            # Explicit mapping for disabled styles - only icon metadata is needed here
-            disabled_configs = {
-                True: self.DISABLED_STYLES['compact'],   # compact mode
-                False: self.DISABLED_STYLES['full']      # full mode
-            }
 
-            config = disabled_configs[compact]
             # Set mode property so QSS selects the appropriate disabled appearance
             mode = 'compact' if compact else 'full'
             button.setProperty("mode", mode)
+
             # Set lock icon as visual indicator for disabled translate (from config spec)
-            icon_key = config.get('icon_key')
-            if icon_key:
-                icon_spec = self.ICONS_CONFIG['translate_disabled'].get(icon_key)
-                if icon_spec:
-                    button.setIcon(self._make_icon_from_spec(icon_spec))
-    
+            icon_spec = self.ICONS_CONFIG['translate_disabled'].get(mode)
+            if icon_spec:
+                button.setIcon(self._make_icon_from_spec(icon_spec))
+
             # Force style refresh
             self._refresh_widget_style(button)
         except Exception as e:
