@@ -366,6 +366,35 @@ class OverlayUIBuilder:
         }
     }
 
+    # Configuration for main action buttons
+    MAIN_BUTTONS_CONFIG = {
+        'translate': {
+            'text': "  Translate",
+            'object_name': "translateButton"
+        },
+        'reader': {
+            'text': "",
+            'object_name': "readerButton",
+            'utility': False,
+            'enabled': False
+        }
+    }
+
+    # Configuration for utility buttons
+    UTILITY_BUTTONS_CONFIG = {
+        'clear': {
+            'text': "",
+            'tooltip': "Clear text",
+            'utility': True,
+            'icon_key': 'eraser'  # Maps to ICONS_CONFIG['utility_icons']
+        },
+        'copy': {
+            'text': "",
+            'tooltip': "Copy text",
+            'utility': True,
+            'icon_key': 'copy'    # Maps to ICONS_CONFIG['utility_icons']
+        }
+    }
 
     # Configuration for button styles (appearance moved to QSS; sizes/icons/text remain)
     BUTTON_STYLES = {
@@ -496,21 +525,6 @@ class OverlayUIBuilder:
         text_edit.setObjectName(self.TEXT_EDIT_CONFIG['object_name'])
         return text_edit
 
-    def _create_button(self, parent=None, text=None, icon=None, size=None, icon_size=None, tooltip=None):
-        """Generic button factory. Creates buttons without explicit parent (ownership managed by layout)."""
-        btn = QPushButton(parent)
-        if text:
-            btn.setText(text)
-        if icon:
-            btn.setIcon(icon)
-            if icon_size:
-                btn.setIconSize(QSize(*icon_size))
-        if size:
-            btn.setFixedSize(*size)
-        if tooltip:
-            btn.setToolTip(tooltip)
-        return btn
-
     def apply_button_style(self, button: QPushButton, compact: bool):
         """Apply styling to a button based on compact mode using configuration dictionary.
         Visual appearance is controlled via QSS.
@@ -570,7 +584,9 @@ class OverlayUIBuilder:
             'footer': self.FOOTER_WIDGET_CONFIG,
             'label': self.LABEL_CONFIG,
             'top': self.OVERLAY_TOP_CONTROLS_CONFIG,
-            'translator': TranslatorSettingsDialog.TRANSLATOR_DIALOG_CONFIG
+            'translator': TranslatorSettingsDialog.TRANSLATOR_DIALOG_CONFIG,
+            'main_buttons': self.MAIN_BUTTONS_CONFIG,
+            'utility_buttons': self.UTILITY_BUTTONS_CONFIG,
         }
 
         config = config_maps[widget_type][config_key]
@@ -876,50 +892,39 @@ class OverlayUIBuilder:
         btn, cfg = self._create_widget_from_config('top', key, QPushButton)
         if 'icon' in cfg:
             btn.setIcon(self._make_icon_from_spec(cfg['icon']))
-        if 'icon_size' in cfg:
-            btn.setIconSize(QSize(*cfg['icon_size']))
+        # icon_size is already applied by _create_widget_from_config when present in config
         # Preserve legacy QSS: do not set extra properties that could change styling
         self._refresh_widget_style(btn)
         return btn
 
     def _create_main_buttons(self):
         """Create main action buttons (translate and reader mode)."""
-        self.translate_btn = self._create_button(text="  Translate")
-        self.translate_btn.setObjectName("translateButton")
+        self.translate_btn, _ = self._create_widget_from_config('main_buttons', 'translate', QPushButton)
 
-        self.reader_mode_btn = self._create_button(text="")
-        # Use a stable object name for QSS selectors
-        self.reader_mode_btn.setObjectName("readerButton")
-        # Mark as utility=false by default; compact/full visual will be applied later
-        self.reader_mode_btn.setProperty("utility", False)
-        self.reader_mode_btn.setEnabled(False)  # Disable by default if no translated text
+        self.reader_mode_btn, cfg = self._create_widget_from_config('main_buttons', 'reader', QPushButton)
+        # Apply specific properties not handled by generic factory
+        if 'utility' in cfg:
+            self.reader_mode_btn.setProperty("utility", cfg['utility'])
+        if 'enabled' in cfg:
+            self.reader_mode_btn.setEnabled(cfg['enabled'])
 
     def _create_utility_buttons(self):
         """Create utility buttons (clear and copy)."""
-        self.clear_original_btn = self._create_button(
-            text="",
-            icon=self._make_icon_from_spec(self.ICONS_CONFIG['utility_icons']['eraser']),
-            tooltip="Clear text"
-        )
-        self.copy_original_btn = self._create_button(
-            text="",
-            icon=self._make_icon_from_spec(self.ICONS_CONFIG['utility_icons']['copy']),
-            tooltip="Copy text"
-        )
-        self.clear_translated_btn = self._create_button(
-            text="",
-            icon=self._make_icon_from_spec(self.ICONS_CONFIG['utility_icons']['eraser']),
-            tooltip="Clear text"
-        )
-        self.copy_translated_btn = self._create_button(
-            text="",
-            icon=self._make_icon_from_spec(self.ICONS_CONFIG['utility_icons']['copy']),
-            tooltip="Copy text"
-        )
+        
+        def _create_util_btn(key):
+            btn, cfg = self._create_widget_from_config('utility_buttons', key, QPushButton)
+            # Handle specific icon mapping and utility property
+            if 'icon_key' in cfg:
+                icon_spec = self.ICONS_CONFIG['utility_icons'][cfg['icon_key']]
+                btn.setIcon(self._make_icon_from_spec(icon_spec))
+            if 'utility' in cfg:
+                btn.setProperty("utility", cfg['utility'])
+            return btn
 
-        # Mark utility buttons so QSS can style them as compact/utility actions
-        for btn in (self.clear_original_btn, self.copy_original_btn, self.clear_translated_btn, self.copy_translated_btn):
-            btn.setProperty("utility", True)
+        self.clear_original_btn = _create_util_btn('clear')
+        self.copy_original_btn = _create_util_btn('copy')
+        self.clear_translated_btn = _create_util_btn('clear')
+        self.copy_translated_btn = _create_util_btn('copy')
 
     def _create_text_widgets(self):
         """Create text edit widgets and labels."""
