@@ -37,7 +37,7 @@ from PySide6.QtCore import QThread, Signal, QObject, QTimer
 
 from ..services.config_service import config_service, SettingsObserver
 from ..core.api_manager import get_api_manager, APIProvider
-from ..core.config import validate_api_key_format, requires_model_selection, supports_stylist, Settings as DefaultSettings
+from ..core.config import validate_api_key_format, requires_model_selection, supports_stylist, Settings as DefaultSettings, BUILD_OCR_ENABLED
 from loguru import logger
 from ..core.version import get_version
 from .workers import ApiTestWorker
@@ -93,7 +93,8 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
         self._create_general_tab()
         self._create_api_tab()
         self._create_translation_tab()
-        self._create_ocr_tab()
+        if BUILD_OCR_ENABLED:
+            self._create_ocr_tab()
         self._create_hotkeys_tab()
         self._create_stylist_tab()
 
@@ -142,7 +143,6 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
             "deepl_plan": (self.deepl_plan_combo, "currentText", "setCurrentText"),
             "auto_swap_en_ru": (self.ocr_auto_swap_checkbox, "isChecked", "setChecked"),
             "system_prompt": (self.system_prompt_edit, "toPlainText", "setPlainText"),
-            "ocr_llm_prompt": (self.ocr_llm_prompt_edit, "toPlainText", "setPlainText"),
             "openai_vision_model": (self.openai_vision_model_edit, "text", "setText"),
             "google_vision_model": (self.google_vision_model_edit, "text", "setText"),
             "translate_hotkey": (self.translate_hotkey_edit, "text", "setText"),
@@ -158,6 +158,10 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
             "stylist_cache_enabled": (self.stylist_cache_checkbox, "isChecked", "setChecked"),
             "translation_cache_enabled": (self.translation_cache_checkbox, "isChecked", "setChecked"),
         }
+
+        # OCR-specific mappings only exist when OCR UI is present
+        if BUILD_OCR_ENABLED and hasattr(self, "ocr_llm_prompt_edit"):
+            self.settings_map["ocr_llm_prompt"] = (self.ocr_llm_prompt_edit, "toPlainText", "setPlainText")
 
     def _apply_stylesheet(self):
         """Apply the main stylesheet"""

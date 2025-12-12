@@ -10,7 +10,7 @@ from pathlib import Path
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent))
 
-from whisperbridge.core.config import Settings
+from whisperbridge.core.config import BUILD_OCR_ENABLED, Settings
 
 def test_env_reading():
     print("=== Testing Environment Variable Reading ===")
@@ -25,9 +25,10 @@ def test_env_reading():
         with open(env_file, 'r') as f:
             print(f".env file contents: {f.read().strip()}")
 
-    # Check environment variables
-    print(f"os.environ.get('OCR_ENABLED'): {os.environ.get('OCR_ENABLED')}")
-    print(f"os.environ.get('OCR_ENABLED', '1'): {os.environ.get('OCR_ENABLED', '1')}")
+    # Check environment variables (build-time flags)
+    print(f"os.environ.get('WHISPERBRIDGE_BUILD_OCR'): {os.environ.get('WHISPERBRIDGE_BUILD_OCR')}")
+    print(f"os.environ.get('OCR_ENABLED') [legacy]: {os.environ.get('OCR_ENABLED')}")
+    print(f"BUILD_OCR_ENABLED (resolved): {BUILD_OCR_ENABLED}")
 
     # Test Pydantic settings loading
     print("\n=== Testing Pydantic Settings Loading ===")

@@ -13,7 +13,7 @@ from typing import Any, Callable, Dict, Optional
 import keyring
 from loguru import logger
 
-from .config import Settings, get_config_path
+from .config import Settings, get_config_path, BUILD_OCR_ENABLED
 
 
 class SettingsManager:
@@ -186,10 +186,13 @@ class SettingsManager:
                 # This ensures ocr_enabled is loaded from .env or build flag
                 temp_settings = Settings()
 
-                # Apply saved settings onto the temp_settings while preserving ocr_enabled
-                # Use model_copy(update=...) to avoid re-validating ocr_enabled twice.
+                # Apply saved settings onto the temp_settings
                 update_data = dict(data)  # copy to avoid modifying original
-                update_data.pop("ocr_enabled", None)  # preserve env/build value from temp_settings
+
+                # Enforce build flag constraint: if OCR is disabled at build time,
+                # it must be disabled in settings regardless of saved value.
+                if not BUILD_OCR_ENABLED:
+                    update_data["ocr_enabled"] = False
 
                 # Merge saved settings into the environment-initialized model
                 self._settings = temp_settings.model_copy(update=update_data)

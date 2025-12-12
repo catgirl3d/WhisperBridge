@@ -21,6 +21,7 @@ from ..ui_qt.settings_dialog import SettingsDialog
 from ..ui_qt.tray import TrayManager
 from ..ui_qt.workers import CaptureOcrTranslateWorker
 from ..utils.screen_utils import ScreenUtils, Rectangle
+from ..core.config import BUILD_OCR_ENABLED
 
 # Clipboard accessor (fallback)
 from .clipboard_service import get_clipboard_service
@@ -420,9 +421,15 @@ class UIService:
         try:
             from ..services.config_service import config_service
             settings = config_service.get_settings()
-            ocr_build_enabled = getattr(settings, 'ocr_enabled', True)
-            if not ocr_build_enabled:
-                self.logger.warning("OCR activation blocked: OCR not enabled at build time (OCR_ENABLED=0)")
+
+            # 1) Build-time gate (feature not shipped)
+            if not BUILD_OCR_ENABLED:
+                self.logger.warning("OCR activation blocked: OCR is not available in this build (BUILD_OCR_ENABLED=0)")
+                return
+
+            # 2) User runtime setting gate (feature shipped but disabled)
+            if not getattr(settings, "ocr_enabled", True):
+                self.logger.warning("OCR activation blocked: OCR is disabled in user settings (settings.ocr_enabled=0)")
                 return
 
             # Ensure OCR overlay exists (created in main thread)
@@ -671,11 +678,19 @@ class UIService:
         try:
             from ..services.config_service import config_service
             settings = config_service.get_settings()
-            ocr_build_enabled = getattr(settings, 'ocr_enabled', True)
-            if not ocr_build_enabled:
-                self.logger.warning("OCR worker blocked: OCR not enabled at build time (OCR_ENABLED=0)")
+
+            # 1) Build-time gate (feature not shipped)
+            if not BUILD_OCR_ENABLED:
+                self.logger.warning("OCR worker blocked: OCR is not available in this build (BUILD_OCR_ENABLED=0)")
                 notification_service = get_notification_service()
                 notification_service.error("OCR is not available in this build.", "WhisperBridge")
+                return
+
+            # 2) User runtime setting gate (feature shipped but disabled)
+            if not getattr(settings, "ocr_enabled", True):
+                self.logger.warning("OCR worker blocked: OCR is disabled in user settings (settings.ocr_enabled=0)")
+                notification_service = get_notification_service()
+                notification_service.error("OCR is disabled in settings.", "WhisperBridge")
                 return
 
             self.logger.info(f"Starting OCR worker for region: {region}")

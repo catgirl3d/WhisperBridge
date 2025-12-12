@@ -101,14 +101,16 @@ def run_build(config, clean_version):
 
     # --- Dynamic Spec Warning ---
     if selected_spec != "WhisperBridge.spec":
-        print("[build.py] Warning: Selected spec might not use dynamic flags (OCR_ENABLED, BUILD_MODE).")
+        print("[build.py] Warning: Selected spec might not use dynamic flags (BUILD_OCR_ENABLED, BUILD_MODE).")
     else:
         print("[build.py] Selected the dynamic spec (WhisperBridge.spec) — flags will control the build profile.")
 
     # --- Generate Build Flags ---
     os.makedirs(flags_dir, exist_ok=True)
     
-    build_flags_content = f"OCR_ENABLED = {include_ocr}\n"
+    build_flags_content = f"BUILD_OCR_ENABLED = {include_ocr}\n"
+    # Legacy alias for older tooling/specs (safe to keep)
+    build_flags_content += "OCR_ENABLED = BUILD_OCR_ENABLED\n"
     if build_mode:
         build_flags_content += f"BUILD_MODE = '{build_mode}'\n"
     else:
@@ -125,7 +127,7 @@ def run_build(config, clean_version):
     print(f"[build.py] Use UPX: {use_upx}")
     if use_upx:
         print(f"[build.py] UPX Path: {upx_dir}")
-    print(f"[build.py] Include OCR: {include_ocr}")
+    print(f"[build.py] BUILD_OCR_ENABLED: {include_ocr}")
     if build_mode:
         print(f"[build.py] Build mode: {build_mode}")
     print(f"[build.py] Generated flags at: {build_flags_path}")

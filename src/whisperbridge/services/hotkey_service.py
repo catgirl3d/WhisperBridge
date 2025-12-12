@@ -22,6 +22,7 @@ except ImportError:
 
 from ..core.keyboard_manager import KeyboardManager
 from ..utils.keyboard_utils import KeyboardUtils
+from ..core.config import BUILD_OCR_ENABLED
 
 
 class HotkeyRunnable(QRunnable):
@@ -153,7 +154,7 @@ class HotkeyService:
 
             # Check whether OCR features should be enabled
             # Note: OCR is now always enabled if built with OCR support (OCR_ENABLED flag),
-            ocr_build_enabled = getattr(current_settings, 'ocr_enabled', True)
+            ocr_build_enabled = BUILD_OCR_ENABLED
 
             # Register main translation hotkey
             if ocr_build_enabled:

@@ -12,6 +12,7 @@ from PySide6.QtGui import QAction, QFont, QIcon
 from PySide6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
 
 from ..services.config_service import config_service
+from ..core.config import BUILD_OCR_ENABLED
 
 
 from ..services.ocr_service import get_ocr_service
@@ -154,14 +155,19 @@ class TrayManager(QObject):
             # Activate OCR action
             self.activate_ocr_action = QAction("Activate OCR", self)
             self.activate_ocr_action.triggered.connect(self._on_activate_ocr)
-            # Set visibility and enabled state based on ocr_enabled build flag and OCR engine type
+            
+            # Set visibility and enabled state based on build flag and OCR engine availability
             try:
-                ocr_service = get_ocr_service()
-                is_available = ocr_service.is_ocr_available()
-                ocr_build_enabled = config_service.get_setting("ocr_enabled", use_cache=False)
+                # Use BUILD_OCR_ENABLED constant instead of user setting for visibility
+                self.activate_ocr_action.setVisible(BUILD_OCR_ENABLED)
                 
-                self.activate_ocr_action.setVisible(ocr_build_enabled)
-                self.activate_ocr_action.setEnabled(is_available)
+                if BUILD_OCR_ENABLED:
+                    ocr_service = get_ocr_service()
+                    is_available = ocr_service.is_ocr_available()
+                    self.activate_ocr_action.setEnabled(is_available)
+                else:
+                    self.activate_ocr_action.setEnabled(False)
+                    
             except Exception as e:
                 logger.error(f"Failed to set initial OCR action state: {e}")
                 self.activate_ocr_action.setVisible(False)
