@@ -276,6 +276,12 @@ class OverlayUIBuilder:
             'copy': {'icon': 'fa5.copy', 'color': 'black'},
             'check_success': {'icon': 'fa5s.check', 'color': 'green'},
         },
+        'window_controls': {
+            'settings': {'icon': 'fa5s.cog', 'color': 'black'},
+            'close': {'icon': 'fa5s.times', 'color': 'black'},
+            'close_hover': {'icon': 'fa5s.times', 'color': 'white'},
+            'collapse': {'icon': 'fa5s.compress-alt', 'color': 'black'},
+        },
         'translate_disabled': {
             'compact': {'icon': 'fa5s.lock', 'color': 'white'},
             'full': {'icon': 'fa5s.lock', 'color': '#757575'},
@@ -335,8 +341,8 @@ class OverlayUIBuilder:
             'object_name': "closeButton",
             'text': "Close",
             'icons': {
-                'normal': {'icon': 'fa5s.times', 'color': 'black'},
-                'hover': {'icon': 'fa5s.times', 'color': 'white'}
+                'normal': ICONS_CONFIG['window_controls']['close'],
+                'hover': ICONS_CONFIG['window_controls']['close_hover']
             }
         }
     }
@@ -350,21 +356,21 @@ class OverlayUIBuilder:
         'settings_button': {
             'object_name': 'settingsBtnTop',
             'size': (22, 22),
-            'icon': {'icon': 'fa5s.cog', 'color': 'black'},
+            'icon': ICONS_CONFIG['window_controls']['settings'],
             'icon_size': (18, 16),
             'tooltip': 'Settings'
         },
         'close_button': {
             'object_name': 'closeBtnTop',
             'size': (22, 22),
-            'icon': {'icon': 'fa5s.times', 'color': 'black'},
+            'icon': ICONS_CONFIG['window_controls']['close'],
             'icon_size': (20, 16),
             'tooltip': 'Close'
         },
         'collapse_button': {
             'object_name': 'collapseBtnTop',
             'size': (22, 22),
-            'icon': {'icon': 'fa5s.compress-alt', 'color': 'black'},
+            'icon': ICONS_CONFIG['window_controls']['collapse'],
             'icon_size': (20, 16),
             'tooltip': 'Collapse'
         }
@@ -377,25 +383,25 @@ class OverlayUIBuilder:
             'text': '',
             'size': (24, 24),
             'icon_size': (12, 12),
-            'icon_spec': {'asset': 'translation-icon.png'}
+            'icon_spec': ICONS_CONFIG['translate']['all']
         },
         'translate_full': {
             'size': (120, 28),
             'icon_size': (14, 14),
-            'icon_spec': {'asset': 'translation-icon.png'}
+            'icon_spec': ICONS_CONFIG['translate']['all']
         },
         'reader_compact': {
             'text': '',
             'size': (24, 24),
             'icon_size': (17, 17),
-            'icon_spec': {'asset': 'book_white.png'}
+            'icon_spec': ICONS_CONFIG['reader']['compact']
         },
         'reader_full': {
             'text': '',
             'size': (40, 28),
             'icon_size': (19, 19),
             'tooltip': 'Open text in reader mode for comfortable reading',
-            'icon_spec': {'asset': 'book_black.png'}
+            'icon_spec': ICONS_CONFIG['reader']['full']
         },
         'default_compact': {
             'text': '',
