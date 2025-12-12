@@ -37,6 +37,9 @@ except Exception:
 
     BUILD_OCR_ENABLED = str(_raw).strip().lower() in ("1", "true", "yes", "y", "on")
 
+# Supported API Providers (centralized constant)
+SUPPORTED_PROVIDERS: List[str] = ["openai", "google", "deepl"]
+
 
 class Settings(BaseSettings):
     """Application settings model with comprehensive validation."""

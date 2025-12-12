@@ -35,6 +35,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QPushButton,
+    QToolButton,
     QSizePolicy,
     QSpacerItem,
     QTextEdit,
@@ -290,7 +291,6 @@ class OverlayUIBuilder:
     }
 
     # Configuration for disabled button visuals (QSS handles appearance;
-    # Python stores only non-visual metadata like which icon to use)
     DISABLED_STYLES = {
         'compact': {
             'icon_key': 'compact'
@@ -724,9 +724,13 @@ class OverlayUIBuilder:
         status_label, _ = self._create_widget_from_config('footer', 'status_label', QLabel, text="")
         return status_label
 
-    def _create_provider_badge(self) -> QLabel:
-        """Create provider badge label using config."""
-        provider_badge, _ = self._create_widget_from_config('footer', 'provider_badge', QLabel, text="")
+    def _create_provider_badge(self) -> QToolButton:
+        """Create provider badge button using config."""
+        # Use QToolButton for interactive badge with menu
+        provider_badge, _ = self._create_widget_from_config('footer', 'provider_badge', QToolButton, text="")
+        provider_badge.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        # Ensure it behaves like a label with a menu
+        provider_badge.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
         return provider_badge
 
     def _create_close_button(self) -> QPushButton:

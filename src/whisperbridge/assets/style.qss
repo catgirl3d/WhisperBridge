@@ -451,28 +451,71 @@ QLabel#statusLabel[status="error"] {
 }
 
 /* Provider badge styling */
-QLabel#providerBadge {
+QToolButton#providerBadge {
     color: #666;
     font-size: 10px;
     font-weight: 600;
     background-color: #f0f0f0;
-    border-radius: 8px;
+    border-radius: 4px;
     padding: 2px 6px;
-    margin-right: 8px;
+    padding-right: 13px; /* Space for the menu arrow */
+    padding-bottom: 3px;
+    border: none;
 }
 
-QLabel#providerBadge[provider="openai"] {
+QToolButton#providerBadge[provider="openai"] {
     background-color: #10a37f;
     color: #ffffff;
 }
 
-QLabel#providerBadge[provider="google"] {
+QToolButton#providerBadge[provider="google"] {
     background-color: #4285f4;
     color: #ffffff;
 }
 
-QLabel#providerBadge[provider="deepl"] {
+QToolButton#providerBadge[provider="deepl"] {
     background-color: #0f2b46;
+    color: #ffffff;
+}
+
+QToolButton#providerBadge:hover {
+    filter: brightness(110%);
+}
+
+/* Style the menu indicator (arrow) */
+QToolButton#providerBadge::menu-indicator {
+    image: url("{assets_path}/icons/chevron-down-solid-full-white.svg");
+    width: 8px;
+    height: 8px;
+    subcontrol-position: right center;
+    subcontrol-origin: padding;
+    padding-right: 5px;
+}
+
+/* Invert arrow color for dark backgrounds */
+QToolButton#providerBadge[provider="openai"]::menu-indicator,
+QToolButton#providerBadge[provider="google"]::menu-indicator,
+QToolButton#providerBadge[provider="deepl"]::menu-indicator {
+    image: url("{assets_path}/icons/chevron-down-solid-full-white.svg"); 
+}
+
+QMenu#providerMenu {
+    background-color: #ffffff;
+    border: 1px solid rgba(0,0,0,0.12);
+    border-radius: 10px; 
+    padding: 6px 0px; 
+}
+
+QMenu#providerMenu::item {
+    padding: 8px 24px 8px 12px;
+    margin: 1px 4px;
+    border-radius: 4px;
+    background-color: transparent;
+    color: #111111;
+}
+
+QMenu#providerMenu::item:selected {
+    background-color: #0078d7; 
     color: #ffffff;
 }
 
@@ -482,4 +525,3 @@ QLabel#hotkeysHelpLabel {
     font-style: italic;
     font-size: 11px;
 }
-

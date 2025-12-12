@@ -10,18 +10,20 @@ from PySide6.QtCore import (
     QThread,
     QTimer,
 )
+from PySide6.QtGui import QAction, QTextCursor
 from PySide6.QtWidgets import (
     QApplication,
     QLabel,
     QPushButton,
     QSizePolicy,
     QTextEdit,
+    QMenu,
 )
-from PySide6.QtGui import QTextCursor
+
 
 from ..services.config_service import config_service, SettingsObserver
 from ..utils.language_utils import detect_language, get_language_name
-from ..core.config import validate_api_key_format
+from ..core.config import validate_api_key_format, SUPPORTED_PROVIDERS
 from typing import Optional
 from .styled_overlay_base import StyledOverlayWindow
 from .workers import TranslationWorker, StyleWorker
@@ -99,6 +101,9 @@ class OverlayWindow(StyledOverlayWindow):
         self.provider_badge = self.ui_builder.provider_badge
         self.close_icon_normal = self.ui_builder.close_icon_normal
         self.close_icon_hover = self.ui_builder.close_icon_hover
+
+        # Initialize provider menu
+        self._setup_provider_menu()
         self.hideable_elements = ui_components['hideable_elements']
 
         # Mirror builder-provided assets for downstream logic
@@ -245,7 +250,7 @@ class OverlayWindow(StyledOverlayWindow):
         """Check whether API calls can proceed given current provider/key settings."""
         try:
             provider = (config_service.get_setting("api_provider") or "openai").strip().lower()
-            if provider not in ("openai", "google", "deepl"):
+            if provider not in SUPPORTED_PROVIDERS:
                 provider = "openai"
 
             key = config_service.get_setting(f"{provider}_api_key")
@@ -316,7 +321,7 @@ class OverlayWindow(StyledOverlayWindow):
                 return
 
             provider = (config_service.get_setting("api_provider") or "openai").strip().lower()
-            if provider not in ("openai", "google", "deepl"):
+            if provider not in SUPPORTED_PROVIDERS:
                 provider = "openai"
 
             # Map provider to display name and property
@@ -329,7 +334,7 @@ class OverlayWindow(StyledOverlayWindow):
 
             self.provider_badge.setText(display_name)
             self.provider_badge.setProperty("provider", prop_value)
-            self.provider_badge.setToolTip(f"Using {display_name}")
+            self.provider_badge.setToolTip(f"Using {display_name}. Click to change provider.")
 
             # Force style refresh to apply QSS
             self.provider_badge.style().unpolish(self.provider_badge)
@@ -337,6 +342,50 @@ class OverlayWindow(StyledOverlayWindow):
             self.provider_badge.update()
         except Exception as e:
             logger.debug(f"Failed to update provider badge: {e}")
+
+    def _setup_provider_menu(self):
+        """Setup the dropdown menu for the provider badge."""
+        try:
+            if not hasattr(self, "provider_badge") or not self.provider_badge:
+                return
+
+            menu = QMenu(self.provider_badge)
+            menu.setObjectName("providerMenu")
+            # Enable translucent background for rounded corners in QSS
+            menu.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+            # Remove standard window frame/shadow to allow QSS control (matches ComboBox dropdowns)
+            menu.setWindowFlags(menu.windowFlags() | Qt.WindowType.FramelessWindowHint | Qt.WindowType.NoDropShadowWindowHint)
+            
+            # OpenAI Action
+            openai_action = QAction("OpenAI", self)
+            openai_action.triggered.connect(lambda: self._switch_provider("openai"))
+            menu.addAction(openai_action)
+
+            # Google Action
+            google_action = QAction("Google", self)
+            google_action.triggered.connect(lambda: self._switch_provider("google"))
+            menu.addAction(google_action)
+
+            # DeepL Action
+            deepl_action = QAction("DeepL", self)
+            deepl_action.triggered.connect(lambda: self._switch_provider("deepl"))
+            menu.addAction(deepl_action)
+
+            self.provider_badge.setMenu(menu)
+            logger.debug("Provider menu setup completed")
+
+        except Exception as e:
+            logger.error(f"Failed to setup provider menu: {e}")
+
+    def _switch_provider(self, provider_key: str):
+        """Switch the API provider and persist the setting."""
+        try:
+            logger.info(f"Switching provider to: {provider_key}")
+            if config_service.set_setting("api_provider", provider_key):
+                # UI update will happen automatically via _SettingsObserver -> _update_api_state_and_ui
+                pass
+        except Exception as e:
+            logger.error(f"Failed to switch provider: {e}")
 
     def _update_api_state_and_ui(self) -> None:
         """Enable/disable action button and set high-priority status when API key is missing/invalid."""
