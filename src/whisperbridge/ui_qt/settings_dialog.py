@@ -37,7 +37,7 @@ from PySide6.QtCore import QThread, Signal, QObject, QTimer
 
 from ..services.config_service import config_service, SettingsObserver
 from ..core.api_manager import get_api_manager, APIProvider
-from ..core.config import delete_api_key, validate_api_key_format, requires_model_selection, supports_stylist, Settings as DefaultSettings
+from ..core.config import validate_api_key_format, requires_model_selection, supports_stylist, Settings as DefaultSettings
 from loguru import logger
 from ..core.version import get_version
 from .workers import ApiTestWorker
@@ -782,28 +782,32 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
 
         if reply == QMessageBox.StandardButton.Yes:
             try:
-                if delete_api_key(provider):
+                # Use ConfigService as the single source of truth.
+                # This will route secure deletion through SettingsManager.save_single_setting(...)
+                # and emit "changed" notifications to observers.
+                key_name = f"{provider}_api_key"
+                if config_service.set_setting(key_name, None):
                     # Clear the field for the current provider
                     self.api_key_edits[provider].setText("")
+
+                    # Reinitialize API manager to reflect the updated config.
+                    try:
+                        get_api_manager().reinitialize()
+                        logger.info(f"API manager reinitialized after deleting {provider} key.")
+                    except Exception as e:
+                        logger.error(f"Failed to reinitialize API manager after key deletion: {e}")
+
+                    # Reload models to update the UI, which will now show the unconfigured state
+                    try:
+                        self._load_models(provider_name=self._get_current_provider())
+                    except Exception as e:
+                        logger.error(f"Failed to reload models after key deletion: {e}")
+
                     QMessageBox.information(
                         self,
                         "Success",
                         f"API key for {provider.capitalize()} has been deleted.",
                     )
-                    # Force all services to re-read the configuration from its source
-                    try:
-                        # 1. Force config service to reload settings from disk/keyring
-                        config_service.load_settings()
-                        logger.info("Config service reloaded to reflect key deletion.")
-
-                        # 2. Reinitialize the API manager with the now-updated config
-                        get_api_manager().reinitialize()
-                        logger.info(f"API manager reinitialized after deleting {provider} key.")
-
-                        # 3. Reload models to update the UI, which will now show the unconfigured state
-                        self._load_models(provider_name=self._get_current_provider())
-                    except Exception as e:
-                        logger.error(f"Failed to update state after key deletion: {e}")
                 else:
                     QMessageBox.warning(
                         self,
