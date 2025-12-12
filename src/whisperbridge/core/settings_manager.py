@@ -109,6 +109,23 @@ class SettingsManager:
             logger.error(f"Failed to save Google API key to keyring: {e}")
             return False
 
+    def _load_deepl_api_key(self) -> Optional[str]:
+        """Load DeepL API key from keyring."""
+        try:
+            return keyring.get_password("whisperbridge", "deepl_api_key")
+        except Exception as e:
+            logger.warning(f"Failed to load DeepL API key from keyring: {e}")
+            return None
+
+    def _save_deepl_api_key(self, api_key: str) -> bool:
+        """Save DeepL API key to keyring."""
+        try:
+            keyring.set_password("whisperbridge", "deepl_api_key", api_key)
+            return True
+        except Exception as e:
+            logger.error(f"Failed to save DeepL API key to keyring: {e}")
+            return False
+
     def _migrate_settings(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """Apply migrations to settings data."""
         current_version = data.get("version", "1.0.0")
@@ -163,6 +180,9 @@ class SettingsManager:
                 google_key = self._load_google_api_key()
                 if google_key:
                     data["google_api_key"] = google_key
+                deepl_key = self._load_deepl_api_key()
+                if deepl_key:
+                    data["deepl_api_key"] = deepl_key
 
                 # Create settings with environment variables first (including .env)
                 # This ensures ocr_enabled is loaded from .env or build flag
@@ -215,6 +235,7 @@ class SettingsManager:
                 # Remove API keys from JSON (stored in keyring)
                 openai_key = data.pop("openai_api_key", None)
                 google_key = data.pop("google_api_key", None)
+                deepl_key = data.pop("deepl_api_key", None)
 
                 # Save to JSON
                 with open(settings_file, "w", encoding="utf-8") as f:
@@ -227,6 +248,8 @@ class SettingsManager:
                     self._save_api_key(openai_key)
                 if google_key:
                     self._save_google_api_key(google_key)
+                if deepl_key:
+                    self._save_deepl_api_key(deepl_key)
 
                 self._settings = settings
                 logger.info("Settings saved successfully")
@@ -246,13 +269,15 @@ class SettingsManager:
                 settings_file = self._get_settings_file()
 
                 # Special handling for API keys (secure storage)
-                if key in ("openai_api_key", "google_api_key"):
+                if key in ("openai_api_key", "google_api_key", "deepl_api_key"):
                     ok = False
                     if key == "openai_api_key":
                         # Save to keyring
                         ok = self._save_api_key(value) if value is not None else self._save_api_key("")
-                    else:
+                    elif key == "google_api_key":
                         ok = self._save_google_api_key(value) if value is not None else self._save_google_api_key("")
+                    else:
+                        ok = self._save_deepl_api_key(value) if value is not None else self._save_deepl_api_key("")
                     if not ok:
                         return False
 
