@@ -2,11 +2,10 @@
 Styled Overlay Base module for creating overlay window components.
 
 Configuration Guidelines:
-- All widget styles should be centralized in CONFIG dictionaries
-- Use consistent naming: {COMPONENT_TYPE}_CONFIG
-- Include size, style, and any widget-specific properties
-- Add objectName for widgets that need styling/testing
-- Follow DRY principle - avoid hardcoded values
+- All widget metadata should be centralized in CONFIG dictionaries.
+- Use consistent naming: {COMPONENT_TYPE}_CONFIG.
+- Shared widget factory [`src/whisperbridge/ui_qt/widget_factory.py`](src/whisperbridge/ui_qt/widget_factory.py:1) handles low-level creation.
+- Python sets identity/state (objectName, properties); QSS handles visuals.
 """
 
 import sys

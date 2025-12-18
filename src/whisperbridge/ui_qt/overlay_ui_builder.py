@@ -2,18 +2,17 @@
 Overlay UI Builder module for creating overlay window components.
 
 Configuration Guidelines:
-- All widget styles should be centralized in CONFIG dictionaries
-- Use consistent naming: {WIDGET_TYPE}_CONFIG
-- Include size, style, and any widget-specific properties
-- Add objectName for widgets that need styling/testing
-- Follow DRY principle - avoid hardcoded values
+- All widget styles should be centralized in CONFIG dictionaries.
+- Use consistent naming: {WIDGET_TYPE}_CONFIG.
+- Shared widget factory [`src/whisperbridge/ui_qt/widget_factory.py`](src/whisperbridge/ui_qt/widget_factory.py:1) handles low-level creation.
+- Python sets identity/state (objectName, role, properties); QSS handles visuals.
 
 Key Principles:
-1. Centralized Configuration: All styles in CONFIG dictionaries at class level
-2. Explicit Mapping: Use explicit button-to-style mappings, not dynamic key generation
-3. Unified Factory: Single _create_widget_from_config method for all widgets
-4. ObjectName Usage: Set objectName for all testable/stylable widgets
-5. Separation of Concerns: Python handles logic, QSS handles appearance
+1. Centralized Configuration: All metadata in CONFIG dictionaries at class level.
+2. Explicit Mapping: Use explicit role-to-config mappings, not dynamic key generation.
+3. Shared Factory: Use `widget_factory` helpers to deduplicate common setup logic.
+4. Stable Identity: Always set `objectName` (for QSS) and `role` (for internal logic).
+5. Separation of Concerns: Visual appearance lives exclusively in QSS.
 """
 
 from pathlib import Path
