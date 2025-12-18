@@ -41,7 +41,6 @@ class SettingsManager:
 
         # Add new fields with defaults
         data.setdefault("system_prompt", "You are a professional translator...")
-        data.setdefault("activation_hotkey", "ctrl+shift+a")
         data.setdefault("api_timeout", 30)
         data.setdefault("max_retries", 3)
 

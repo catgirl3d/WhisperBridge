@@ -153,7 +153,6 @@ class QtApp(QObject, SettingsObserver):
             self.services.setup_services(
                 on_translate=self._on_translate_hotkey,
                 on_quick_translate=self._on_quick_translate_hotkey,
-                on_activate=self._on_activation_hotkey,
                 on_copy_translate=self._on_copy_translate_hotkey,
             )
             logger.debug(f"initialize: Services set up in {time.time() - init_start:.3f}s")
@@ -212,7 +211,6 @@ class QtApp(QObject, SettingsObserver):
         hotkey_keys = [
             "translate_hotkey",
             "quick_translate_hotkey",
-            "activation_hotkey",
             "copy_translate_hotkey",
         ]
 
@@ -288,13 +286,6 @@ class QtApp(QObject, SettingsObserver):
         quick_translate_hotkey = config_service.get_setting("quick_translate_hotkey", use_cache=False)
         logger.debug(f"Hotkey: {quick_translate_hotkey}")
         self.toggle_overlay_signal.emit()
-
-    def _on_activation_hotkey(self):
-        """Handle application activation hotkey press."""
-        logger.info("Application activation hotkey pressed")
-        activation_hotkey = config_service.get_setting("activation_hotkey", use_cache=False)
-        logger.debug(f"Hotkey: {activation_hotkey}")
-        self.show_main_window_signal.emit()
 
     def _on_copy_translate_hotkey(self):
         """Handle copy-translate hotkey press using a simulated Ctrl+C copy.

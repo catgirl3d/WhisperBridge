@@ -7,7 +7,7 @@ from src.whisperbridge.utils.language_utils import (
     detect_mixed_scripts
 )
 
-def test_case(description, text, expected_lang=None, expected_mixed=None):
+def run_test_case(description, text, expected_lang=None, expected_mixed=None):
     """Test a single case and print results."""
     print(f"\n{'='*60}")
     print(f"Test: {description}")
@@ -42,7 +42,7 @@ def main():
     print("="*60)
     
     # Test 1: The original problem - homoglyph false positive
-    test_case(
+    run_test_case(
         "Homoglyph Problem (OCR error: 'а' instead of 'a')",
         "Im currently investigating а users question in Russian",
         expected_lang="en",
@@ -50,7 +50,7 @@ def main():
     )
     
     # Test 2: Pure English
-    test_case(
+    run_test_case(
         "Pure English",
         "I am currently investigating a users question",
         expected_lang="en",
@@ -58,7 +58,7 @@ def main():
     )
     
     # Test 3: Pure Russian
-    test_case(
+    run_test_case(
         "Pure Russian",
         "Я сейчас исследую вопрос пользователя",
         expected_lang="ru",
@@ -66,7 +66,7 @@ def main():
     )
     
     # Test 4: Pure Ukrainian
-    test_case(
+    run_test_case(
         "Pure Ukrainian",
         "Я зараз досліджую питання користувача",
         expected_lang="ua",
@@ -74,7 +74,7 @@ def main():
     )
     
     # Test 5: Ukrainian with specific characters
-    test_case(
+    run_test_case(
         "Ukrainian with specific chars (і, ї, є, ґ)",
         "Це дуже гарний програмний застосунок для перекладу",
         expected_lang="ua",
@@ -82,7 +82,7 @@ def main():
     )
     
     # Test 6: Short text with homoglyphs
-    test_case(
+    run_test_case(
         "Short text with single homoglyph",
         "Hello а world",
         expected_lang="en",
@@ -107,14 +107,14 @@ def main():
         print(f"Mixed scripts: {detect_mixed_scripts(text)}")
     
     # Test 8: Low confidence threshold test
-    test_case(
+    run_test_case(
         "Very short ambiguous text",
         "а",
         expected_lang=None  # Should return None due to low confidence
     )
     
     # Test 9: Mixed languages (real mixed, not homoglyphs)
-    test_case(
+    run_test_case(
         "Intentionally mixed English and Russian",
         "Hello мир and привет world",
         expected_mixed=True

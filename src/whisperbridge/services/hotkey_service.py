@@ -135,14 +135,13 @@ class HotkeyService:
 
             logger.info("Hotkey service stopped")
 
-    def register_application_hotkeys(self, config_service, on_translate, on_quick_translate, on_activate, on_copy_translate):
+    def register_application_hotkeys(self, config_service, on_translate, on_quick_translate, on_copy_translate):
         """Register default application hotkeys based on configuration.
 
         Args:
             config_service: The configuration service instance
             on_translate: Callback for translate hotkey
             on_quick_translate: Callback for quick translate hotkey
-            on_activate: Callback for activation hotkey
             on_copy_translate: Callback for copy-translate hotkey
         """
         if not self.keyboard_manager:
@@ -176,15 +175,6 @@ class HotkeyService:
                 )
                 logger.info(f"Registered overlay translator hotkey: {current_settings.quick_translate_hotkey}")
 
-            # Register activation hotkey if different
-            if (current_settings.activation_hotkey != current_settings.translate_hotkey and
-                current_settings.activation_hotkey != current_settings.quick_translate_hotkey):
-                self.keyboard_manager.register_hotkey(
-                    current_settings.activation_hotkey,
-                    on_activate,
-                    "Application activation hotkey",
-                )
-
             # Register copy-translate hotkey
             self.keyboard_manager.register_hotkey(
                 current_settings.copy_translate_hotkey,
@@ -204,7 +194,6 @@ class HotkeyService:
             logger.info(
                 f"Registered hotkeys: "
                 f"translate={translate_status}, quick={quick_status}, "
-                f"activation={current_settings.activation_hotkey}, "
                 f"copy_translate={current_settings.copy_translate_hotkey}"
             )
 

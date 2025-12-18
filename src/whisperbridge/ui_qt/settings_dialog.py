@@ -147,7 +147,6 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
             "google_vision_model": (self.google_vision_model_edit, "text", "setText"),
             "translate_hotkey": (self.translate_hotkey_edit, "text", "setText"),
             "quick_translate_hotkey": (self.quick_translate_hotkey_edit, "text", "setText"),
-            "activation_hotkey": (self.activation_hotkey_edit, "text", "setText"),
             "copy_translate_hotkey": (self.copy_translate_hotkey_edit, "text", "setText"),
             "auto_copy_translated": (self.auto_copy_translated_check, "isChecked", "setChecked"),
             "auto_copy_translated_main_window": (self.auto_copy_translated_main_window_check, "isChecked", "setChecked"),
@@ -362,8 +361,6 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
 
         self.quick_translate_hotkey_edit = self.factory.create_line_edit("quickTranslateHotkeyEdit")
         hotkey_layout.addRow(self._create_hint_label("Show Translator Window:", "hotkeys.show_translator"), self.quick_translate_hotkey_edit)
-        self.activation_hotkey_edit = self.factory.create_line_edit("activationHotkeyEdit")
-        hotkey_layout.addRow(self._create_hint_label("Translate:", "hotkeys.translate"), self.activation_hotkey_edit)
 
         self.translate_hotkey_edit = self.factory.create_line_edit("translateHotkeyEdit")
         hotkey_layout.addRow(self._create_hint_label("Capture screen region (OCR):", "hotkeys.capture_screen"), self.translate_hotkey_edit)

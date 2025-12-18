@@ -84,7 +84,6 @@ class Settings(BaseSettings):
     # Hotkeys
     translate_hotkey: str = Field(default="ctrl+shift+t", description="Translate hotkey")
     quick_translate_hotkey: str = Field(default="ctrl+shift+q", description="Quick translate hotkey (overlay translator)")
-    activation_hotkey: str = Field(default="ctrl+shift+a", description="Activation hotkey")
     copy_translate_hotkey: str = Field(default="ctrl+shift+j", description="Hotkey that copies selected text and translates it")
 
     # Copy-Translate enhancements

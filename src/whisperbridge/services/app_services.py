@@ -34,20 +34,17 @@ class AppServices(QObject):
         # Hotkey callbacks
         self.on_translate: Optional[Callable] = None
         self.on_quick_translate: Optional[Callable] = None
-        self.on_activate: Optional[Callable] = None
         self.on_copy_translate: Optional[Callable] = None
 
     def setup_services(self,
                         on_translate: Callable,
                         on_quick_translate: Callable,
-                        on_activate: Callable,
                         on_copy_translate: Callable):
         logger.info("AppServices: setting up services")
 
         # Store hotkey callbacks for reloading
         self.on_translate = on_translate
         self.on_quick_translate = on_quick_translate
-        self.on_activate = on_activate
         self.on_copy_translate = on_copy_translate
 
         # Initialize clipboard service singleton
@@ -115,7 +112,6 @@ class AppServices(QObject):
                     config_service=config_service,
                     on_translate=on_translate,
                     on_quick_translate=on_quick_translate,
-                    on_activate=on_activate,
                     on_copy_translate=on_copy_translate
                 )
                 if not self.hotkey_service.start():
@@ -168,7 +164,6 @@ class AppServices(QObject):
                 config_service=config_service,
                 on_translate=self.on_translate,
                 on_quick_translate=self.on_quick_translate,
-                on_activate=self.on_activate,
                 on_copy_translate=self.on_copy_translate
             )
 
