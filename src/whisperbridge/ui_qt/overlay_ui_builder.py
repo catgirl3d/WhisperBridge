@@ -19,14 +19,13 @@ Key Principles:
 from pathlib import Path
 from typing import List, Optional
 
-import qtawesome as qta
 from loguru import logger
 from PySide6.QtCore import (
     QEvent,
     QSize,
     Qt,
 )
-from PySide6.QtGui import QFont, QIcon, QPixmap
+from PySide6.QtGui import QIcon, QPixmap
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -40,11 +39,13 @@ from PySide6.QtWidgets import (
     QSpacerItem,
     QTextEdit,
     QVBoxLayout,
-    QListView,
 )
 
 from ..services.config_service import config_service
 from ..utils.language_utils import get_supported_languages
+from .widget_factory import apply_custom_dropdown_style as _apply_custom_dropdown_style
+from .widget_factory import create_widget as _create_widget
+from .widget_factory import make_icon_from_spec as _wf_make_icon_from_spec
 
 # Base path for assets
 _ASSETS_BASE = Path(__file__).parent.parent / "assets"
@@ -80,34 +81,35 @@ class TranslatorSettingsDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
 
-        # Create builder instance for unified widget creation
-        self.builder = OverlayUIBuilder()
-
         # Apply dialog configuration
-        dialog_config = self.TRANSLATOR_DIALOG_CONFIG['dialog']
-        self.setWindowTitle(dialog_config['title'])
-        self.setObjectName(dialog_config['object_name'])
+        dialog_config = self.TRANSLATOR_DIALOG_CONFIG["dialog"]
+        self.setWindowTitle(dialog_config["title"])
+        self.setObjectName(dialog_config["object_name"])
         self.setModal(False)
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
-        self.setMinimumWidth(dialog_config['minimum_width'])
+        self.setMinimumWidth(dialog_config["minimum_width"])
 
         layout = QVBoxLayout(self)
         settings = config_service.get_settings()
 
+        config_maps = {"translator": self.TRANSLATOR_DIALOG_CONFIG}
+
         # Compact view checkbox
-        self.compact_view_checkbox, _ = self.builder._create_widget_from_config('translator', 'compact_view_checkbox', QCheckBox)
+        self.compact_view_checkbox, _ = _create_widget(config_maps, "translator", "compact_view_checkbox", QCheckBox)
         self.compact_view_checkbox.setChecked(getattr(settings, "compact_view", False))
         self.compact_view_checkbox.stateChanged.connect(self._on_compact_view_changed)
         layout.addWidget(self.compact_view_checkbox)
 
         # Side buttons auto-hide checkbox
-        self.autohide_buttons_checkbox, _ = self.builder._create_widget_from_config('translator', 'autohide_buttons_checkbox', QCheckBox)
+        self.autohide_buttons_checkbox, _ = _create_widget(
+            config_maps, "translator", "autohide_buttons_checkbox", QCheckBox
+        )
         self.autohide_buttons_checkbox.setChecked(getattr(settings, "overlay_side_buttons_autohide", False))
         self.autohide_buttons_checkbox.stateChanged.connect(self._on_autohide_buttons_changed)
         layout.addWidget(self.autohide_buttons_checkbox)
 
         # Close button
-        close_button, _ = self.builder._create_widget_from_config('translator', 'close_button', QPushButton)
+        close_button, _ = _create_widget(config_maps, "translator", "close_button", QPushButton)
         close_button.clicked.connect(self.close)
         layout.addWidget(close_button, alignment=Qt.AlignmentFlag.AlignRight)
 
@@ -478,29 +480,12 @@ class OverlayUIBuilder:
 
     def __init__(self):
         # Expose icons for external use (config-driven)
-        self.icon_translation = self._make_icon_from_spec(self.ICONS_CONFIG['translate']['all'])
-        self.icon_check_green = self._make_icon_from_spec(self.ICONS_CONFIG['utility_icons']['check_success'])
-
-    def _load_icon(self, icon_name: str) -> QIcon:
-        """Load icon from assets."""
-        return QIcon(QPixmap(str(_ASSETS_BASE / "icons" / icon_name)))
-
-    def _make_qta_icon(self, spec: dict) -> QIcon:
-        """Create a qtawesome icon from spec {'icon': str, 'color': str}."""
-        if not spec:
-            return QIcon()
-        try:
-            return qta.icon(spec['icon'], color=spec.get('color'))
-        except Exception:
-            return QIcon()
+        self.icon_translation = self._make_icon_from_spec(self.ICONS_CONFIG["translate"]["all"])
+        self.icon_check_green = self._make_icon_from_spec(self.ICONS_CONFIG["utility_icons"]["check_success"])
 
     def _make_icon_from_spec(self, spec: dict) -> QIcon:
-        """Create QIcon from spec. Supports {'icon','color'} for qtawesome or {'asset'} for PNG."""
-        if not spec:
-            return QIcon()
-        if 'asset' in spec:
-            return self._load_icon(spec['asset'])
-        return self._make_qta_icon(spec)
+        """Create QIcon from spec using shared widget_factory helpers."""
+        return _wf_make_icon_from_spec(spec, _ASSETS_BASE)
 
     def _refresh_widget_style(self, widget):
         """Refresh widget style after property changes."""
@@ -510,10 +495,7 @@ class OverlayUIBuilder:
 
     def _apply_custom_dropdown_style(self, combo: QComboBox):
         """Apply custom styling to the dropdown view of a QComboBox."""
-        view = QListView()
-        combo.setView(view)
-        view.window().setWindowFlags(Qt.WindowType.Popup | Qt.WindowType.FramelessWindowHint | Qt.WindowType.NoDropShadowWindowHint)
-        view.window().setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        _apply_custom_dropdown_style(combo)
 
     def _create_text_edit(self, placeholder):
         """Create a QTextEdit widget."""
@@ -527,40 +509,49 @@ class OverlayUIBuilder:
 
     def apply_button_style(self, button: QPushButton, compact: bool):
         """Apply styling to a button based on compact mode using configuration dictionary.
-        Visual appearance is controlled via QSS.
+
+        Visual appearance is controlled via QSS; here we only apply size/icon/text and
+        set dynamic properties (e.g. "mode", "utility") for QSS selectors.
         """
         mode = 'compact' if compact else 'full'
 
-        # Explicit mapping of buttons to their style configurations
-        button_configs = {
-            self.translate_btn: {
-                'compact': self.BUTTON_STYLES['translate_compact'],
-                'full': self.BUTTON_STYLES['translate_full']
+        # Determine button "role" without relying on specific instances.
+        # Prefer explicit property first; fallback to objectName.
+        try:
+            role = button.property("role")
+        except Exception:
+            role = None
+        role = (role or getattr(button, "objectName", lambda: "")() or "").strip()
+
+        role_configs = {
+            "translateButton": {
+                "compact": self.BUTTON_STYLES["translate_compact"],
+                "full": self.BUTTON_STYLES["translate_full"],
             },
-            self.reader_mode_btn: {
-                'compact': self.BUTTON_STYLES['reader_compact'],
-                'full': self.BUTTON_STYLES['reader_full']
-            }
+            "readerButton": {
+                "compact": self.BUTTON_STYLES["reader_compact"],
+                "full": self.BUTTON_STYLES["reader_full"],
+            },
         }
 
         # Get the specific config for the button and mode
-        config = button_configs.get(button, {}).get(mode)
+        config = role_configs.get(role, {}).get(mode)
 
         if not config:
             # Fallback to default styles for other buttons (clear, copy, etc.)
-            config = self.BUTTON_STYLES[f'default_{mode}']
+            config = self.BUTTON_STYLES[f"default_{mode}"]
 
         config = config.copy()  # Work with a copy to avoid modifying the original
 
         # Apply size, text, tooltip, and icon from config
-        if 'text' in config and config['text'] is not None:
-            button.setText(config['text'])
-        if 'tooltip' in config and config['tooltip']:
-            button.setToolTip(config['tooltip'])
-        button.setFixedSize(*config['size'])
-        button.setIconSize(QSize(*config['icon_size']))
-        if 'icon_spec' in config:
-            button.setIcon(self._make_icon_from_spec(config['icon_spec']))
+        if "text" in config and config["text"] is not None:
+            button.setText(config["text"])
+        if "tooltip" in config and config["tooltip"]:
+            button.setToolTip(config["tooltip"])
+        button.setFixedSize(*config["size"])
+        button.setIconSize(QSize(*config["icon_size"]))
+        if "icon_spec" in config:
+            button.setIcon(self._make_icon_from_spec(config["icon_spec"]))
 
         # Set dynamic properties for QSS to pick up (mode / utility)
         try:
@@ -584,35 +575,10 @@ class OverlayUIBuilder:
             'footer': self.FOOTER_WIDGET_CONFIG,
             'label': self.LABEL_CONFIG,
             'top': self.OVERLAY_TOP_CONTROLS_CONFIG,
-            'translator': TranslatorSettingsDialog.TRANSLATOR_DIALOG_CONFIG,
             'main_buttons': self.MAIN_BUTTONS_CONFIG,
             'utility_buttons': self.UTILITY_BUTTONS_CONFIG,
         }
-
-        config = config_maps[widget_type][config_key]
-        widget = widget_class(**kwargs)
-
-        # Apply common configuration properties
-        if hasattr(widget, 'setFixedSize') and 'size' in config and config['size'] is not None:
-            width, height = config['size']
-            if width is not None and height is not None:
-                widget.setFixedSize(width, height)
-            elif width is not None:
-                widget.setFixedWidth(width)
-            elif height is not None:
-                widget.setFixedHeight(height)
-        if hasattr(widget, 'setObjectName') and 'object_name' in config:
-            widget.setObjectName(config['object_name'])
-        if hasattr(widget, 'setFixedWidth') and 'width' in config:
-            widget.setFixedWidth(config['width'])
-        if hasattr(widget, 'setIconSize') and 'icon_size' in config:
-            widget.setIconSize(QSize(*config['icon_size']))
-        if hasattr(widget, 'setText') and 'text' in config:
-            widget.setText(config['text'])
-        if hasattr(widget, 'setToolTip') and 'tooltip' in config:
-            widget.setToolTip(config['tooltip'])
-
-        return widget, config
+        return _create_widget(config_maps, widget_type, config_key, widget_class, **kwargs)
 
     def _create_mode_combo(self) -> QComboBox:
         """Create mode selector combo box using config."""
@@ -861,7 +827,12 @@ class OverlayUIBuilder:
             self.apply_button_style(button, compact)
     
             # Only restore translation icon for translate button, not for reader button
-            if button == self.translate_btn:
+            try:
+                role = button.property("role")
+            except Exception:
+                role = None
+            role = (role or getattr(button, "objectName", lambda: "")() or "").strip()
+            if role == "translateButton":
                 button.setIcon(self._make_icon_from_spec(self.ICONS_CONFIG['translate']['all']))
     
             # Refresh style
@@ -900,8 +871,10 @@ class OverlayUIBuilder:
     def _create_main_buttons(self):
         """Create main action buttons (translate and reader mode)."""
         self.translate_btn, _ = self._create_widget_from_config('main_buttons', 'translate', QPushButton)
+        self.translate_btn.setProperty("role", "translateButton")
 
         self.reader_mode_btn, cfg = self._create_widget_from_config('main_buttons', 'reader', QPushButton)
+        self.reader_mode_btn.setProperty("role", "readerButton")
         # Apply specific properties not handled by generic factory
         if 'utility' in cfg:
             self.reader_mode_btn.setProperty("utility", cfg['utility'])

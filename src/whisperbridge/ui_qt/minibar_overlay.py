@@ -19,13 +19,13 @@ Key Principles:
 import weakref
 from typing import Callable, Union
 
-import qtawesome as qta
-from PySide6.QtCore import QPoint, QSize, Qt
+from PySide6.QtCore import QPoint, Qt
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QWidget
 
-
 from .base_window import BaseWindow
+from .widget_factory import create_widget as _create_widget
+from .widget_factory import make_qta_icon as _wf_make_qta_icon
 
 # Configuration dictionaries for UI components
 MINIBAR_WINDOW_CONFIG = {
@@ -33,7 +33,6 @@ MINIBAR_WINDOW_CONFIG = {
     'minimum_width': 190,
     'layout_margins': (10, 0, 4, 0),
     'layout_spacing': 2,
-    'title_font': ("Arial", 10, QFont.Weight.Bold),
 }
 
 MINIBAR_BUTTON_CONFIG = {
@@ -245,61 +244,41 @@ class MiniBarOverlay(QWidget, BaseWindow):
     # --- Factory methods ---
 
     def _create_widget_from_config(self, widget_type: str, config_key: str, widget_class, **kwargs):
-        """
-        Generic factory method to create widgets from configuration dictionaries.
-    
-        Args:
-            widget_type: Type of widget ('button' or 'label')
-            config_key: Key within the configuration dictionary
-            widget_class: The widget class to instantiate
-            **kwargs: Additional arguments to pass to the widget constructor
-    
-        Returns:
-            Tuple of (widget, config)
-        """
+        """Generic factory method to create widgets from configuration dictionaries."""
         config_maps = {
             'button': MINIBAR_BUTTON_CONFIG,
-            'label': MINIBAR_LABEL_CONFIG
+            'label': MINIBAR_LABEL_CONFIG,
         }
-    
-        config = config_maps[widget_type][config_key]
-        widget = widget_class(**kwargs)
-    
-        # Apply common configuration properties
-        if 'object_name' in config:
-            widget.setObjectName(config['object_name'])
-        if 'size' in config and hasattr(widget, 'setFixedSize'):
-            widget.setFixedSize(*config['size'])
-        if 'font' in config and hasattr(widget, 'setFont'):
-            widget.setFont(QFont(*config['font']))
-        # Extended alignment with OverlayUIBuilder: support icon_size and tooltip
-        if 'icon_size' in config and hasattr(widget, 'setIconSize'):
-            widget.setIconSize(QSize(*config['icon_size']))
-        if 'tooltip' in config and hasattr(widget, 'setToolTip'):
-            widget.setToolTip(config['tooltip'])
-    
-        return widget, config
+        return _create_widget(config_maps, widget_type, config_key, widget_class, **kwargs)
     
     def create_button(self, key: str) -> QPushButton:
         """
         Unified button factory mirroring OverlayUIBuilder.create_top_button behavior.
         Uses configuration to set icon, icon_size, tooltip; preserves legacy objectName values.
         """
-        btn, cfg = self._create_widget_from_config('button', key, QPushButton)
-        # Apply qtawesome icon with graceful fallbacks
-        try:
-            btn.setIcon(qta.icon(cfg.get('icon', ''), color=cfg.get('icon_color')))
-        except Exception:
-            try:
-                fallback = cfg.get('fallback_icon')
-                if fallback:
-                    btn.setIcon(qta.icon(fallback, color=cfg.get('icon_color')))
-                else:
-                    raise Exception()
-            except Exception:
-                text = cfg.get('fallback_text')
-                if text:
-                    btn.setText(text)
+        btn, cfg = self._create_widget_from_config("button", key, QPushButton)
+
+        # Apply qtawesome icon with graceful fallbacks (via shared helper)
+        icon_name = cfg.get("icon")
+        icon_color = cfg.get("icon_color")
+
+        if icon_name:
+            icon = _wf_make_qta_icon({"icon": icon_name, "color": icon_color})
+            if not icon.isNull():
+                btn.setIcon(icon)
+                return btn
+
+        fallback = cfg.get("fallback_icon")
+        if fallback:
+            icon = _wf_make_qta_icon({"icon": fallback, "color": icon_color})
+            if not icon.isNull():
+                btn.setIcon(icon)
+                return btn
+
+        text = cfg.get("fallback_text")
+        if text:
+            btn.setText(text)
+
         return btn
     
     def _create_expand_button(self) -> QPushButton:
