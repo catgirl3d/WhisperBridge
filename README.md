@@ -105,6 +105,7 @@ Flow: Capture → LLM OCR (image encoded & resized) → extract text → transla
 
 Project structure (high level)
 
+```text
 WhisperBridge/
 ├── docs/              # documentation and guidelines
 ├── src/
@@ -118,6 +119,7 @@ WhisperBridge/
 ├── tests/             # unit and integration tests
 ├── pyproject.toml
 └── requirements.txt
+```
 
 Testing
 

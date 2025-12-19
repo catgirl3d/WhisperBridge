@@ -104,6 +104,7 @@ python src/main.py
 
 Структура проєкту (коротко)
 
+```text
 WhisperBridge/
 ├── docs/              # документація та гайдлайни
 ├── src/
@@ -117,6 +118,7 @@ WhisperBridge/
 ├── tests/             # unit та інтеграційні тести
 ├── pyproject.toml
 └── requirements.txt
+```
 
 Тестування
 
