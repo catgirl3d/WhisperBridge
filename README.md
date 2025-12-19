@@ -5,20 +5,16 @@
 
 ![1](docs/img/_251020140250.png) 
 
-Desktop application for instant on-screen text translation using OCR and GPT API. Capture a screen region, extract text, and show the translation in an overlay, triggered by a global hotkey.
+Desktop application for instant on-screen text translation. Use it as a powerful OCR tool to capture and translate any screen region, or as a standard translator with a dedicated window.
 
 ## Features
 
-- **Screen region capture + OCR** - uses EasyOCR or LLM-based OCR for text recognition
-- **Fast translation via GPT API** - instant translation of extracted text
-- **Overlay with actions** - convenient copy and paste functionality
-- **Global hotkey** - Ctrl+Shift+T by default
-- **System tray** - tray icon and Settings window (Qt / PySide6)
-
-Features (highlights)
-
-- Multi-provider translation and OCR: OpenAI, Google Generative AI, and DeepL adapters supported.
-- Copy-Translate: copy text to clipboard and trigger translation via hotkey (configurable).
+- **Screen region capture + OCR** - Uses LLM-based OCR (OpenAI/Google) for high-accuracy text recognition
+- **Fast translation via AI** - Almost instant translation using OpenAI, Google Gemini, or DeepL
+- **Text Stylist** - Rewrite text in different styles (Formal, Friendly, Simplify, etc.)
+- **Translator Window** - Convenient copy, paste, and quick actions
+- **Global hotkeys** - Configurable shortcuts for capture, translation, and activation
+- **System tray** - Tray icon and Settings window (Qt / PySide6)
 
 ## Quick Start
 
@@ -62,13 +58,6 @@ Packaging and console script
 Development:
 python src/main.py
 
-Packaged install:
-After building and installing the package (e.g. `python -m build` / `pip install dist/*.whl`), the console script `whisperbridge` is available:
-
-whisperbridge
-
-Note: The project defines a console script in pyproject.toml. Verify that the entry point aligns with your preferred layout (src.main:main). If you prefer a packaged module wrapper, add `src/whisperbridge/main.py` delegating to `src/main.py` or update pyproject.toml accordingly.
-
 ## Configuration
 
 ### Settings Location
@@ -79,32 +68,26 @@ Note: The project defines a console script in pyproject.toml. Verify that the en
 ### API Key Setup
 
 1. Open the Settings dialog in the application
-2. Provide your OpenAI API key
-3. The key will be stored securely via keyring
+2. Provide your API keys (OpenAI, Google Gemini, and/or DeepL)
+3. Keys will be stored securely via keyring
 
 ### Additional Settings
 
 In the Settings window you can configure:
-- UI themes
-- Hotkeys
-- Translation languages
-- OCR parameters
+- **AI Providers**: Choose between OpenAI, Google, or DeepL.
+- **Models**: Select specific models for translation and vision tasks.
+- **Text Stylist**: Customize presets for text rewriting.
+- **Hotkeys**: Remap global shortcuts.
+- **Appearance**: Switch between Light, Dark, or System themes.
 
-Settings UI: inline help
+### LLM-based OCR configuration
 
-The settings dialog includes "?" help icons next to many fields. Detailed help texts are centralized in:
-src/whisperbridge/utils/help_texts.py
-Edit those strings to customize tooltip content shown in the UI.
+The app uses LLM-based OCR for superior accuracy. Configuration keys:
+- `ocr_llm_prompt`: custom prompt for the vision model.
+- `openai_vision_model`: model name for OpenAI vision requests (default: "gpt-4o-mini")
+- `google_vision_model`: model name for Google vision requests (default: "gemini-2.5-flash")
 
-LLM-based OCR configuration
-
-The app supports an LLM-based OCR engine in addition to EasyOCR. Configuration keys:
-- ocr_engine: "easyocr" or "llm" (default: "easyocr")
-- ocr_llm_prompt: custom prompt for the vision model (example: "Extract plain text from the image in natural reading order. Output only the text.")
-- openai_vision_model: model name for OpenAI vision requests (e.g., "gpt-4o-mini")
-- google_vision_model: model name for Google vision requests (e.g., "gemini-1.5-flash")
-
-Flow: Capture → LLM OCR (image encoded & resized) → extract text → translate. If LLM returns an empty or failed response and `ocr_enabled` is true, the service falls back to EasyOCR automatically.
+Flow: Capture → LLM OCR (image encoded & resized) → extract text → translate.
 
 ## Project Structure
 
@@ -147,15 +130,21 @@ pytest --cov=whisperbridge tests/
 ## Usage
 
 1. **Launch application** - start WhisperBridge, icon will appear in system tray
-2. **Configure API** - set up your OpenAI API key through Settings window
-3. **Capture text** - press the hotkey (Ctrl+Shift+T by default)
-4. **Select region** - select screen area containing text to translate
-5. **Get translation** - translated text will appear in overlay
+2. **Configure API** - set up your API keys (OpenAI, Google, or DeepL) through Settings window
+3. **Translate via OCR** - press `Ctrl+Shift+T`, select a screen region, and get an instant translation in the window.
+4. **Quick Translate** - press `Ctrl+Shift+J` to copy selected text and translate it immediately.
+5. **Standard Translation** - press `Ctrl+Shift+Q` to open the translator window, where you can type or paste text for manual translation.
+
+### Default Hotkeys
+
+- **Ctrl+Shift+T**: Capture region and translate via OCR
+- **Ctrl+Shift+Q**: Open translator window
+- **Ctrl+Shift+J**: Quick Translate (Copy selected text and translate)
 
 ## Technical Details
 
-- **OCR Engine:** EasyOCR or LLM-based OCR for text recognition in various formats
-- **Translation API:** OpenAI GPT API for high-quality translation
+- **OCR Engine:** LLM-based Vision (OpenAI/Google) for text recognition
+- **Translation API:** OpenAI, Google Gemini, DeepL
 - **UI Framework:** Qt/PySide6 for cross-platform interface
 - **Security:** Keyring for secure API key storage
 
