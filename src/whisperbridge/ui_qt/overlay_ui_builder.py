@@ -70,6 +70,21 @@ class TranslatorSettingsDialog(QDialog):
             'tooltip': "If enabled, the narrow buttons on the right appear only on hover",
             'object_name': "autohide_buttons_checkbox"
         },
+        'stylist_cache_checkbox': {
+            'text': "Enable Text Stylist caching",
+            'tooltip': "Enable caching for Text Stylist mode (separate from general translation caching)",
+            'object_name': "stylist_cache_checkbox"
+        },
+        'translation_cache_checkbox': {
+            'text': "Enable translation caching",
+            'tooltip': "Enable caching for translation mode (separate from general caching)",
+            'object_name': "translation_cache_checkbox"
+        },
+        'auto_copy_translated_checkbox': {
+            'text': "Auto-copy translated text to clipboard",
+            'tooltip': "Automatically copy translated text to clipboard after translation",
+            'object_name': "auto_copy_translated_checkbox"
+        },
         'close_button': {
             'text': "Close",
             'size': (None, 26),
@@ -93,24 +108,63 @@ class TranslatorSettingsDialog(QDialog):
 
         config_maps = {"translator": self.TRANSLATOR_DIALOG_CONFIG}
 
-        # Compact view checkbox
+        # Display Options group
+        from PySide6.QtWidgets import QGroupBox
+        display_group = QGroupBox("Display Options")
+        display_layout = QVBoxLayout(display_group)
+
         self.compact_view_checkbox, _ = _create_widget(config_maps, "translator", "compact_view_checkbox", QCheckBox)
         self.compact_view_checkbox.setChecked(getattr(settings, "compact_view", False))
         self.compact_view_checkbox.stateChanged.connect(self._on_compact_view_changed)
-        layout.addWidget(self.compact_view_checkbox)
+        display_layout.addWidget(self.compact_view_checkbox)
 
-        # Side buttons auto-hide checkbox
         self.autohide_buttons_checkbox, _ = _create_widget(
             config_maps, "translator", "autohide_buttons_checkbox", QCheckBox
         )
         self.autohide_buttons_checkbox.setChecked(getattr(settings, "overlay_side_buttons_autohide", False))
         self.autohide_buttons_checkbox.stateChanged.connect(self._on_autohide_buttons_changed)
-        layout.addWidget(self.autohide_buttons_checkbox)
+        display_layout.addWidget(self.autohide_buttons_checkbox)
+
+        layout.addWidget(display_group)
+
+        # Performance group
+        performance_group = QGroupBox("Performance")
+        performance_layout = QVBoxLayout(performance_group)
+
+        self.stylist_cache_checkbox, _ = _create_widget(
+            config_maps, "translator", "stylist_cache_checkbox", QCheckBox
+        )
+        self.stylist_cache_checkbox.setChecked(getattr(settings, "stylist_cache_enabled", False))
+        self.stylist_cache_checkbox.stateChanged.connect(self._on_stylist_cache_changed)
+        performance_layout.addWidget(self.stylist_cache_checkbox)
+
+        self.translation_cache_checkbox, _ = _create_widget(
+            config_maps, "translator", "translation_cache_checkbox", QCheckBox
+        )
+        self.translation_cache_checkbox.setChecked(getattr(settings, "translation_cache_enabled", False))
+        self.translation_cache_checkbox.stateChanged.connect(self._on_translation_cache_changed)
+        performance_layout.addWidget(self.translation_cache_checkbox)
+
+        layout.addWidget(performance_group)
+
+        # Clipboard group
+        clipboard_group = QGroupBox("Clipboard")
+        clipboard_layout = QVBoxLayout(clipboard_group)
+
+        self.auto_copy_translated_checkbox, _ = _create_widget(
+            config_maps, "translator", "auto_copy_translated_checkbox", QCheckBox
+        )
+        self.auto_copy_translated_checkbox.setChecked(getattr(settings, "auto_copy_translated_main_window", False))
+        self.auto_copy_translated_checkbox.stateChanged.connect(self._on_auto_copy_translated_changed)
+        clipboard_layout.addWidget(self.auto_copy_translated_checkbox)
+
+        layout.addWidget(clipboard_group)
 
         # Close button
         close_button, _ = _create_widget(config_maps, "translator", "close_button", QPushButton)
         close_button.clicked.connect(self.close)
         layout.addWidget(close_button, alignment=Qt.AlignmentFlag.AlignRight)
+
 
     def _on_compact_view_changed(self, state):
         """Persist compact view setting."""
@@ -135,6 +189,33 @@ class TranslatorSettingsDialog(QDialog):
                 getattr(parent, "_update_layout")()
         except Exception as e:
             logger.error(f"Failed to save side buttons auto-hide setting: {e}")
+
+    def _on_stylist_cache_changed(self, state):
+        """Persist Text Stylist cache setting."""
+        try:
+            enabled = bool(state)
+            config_service.set_setting("stylist_cache_enabled", enabled)
+            logger.info(f"Text Stylist cache setting updated: {enabled}")
+        except Exception as e:
+            logger.error(f"Failed to save Text Stylist cache setting: {e}")
+
+    def _on_translation_cache_changed(self, state):
+        """Persist translation cache setting."""
+        try:
+            enabled = bool(state)
+            config_service.set_setting("translation_cache_enabled", enabled)
+            logger.info(f"Translation cache setting updated: {enabled}")
+        except Exception as e:
+            logger.error(f"Failed to save translation cache setting: {e}")
+
+    def _on_auto_copy_translated_changed(self, state):
+        """Persist auto-copy translated text setting."""
+        try:
+            enabled = bool(state)
+            config_service.set_setting("auto_copy_translated_main_window", enabled)
+            logger.info(f"Auto-copy translated text setting updated: {enabled}")
+        except Exception as e:
+            logger.error(f"Failed to save auto-copy translated text setting: {e}")
 
 
 class PanelWidget(QFrame):

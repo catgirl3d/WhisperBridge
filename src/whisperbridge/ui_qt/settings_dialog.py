@@ -149,13 +149,10 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
             "quick_translate_hotkey": (self.quick_translate_hotkey_edit, "text", "setText"),
             "copy_translate_hotkey": (self.copy_translate_hotkey_edit, "text", "setText"),
             "auto_copy_translated": (self.auto_copy_translated_check, "isChecked", "setChecked"),
-            "auto_copy_translated_main_window": (self.auto_copy_translated_main_window_check, "isChecked", "setChecked"),
             "clipboard_poll_timeout_ms": (self.clipboard_poll_timeout_spin, "value", "setValue"),
             "theme": (self.theme_combo, "currentText", "setCurrentText"),
             "log_level": (self.log_level_combo, "currentText", "setCurrentText"),
             "show_notifications": (self.show_notifications_check, "isChecked", "setChecked"),
-            "stylist_cache_enabled": (self.stylist_cache_checkbox, "isChecked", "setChecked"),
-            "translation_cache_enabled": (self.translation_cache_checkbox, "isChecked", "setChecked"),
         }
 
         # OCR-specific mappings only exist when OCR UI is present
@@ -383,11 +380,6 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
         self.auto_copy_translated_check.setToolTip(HELP_TEXTS.get("hotkeys.auto_copy_hotkey", {}).get("tooltip", ""))
         copy_layout.addRow(self.auto_copy_translated_check)
 
-        # Automatically copy translated text to clipboard (main translator window)
-        self.auto_copy_translated_main_window_check = self.factory.create_check("autoCopyTranslatedMainCheck")
-        self.auto_copy_translated_main_window_check.setToolTip(HELP_TEXTS.get("hotkeys.auto_copy_main", {}).get("tooltip", ""))
-        copy_layout.addRow(self.auto_copy_translated_main_window_check)
-
         # Clipboard polling timeout (ms)
         self.clipboard_poll_timeout_spin = self.factory.create_spin("clipboardPollTimeoutSpin")
         copy_layout.addRow("Clipboard polling timeout (ms):", self.clipboard_poll_timeout_spin)
@@ -416,16 +408,6 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
 
         self.show_notifications_check = self.factory.create_check("showNotificationsCheck")
         ui_layout.addRow(self.show_notifications_check)
-
-        # Text Stylist caching
-        self.stylist_cache_checkbox = self.factory.create_check("stylistCacheCheck")
-        self.stylist_cache_checkbox.setToolTip(HELP_TEXTS.get("general.stylist_cache", {}).get("tooltip", ""))
-        ui_layout.addRow(self.stylist_cache_checkbox)
-
-        # Translation caching
-        self.translation_cache_checkbox = self.factory.create_check("translationCacheCheck")
-        self.translation_cache_checkbox.setToolTip(HELP_TEXTS.get("general.translation_cache", {}).get("tooltip", ""))
-        ui_layout.addRow(self.translation_cache_checkbox)
 
         # Application version (read from package metadata / setuptools-scm)
         version_value = self.factory.create_label("versionLabel")

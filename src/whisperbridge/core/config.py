@@ -148,13 +148,13 @@ class Settings(BaseSettings):
 
     # Text Stylist caching
     stylist_cache_enabled: bool = Field(
-        default=True,
+        default=False,
         description="Enable caching for Text Stylist mode (separate from general translation caching).",
     )
 
     # Translation caching
     translation_cache_enabled: bool = Field(
-        default=True,
+        default=False,
         description="Enable caching for translation mode (separate from general caching).",
     )
 
