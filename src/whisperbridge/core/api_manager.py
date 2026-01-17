@@ -523,7 +523,6 @@ class APIManager:
                 APIErrorType.NETWORK,
                 APIErrorType.TIMEOUT,
                 APIErrorType.SERVER_ERROR,
-                APIErrorType.QUOTA_EXCEEDED,
             ]:
                 # Wrap in custom exception to trigger tenacity retry
                 raise RetryableAPIError(f"Retryable error occurred: {api_error.message}") from e
