@@ -478,8 +478,21 @@ QToolButton#providerBadge[provider="deepl"] {
     color: #ffffff;
 }
 
+/* Provider badge hover states (explicit colors instead of CSS filter) */
+QToolButton#providerBadge[provider="openai"]:hover {
+    background-color: #12b895; /* 10% lighter than #10a37f */
+}
+
+QToolButton#providerBadge[provider="google"]:hover {
+    background-color: #5a9bff; /* 10% lighter than #4285f4 */
+}
+
+QToolButton#providerBadge[provider="deepl"]:hover {
+    background-color: #153552; /* 10% lighter than #0f2b46 */
+}
+
 QToolButton#providerBadge:hover {
-    filter: brightness(110%);
+    background-color: #e0e0e0; /* Default hover for neutral badge */
 }
 
 /* Style the menu indicator (arrow) */
