@@ -777,6 +777,11 @@ class OverlayUIBuilder:
         except Exception as e:
             logger.warning(f"Failed to populate styles: {e}")
 
+    def refresh_styles(self):
+        """Refresh the style combo box with current settings (for dynamic updates)."""
+        if hasattr(self, "style_combo") and self.style_combo:
+            self._populate_styles(self.style_combo)
+
     def _create_status_label(self) -> QLabel:
         """Create standardized status label using config."""
         status_label, _ = self._create_widget_from_config('footer', 'status_label', QLabel, text="")

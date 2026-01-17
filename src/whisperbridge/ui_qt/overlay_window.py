@@ -40,6 +40,10 @@ class _OverlaySettingsObserver(SettingsObserver):
             if key in ("api_provider", "openai_api_key", "google_api_key", "deepl_api_key", "api_timeout"):
                 if hasattr(self._owner, "_update_api_state_and_ui"):
                     self._owner._update_api_state_and_ui()
+            elif key == "text_styles":
+                # Refresh style combo when user modifies text styles in settings
+                if hasattr(self._owner, "ui_builder") and hasattr(self._owner.ui_builder, "refresh_styles"):
+                    self._owner.ui_builder.refresh_styles()
         except Exception as e:
             logger.debug(f"Overlay observer change handler error: {e}")
 
