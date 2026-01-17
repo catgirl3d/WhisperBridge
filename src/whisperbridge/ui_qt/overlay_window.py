@@ -404,9 +404,9 @@ class OverlayWindow(StyledOverlayWindow):
                     self.ui_builder.apply_status_style(self.status_label, 'error')
                     self.status_label.setText(msg)
                 else:
-                    # Restore default style; don't override non-key statuses
-                    self.ui_builder.apply_status_style(self.status_label, 'default')
+                    # Restore default style only if we are clearing an API key error
                     if "API key" in (self.status_label.text() or ""):
+                        self.ui_builder.apply_status_style(self.status_label, 'default')
                         self.status_label.setText("")
 
             # Update provider badge
@@ -795,6 +795,7 @@ class OverlayWindow(StyledOverlayWindow):
         import time
         self._translation_start_time = time.time()
         self.status_label.setText("Request sent...")
+        self.ui_builder.apply_status_style(self.status_label, 'default')
 
         settings = self._cached_settings
         compact = getattr(settings, "compact_view", False)
@@ -849,6 +850,7 @@ class OverlayWindow(StyledOverlayWindow):
                     logger.warning("Translation was blocked by API safety filters")
                 else:
                     self.translated_text.setPlainText(result)
+                    self.ui_builder.apply_status_style(self.status_label, 'default')
                     logger.info("Translation completed and inserted into translated_text")
 
                     # Auto-copy translated text to clipboard if enabled for main window
