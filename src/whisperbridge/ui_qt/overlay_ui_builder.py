@@ -357,9 +357,10 @@ class OverlayUIBuilder:
             'eraser': {'icon': 'fa5s.eraser', 'color': 'black'},
             'copy': {'icon': 'fa5.copy', 'color': 'black'},
             'check_success': {'icon': 'fa5s.check', 'color': 'green'},
+            'edit_styles': {'asset': 'pen-to-square-solid-full.svg'},
         },
         'window_controls': {
-            'settings': {'icon': 'fa5s.cog', 'color': 'black'},
+            'settings': {'asset': 'gear-solid-full.svg'},
             'close': {'icon': 'fa5s.times', 'color': 'black'},
             'close_hover': {'icon': 'fa5s.times', 'color': 'white'},
             'collapse': {'icon': 'fa5s.compress-alt', 'color': 'black'},
@@ -429,7 +430,7 @@ class OverlayUIBuilder:
             'object_name': 'settingsBtnTop',
             'size': (22, 22),
             'icon': ICONS_CONFIG['window_controls']['settings'],
-            'icon_size': (18, 16),
+            'icon_size': (16, 16),
             'tooltip': 'Settings'
         },
         'close_button': {
@@ -681,6 +682,21 @@ class OverlayUIBuilder:
         self._apply_custom_dropdown_style(combo)
 
         return combo
+    
+    def _create_edit_styles_button(self) -> QPushButton:
+        """Create small button to open styles editor."""
+        button = QPushButton()
+        button.setObjectName("editStylesButton")
+        button.setFixedSize(28, 28)
+        
+        # Use pen-to-square icon for editing styles
+        icon_spec = self.ICONS_CONFIG['utility_icons']['edit_styles']
+        button.setIcon(self._make_icon_from_spec(icon_spec))
+        button.setIconSize(QSize(16, 16))
+        
+        button.setVisible(False)  # Hidden by default; shown only in Style mode
+        button.setToolTip("Edit Styles")
+        return button
 
     def _create_detected_lang_label(self) -> QLabel:
         """Create detected language label using config."""
@@ -704,6 +720,9 @@ class OverlayUIBuilder:
 
         self.style_combo = self._create_style_combo()
         info_row.addWidget(self.style_combo)
+        
+        self.edit_styles_btn = self._create_edit_styles_button()
+        info_row.addWidget(self.edit_styles_btn)
 
         # Middle: stretch to push detection + auto-swap to the right
         spacer_width = self.LAYOUT_CONFIG['info_row_spacer_width']
@@ -769,18 +788,25 @@ class OverlayUIBuilder:
             styles = getattr(settings, "text_styles", []) or []
             if not styles:
                 combo.addItem("Improve")  # fallback display
-                return
-            for s in styles:
-                name = (s.get("name") or "").strip() if isinstance(s, dict) else str(s)
-                if name:
-                    combo.addItem(name)
+            else:
+                for s in styles:
+                    name = (s.get("name") or "").strip() if isinstance(s, dict) else str(s)
+                    if name:
+                        combo.addItem(name)
         except Exception as e:
             logger.warning(f"Failed to populate styles: {e}")
 
     def refresh_styles(self):
         """Refresh the style combo box with current settings (for dynamic updates)."""
         if hasattr(self, "style_combo") and self.style_combo:
+            # Remember current selection before refresh
+            current_text = self.style_combo.currentText()
             self._populate_styles(self.style_combo)
+            # Restore selection if it still exists
+            if current_text:
+                index = self.style_combo.findText(current_text)
+                if index >= 0:
+                    self.style_combo.setCurrentIndex(index)
 
     def _create_status_label(self) -> QLabel:
         """Create standardized status label using config."""

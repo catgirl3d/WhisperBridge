@@ -79,6 +79,7 @@ class OverlayWindow(StyledOverlayWindow):
         self.mode_label = self.ui_builder.mode_label
         self.mode_combo = self.ui_builder.mode_combo
         self.style_combo = self.ui_builder.style_combo
+        self.edit_styles_btn = self.ui_builder.edit_styles_btn
         self.detected_lang_label = self.ui_builder.detected_lang_label
         self.auto_swap_checkbox = self.ui_builder.auto_swap_checkbox
         self.source_combo = self.ui_builder.source_combo
@@ -167,6 +168,8 @@ class OverlayWindow(StyledOverlayWindow):
         self.translated_text.textChanged.connect(self._update_reader_button_state)
         if hasattr(self, "mode_combo"):
             self.mode_combo.currentIndexChanged.connect(self._on_mode_changed)
+        if hasattr(self, "edit_styles_btn") and self.edit_styles_btn:
+            self.edit_styles_btn.clicked.connect(self._open_stylist_settings)
         if self.translate_btn:
             self.translate_btn.clicked.connect(self._on_translate_clicked)
         self.reader_mode_btn.clicked.connect(self._on_reader_mode_clicked)
@@ -185,6 +188,43 @@ class OverlayWindow(StyledOverlayWindow):
         except Exception as e:
             logger.debug(f"Failed to handle mode change: {e}")
 
+
+
+    def _open_stylist_settings(self):
+        """Open the main settings dialog and navigate to the Stylist tab."""
+        try:
+            from .settings_dialog import SettingsDialog
+            from .app import get_qt_app
+            
+            app = get_qt_app()
+            if not app:
+                logger.warning("Qt app not available")
+                return
+            
+            # Create settings dialog if needed
+            if not hasattr(app, '_main_settings_dialog') or app._main_settings_dialog is None:
+                app._main_settings_dialog = SettingsDialog(app, parent=None)
+            
+            dialog = app._main_settings_dialog
+            
+            # Find and select the Stylist tab
+            if hasattr(dialog, 'tab_widget'):
+                for i in range(dialog.tab_widget.count()):
+                    if dialog.tab_widget.tabText(i) == "Stylist":
+                        dialog.tab_widget.setCurrentIndex(i)
+                        logger.debug("Switched to Stylist tab")
+                        break
+            
+            # Show the dialog
+            if dialog.isHidden():
+                dialog.show()
+            dialog.raise_()
+            dialog.activateWindow()
+            logger.info("Opened settings dialog on Stylist tab")
+                
+        except Exception as e:
+            logger.error(f"Failed to open stylist settings: {e}", exc_info=True)
+
     def _apply_mode_visibility(self, mode: str):
         """Apply visibility changes based on selected mode."""
         try:
@@ -194,6 +234,9 @@ class OverlayWindow(StyledOverlayWindow):
             # Show/hide style combo based on mode
             if hasattr(self, "style_combo") and self.style_combo:
                 self.style_combo.setVisible(is_style)
+            
+            if hasattr(self, "edit_styles_btn") and self.edit_styles_btn:
+                self.edit_styles_btn.setVisible(is_style)
 
             # Update translate button text and icon
             if hasattr(self, "translate_btn") and self.translate_btn:

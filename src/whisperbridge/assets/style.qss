@@ -232,6 +232,21 @@ QComboBox#modeCombo {
 QComboBox#styleCombo {
 }
 
+QPushButton#editStylesButton {
+    background-color: transparent;
+    color: #888888;
+    border: 1px solid rgba(0,0,0,0.08);
+    border-radius: 4px;
+    font-size: 14px;
+    padding: 0px;
+}
+
+QPushButton#editStylesButton:hover {
+    background-color: #e8e8e8;
+    color: #111111;
+    border: 1px solid rgba(0,0,0,0.15);
+}
+
 QComboBox::drop-down {
     subcontrol-origin: padding;
     subcontrol-position: top right;
