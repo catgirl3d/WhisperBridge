@@ -82,8 +82,14 @@ class DeepLClientAdapter:
             # Default to English if not provided
             target_lang = "EN"
 
+        # Prepare request headers (DeepL requires header-based auth as of November 2025)
+        headers = {
+            "Authorization": f"DeepL-Auth-Key {self._api_key}",
+            "Content-Type": "application/x-www-form-urlencoded"
+        }
+        
+        # Prepare request data (no auth_key in body anymore)
         data = {
-            "auth_key": self._api_key,
             "text": text,
             "target_lang": target_lang,
         }
@@ -92,7 +98,7 @@ class DeepLClientAdapter:
 
         try:
             with httpx.Client(timeout=self._timeout) as client:
-                resp = client.post(f"{self._base_url}/v2/translate", data=data)
+                resp = client.post(f"{self._base_url}/v2/translate", headers=headers, data=data)
                 resp.raise_for_status()
                 payload = resp.json()
             translations = payload.get("translations") or []
