@@ -17,6 +17,16 @@ jobs:
       uses: actions/checkout@v4
       with:
         fetch-depth: 0  # For setuptools_scm version detection
+        fetch-tags: true
+
+    - name: Fetch tags explicitly
+      run: |
+        git fetch --tags --force
+        echo "Available tags:"
+        git tag -l
+        echo "Current ref: ${{ github.ref }}"
+        echo "Git describe:"
+        git describe --tags --always
 
     - name: Set up Python
       uses: actions/setup-python@v5
@@ -36,6 +46,13 @@ jobs:
         pip install --upgrade pip
         pip install -r requirements.txt
         pip install pyinstaller setuptools_scm
+
+    - name: Generate version file
+      run: |
+        python -c "from setuptools_scm import get_version; print(f'Version: {get_version()}')"
+        python -m setuptools_scm
+        echo "Generated _version.py content:"
+        type src\whisperbridge\_version.py
 
     - name: Build executable
       shell: pwsh
