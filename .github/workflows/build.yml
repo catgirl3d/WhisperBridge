@@ -1,0 +1,53 @@
+name: Build WhisperBridge
+
+on:
+  push:
+    tags:
+      - 'v*'                # Standard tags like v1.0.0
+      - 'WhisperBridge-v*'  # Custom tags like WhisperBridge-v1.2.4
+
+jobs:
+  build:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # For setuptools_scm version detection
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+
+    - name: Install UPX
+      shell: pwsh
+      run: |
+        choco install upx -y
+        # Find the actual path to upx.exe
+        $upxPath = (Get-Command upx).Source | Split-Path -Parent
+        echo "UPX_DIR=$upxPath" >> $env:GITHUB_ENV
+
+    - name: Install dependencies
+      run: |
+        pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pyinstaller setuptools_scm
+
+    - name: Build executable
+      shell: pwsh
+      run: |
+        python build.py --spec WhisperBridge.spec --ocr --upx --upx-dir "$env:UPX_DIR" --mode onefile
+
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: dist/WhisperBridge.exe
+        draft: false
+        prerelease: false
+        generate_release_notes: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
