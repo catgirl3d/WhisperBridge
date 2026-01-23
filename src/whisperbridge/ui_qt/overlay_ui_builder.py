@@ -42,6 +42,7 @@ from PySide6.QtWidgets import (
 
 from ..services.config_service import config_service
 from ..utils.language_utils import get_supported_languages
+from .overlay_ui_components import OverlayUIComponents
 from .widget_factory import apply_custom_dropdown_style as _apply_custom_dropdown_style
 from .widget_factory import create_widget as _create_widget
 from .widget_factory import make_icon_from_spec as _wf_make_icon_from_spec
@@ -560,9 +561,8 @@ class OverlayUIBuilder:
     }
 
     def __init__(self):
-        # Expose icons for external use (config-driven)
-        self.icon_translation = self._make_icon_from_spec(self.ICONS_CONFIG["translate"]["all"])
-        self.icon_check_green = self._make_icon_from_spec(self.ICONS_CONFIG["utility_icons"]["check_success"])
+        # Icons will be created during build_ui() and returned in DTO
+        pass
 
     def _make_icon_from_spec(self, spec: dict) -> QIcon:
         """Create QIcon from spec using shared widget_factory helpers."""
@@ -712,17 +712,17 @@ class OverlayUIBuilder:
         info_row.setContentsMargins(*self.LAYOUT_CONFIG['info_row_margins'])
 
         # Left: Mode selector + Style presets (when Style mode is active)
-        self.mode_label, _ = self._create_widget_from_config('info', 'mode_label', QLabel)
-        info_row.addWidget(self.mode_label)
+        self._mode_label, _ = self._create_widget_from_config('info', 'mode_label', QLabel)
+        info_row.addWidget(self._mode_label)
 
-        self.mode_combo = self._create_mode_combo()
-        info_row.addWidget(self.mode_combo)
+        self._mode_combo = self._create_mode_combo()
+        info_row.addWidget(self._mode_combo)
 
-        self.style_combo = self._create_style_combo()
-        info_row.addWidget(self.style_combo)
+        self._style_combo = self._create_style_combo()
+        info_row.addWidget(self._style_combo)
         
-        self.edit_styles_btn = self._create_edit_styles_button()
-        info_row.addWidget(self.edit_styles_btn)
+        self._edit_styles_btn = self._create_edit_styles_button()
+        info_row.addWidget(self._edit_styles_btn)
 
         # Middle: stretch to push detection + auto-swap to the right
         spacer_width = self.LAYOUT_CONFIG['info_row_spacer_width']
@@ -730,11 +730,11 @@ class OverlayUIBuilder:
         info_row.addItem(QSpacerItem(spacer_width, spacer_height, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum))
 
         # Right: Detected language label + Auto-translate toggle
-        self.detected_lang_label = self._create_detected_lang_label()
-        info_row.addWidget(self.detected_lang_label)
+        self._detected_lang_label = self._create_detected_lang_label()
+        info_row.addWidget(self._detected_lang_label)
 
-        self.auto_swap_checkbox, _ = self._create_widget_from_config('info', 'auto_swap_checkbox', QCheckBox)
-        info_row.addWidget(self.auto_swap_checkbox)
+        self._auto_swap_checkbox, _ = self._create_widget_from_config('info', 'auto_swap_checkbox', QCheckBox)
+        info_row.addWidget(self._auto_swap_checkbox)
 
         # Return the container widget so it can be managed uniformly (hideable_elements)
         return container
@@ -749,34 +749,34 @@ class OverlayUIBuilder:
     def _create_language_row(self):
         """Create the language selection row."""
         language_row = QHBoxLayout()
-        self.original_label, _ = self._create_widget_from_config('label', 'original', QLabel)
-        language_row.addWidget(self.original_label, alignment=Qt.AlignmentFlag.AlignBottom)
+        self._original_label, _ = self._create_widget_from_config('label', 'original', QLabel)
+        language_row.addWidget(self._original_label, alignment=Qt.AlignmentFlag.AlignBottom)
         language_row.addItem(QSpacerItem(0, 0, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum))
 
         # We create comboboxes directly from their unique configurations
-        self.source_combo, _ = self._create_widget_from_config('language', 'source_combo', QComboBox)
-        self.source_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
-        self.source_combo.setMaxVisibleItems(12)
+        self._source_combo, _ = self._create_widget_from_config('language', 'source_combo', QComboBox)
+        self._source_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
+        self._source_combo.setMaxVisibleItems(12)
 
         # Apply rounded corners to dropdown list
-        self._apply_custom_dropdown_style(self.source_combo)
+        self._apply_custom_dropdown_style(self._source_combo)
 
-        self.target_combo, _ = self._create_widget_from_config('language', 'target_combo', QComboBox)
-        self.target_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
-        self.target_combo.setMaxVisibleItems(12)
+        self._target_combo, _ = self._create_widget_from_config('language', 'target_combo', QComboBox)
+        self._target_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
+        self._target_combo.setMaxVisibleItems(12)
 
         # Apply rounded corners to dropdown list
-        self._apply_custom_dropdown_style(self.target_combo)
+        self._apply_custom_dropdown_style(self._target_combo)
         
-        self.swap_btn = self._create_swap_button()
+        self._swap_btn = self._create_swap_button()
 
-        language_row.addWidget(self.source_combo)
-        language_row.addWidget(self.swap_btn)
-        language_row.addWidget(self.target_combo)
+        language_row.addWidget(self._source_combo)
+        language_row.addWidget(self._swap_btn)
+        language_row.addWidget(self._target_combo)
 
         # Spacer for compact mode button panel
-        self.language_spacer = QSpacerItem(0, 0, QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Minimum)
-        language_row.addItem(self.language_spacer)
+        self._language_spacer = QSpacerItem(0, 0, QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Minimum)
+        language_row.addItem(self._language_spacer)
 
         return language_row
 
@@ -796,17 +796,7 @@ class OverlayUIBuilder:
         except Exception as e:
             logger.warning(f"Failed to populate styles: {e}")
 
-    def refresh_styles(self):
-        """Refresh the style combo box with current settings (for dynamic updates)."""
-        if hasattr(self, "style_combo") and self.style_combo:
-            # Remember current selection before refresh
-            current_text = self.style_combo.currentText()
-            self._populate_styles(self.style_combo)
-            # Restore selection if it still exists
-            if current_text:
-                index = self.style_combo.findText(current_text)
-                if index >= 0:
-                    self.style_combo.setCurrentIndex(index)
+    # refresh_styles() moved to OverlayStateManager
 
     def _create_status_label(self) -> QLabel:
         """Create standardized status label using config."""
@@ -822,21 +812,21 @@ class OverlayUIBuilder:
         provider_badge.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
         return provider_badge
 
-    def _create_close_button(self) -> QPushButton:
+    def _create_close_button(self) -> tuple[QPushButton, QIcon, QIcon]:
         """Create standardized close button using config."""
         config = self.FOOTER_WIDGET_CONFIG['close_button']
         close_btn, _ = self._create_widget_from_config('footer', 'close_button', QPushButton, text=config['text'])
 
-        # Prepare and expose hover/normal icons for external use (OverlayWindow hover handling)
+        # Prepare hover/normal icons to return in DTO
         icons = config.get('icons', {})
-        self.close_icon_normal = self._make_icon_from_spec(icons.get('normal'))
-        self.close_icon_hover = self._make_icon_from_spec(icons.get('hover'))
+        close_icon_normal = self._make_icon_from_spec(icons.get('normal'))
+        close_icon_hover = self._make_icon_from_spec(icons.get('hover'))
 
         try:
-            close_btn.setIcon(self.close_icon_normal)
+            close_btn.setIcon(close_icon_normal)
         except Exception:
             pass
-        return close_btn
+        return close_btn, close_icon_normal, close_icon_hover
 
     def _create_footer(self):
         """Create the footer row with provider badge, status label and close button."""
@@ -845,41 +835,41 @@ class OverlayUIBuilder:
         footer_row = QHBoxLayout(footer_widget)
         footer_row.setContentsMargins(*self.LAYOUT_CONFIG['footer_margins'])
 
-        self.provider_badge = self._create_provider_badge()
-        footer_row.addWidget(self.provider_badge)
+        self._provider_badge = self._create_provider_badge()
+        footer_row.addWidget(self._provider_badge)
 
-        self.status_label = self._create_status_label()
-        footer_row.addWidget(self.status_label)
+        self._status_label = self._create_status_label()
+        footer_row.addWidget(self._status_label)
         footer_row.addStretch()
 
-        close_btn = self._create_close_button()
+        close_btn, close_icon_normal, close_icon_hover = self._create_close_button()
         footer_row.addWidget(close_btn, alignment=Qt.AlignmentFlag.AlignRight)
-        return footer_widget, close_btn
+        return footer_widget, close_btn, close_icon_normal, close_icon_hover
 
     def init_language_controls(self):
         """Populate and configure language selection combos."""
         supported_languages = get_supported_languages()
         flags_path = _ASSETS_BASE / "icons" / "flags"
 
-        self.source_combo.insertItem(0, "Auto", userData="auto")
+        self._source_combo.insertItem(0, "Auto", userData="auto")
 
         for lang in supported_languages:
             icon_path = flags_path / lang.icon_name
             icon = QIcon(QPixmap(str(icon_path)))
 
-            self.source_combo.addItem(icon, lang.name, userData=lang.code)
-            self.target_combo.addItem(icon, lang.name, userData=lang.code)
+            self._source_combo.addItem(icon, lang.name, userData=lang.code)
+            self._target_combo.addItem(icon, lang.name, userData=lang.code)
 
         settings = config_service.get_settings()
         ui_source_language = getattr(settings, "ui_source_language", "en")
-        self.set_combo_data(self.source_combo, ui_source_language)
-        if self.source_combo.currentData() != ui_source_language:
-            self.set_combo_data(self.source_combo, "en")
+        self.set_combo_data(self._source_combo, ui_source_language)
+        if self._source_combo.currentData() != ui_source_language:
+            self.set_combo_data(self._source_combo, "en")
 
         ui_target_language = getattr(settings, "ui_target_language", "en")
-        self.set_combo_data(self.target_combo, ui_target_language)
-        if self.target_combo.currentData() != ui_target_language:
-            self.set_combo_data(self.target_combo, "en")
+        self.set_combo_data(self._target_combo, ui_target_language)
+        if self._target_combo.currentData() != ui_target_language:
+            self.set_combo_data(self._target_combo, "en")
 
     def set_combo_data(self, combo, data_value):
         """Set combo to the index matching the data value, with signal blocking."""
@@ -964,6 +954,18 @@ class OverlayUIBuilder:
         except Exception as e:
             logger.debug(f"Failed to apply status style: {e}")
 
+    def refresh_styles(self):
+        """Refresh the style combo box with current settings (for dynamic updates)."""
+        if hasattr(self, "_style_combo") and self._style_combo:
+            # Remember current selection before refresh
+            current_text = self._style_combo.currentText()
+            self._populate_styles(self._style_combo)
+            # Restore selection if it still exists
+            if current_text:
+                index = self._style_combo.findText(current_text)
+                if index >= 0:
+                    self._style_combo.setCurrentIndex(index)
+
     def create_top_label(self, text: str = "") -> QLabel:
         """Create a top-bar title label using config."""
         lbl, cfg = self._create_widget_from_config('top', 'title_label', QLabel, text=text)
@@ -981,16 +983,16 @@ class OverlayUIBuilder:
 
     def _create_main_buttons(self):
         """Create main action buttons (translate and reader mode)."""
-        self.translate_btn, _ = self._create_widget_from_config('main_buttons', 'translate', QPushButton)
-        self.translate_btn.setProperty("role", "translateButton")
+        self._translate_btn, _ = self._create_widget_from_config('main_buttons', 'translate', QPushButton)
+        self._translate_btn.setProperty("role", "translateButton")
 
-        self.reader_mode_btn, cfg = self._create_widget_from_config('main_buttons', 'reader', QPushButton)
-        self.reader_mode_btn.setProperty("role", "readerButton")
+        self._reader_mode_btn, cfg = self._create_widget_from_config('main_buttons', 'reader', QPushButton)
+        self._reader_mode_btn.setProperty("role", "readerButton")
         # Apply specific properties not handled by generic factory
         if 'utility' in cfg:
-            self.reader_mode_btn.setProperty("utility", cfg['utility'])
+            self._reader_mode_btn.setProperty("utility", cfg['utility'])
         if 'enabled' in cfg:
-            self.reader_mode_btn.setEnabled(cfg['enabled'])
+            self._reader_mode_btn.setEnabled(cfg['enabled'])
 
     def _create_utility_buttons(self):
         """Create utility buttons (clear and copy)."""
@@ -1005,31 +1007,34 @@ class OverlayUIBuilder:
                 btn.setProperty("utility", cfg['utility'])
             return btn
 
-        self.clear_original_btn = _create_util_btn('clear')
-        self.copy_original_btn = _create_util_btn('copy')
-        self.clear_translated_btn = _create_util_btn('clear')
-        self.copy_translated_btn = _create_util_btn('copy')
+        self._clear_original_btn = _create_util_btn('clear')
+        self._copy_original_btn = _create_util_btn('copy')
+        self._clear_translated_btn = _create_util_btn('clear')
+        self._copy_translated_btn = _create_util_btn('copy')
 
     def _create_text_widgets(self):
         """Create text edit widgets and labels."""
-        self.original_text = self._create_text_edit("Recognized text will appear here...")
-        self.translated_text = self._create_text_edit("Translation will appear here...")
+        self._original_text = self._create_text_edit("Recognized text will appear here...")
+        self._translated_text = self._create_text_edit("Translation will appear here...")
 
-        self.translated_label, _ = self._create_widget_from_config('label', 'translation', QLabel)
+        self._translated_label, _ = self._create_widget_from_config('label', 'translation', QLabel)
 
     def _create_panels(self, owner):
         """Create panel widgets for organizing buttons and text areas."""
-        self.original_buttons = [self.translate_btn, self.clear_original_btn, self.copy_original_btn]
-        self.translated_buttons = [self.reader_mode_btn, self.clear_translated_btn, self.copy_translated_btn]
+        self._original_buttons = [self._translate_btn, self._clear_original_btn, self._copy_original_btn]
+        self._translated_buttons = [self._reader_mode_btn, self._clear_translated_btn, self._copy_translated_btn]
 
-        self.original_panel = PanelWidget(self.original_text, self.original_buttons, self.apply_button_style, parent=owner)
-        self.translated_panel = PanelWidget(self.translated_text, self.translated_buttons, self.apply_button_style, parent=owner)
+        self._original_panel = PanelWidget(self._original_text, self._original_buttons, self.apply_button_style, parent=owner)
+        self._translated_panel = PanelWidget(self._translated_text, self._translated_buttons, self.apply_button_style, parent=owner)
 
-    def build_ui(self, owner):
+    def build_ui(self, owner) -> OverlayUIComponents:
         """Build and return all UI components for the overlay window.
 
-        The builder creates all widgets and returns them in a dict.
+        The builder creates all widgets and returns them in a typed DTO.
         Ownership is transferred to the overlay window, which manages signals, layout, and lifecycle.
+        
+        Returns:
+            OverlayUIComponents: Dataclass containing all 35 UI components
         """
         # Create main UI widgets
         info_row = self._create_info_row()
@@ -1043,16 +1048,62 @@ class OverlayUIBuilder:
         # Initialize language controls after creating combos
         self.init_language_controls()
 
-        footer_widget, close_btn = self._create_footer()
+        footer_widget, close_btn, close_icon_normal, close_icon_hover = self._create_footer()
+        
+        # Create icons for DTO
+        icon_translation = self._make_icon_from_spec(self.ICONS_CONFIG["translate"]["all"])
+        icon_check_green = self._make_icon_from_spec(self.ICONS_CONFIG["utility_icons"]["check_success"])
 
-        # Return all created components
-        return {
-            'info_row': info_row,
-            'language_row': language_row,
-            'original_panel': self.original_panel,
-            'translated_label': self.translated_label,
-            'translated_panel': self.translated_panel,
-            'footer_widget': footer_widget,
-            'close_btn': close_btn,
-            'hideable_elements': [info_row, self.original_label, self.translated_label, footer_widget]
-        }
+        # Return DTO with all components
+        return OverlayUIComponents(
+            # Layout containers
+            info_row=info_row,
+            language_row=language_row,
+            footer_widget=footer_widget,
+            
+            # Info row widgets
+            mode_label=self._mode_label,
+            mode_combo=self._mode_combo,
+            style_combo=self._style_combo,
+            edit_styles_btn=self._edit_styles_btn,
+            detected_lang_label=self._detected_lang_label,
+            auto_swap_checkbox=self._auto_swap_checkbox,
+            
+            # Language row widgets
+            source_combo=self._source_combo,
+            target_combo=self._target_combo,
+            swap_btn=self._swap_btn,
+            original_label=self._original_label,
+            language_spacer=self._language_spacer,
+            
+            # Text panels
+            original_text=self._original_text,
+            translated_text=self._translated_text,
+            translated_label=self._translated_label,
+            original_panel=self._original_panel,
+            translated_panel=self._translated_panel,
+            
+            # Action buttons
+            translate_btn=self._translate_btn,
+            reader_mode_btn=self._reader_mode_btn,
+            clear_original_btn=self._clear_original_btn,
+            copy_original_btn=self._copy_original_btn,
+            clear_translated_btn=self._clear_translated_btn,
+            copy_translated_btn=self._copy_translated_btn,
+            original_buttons=self._original_buttons,
+            translated_buttons=self._translated_buttons,
+            
+            # Footer widgets
+            status_label=self._status_label,
+            provider_badge=self._provider_badge,
+            close_btn=close_btn,
+            
+            # Icons
+            icon_translation=icon_translation,
+            icon_check_green=icon_check_green,
+            close_icon_normal=close_icon_normal,
+            close_icon_hover=close_icon_hover,
+            
+            # Hideable elements
+            hideable_elements=[info_row, self._original_label, self._translated_label, footer_widget]
+        )
