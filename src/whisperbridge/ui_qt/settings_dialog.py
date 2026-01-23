@@ -150,7 +150,7 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
             "copy_translate_hotkey": (self.copy_translate_hotkey_edit, "text", "setText"),
             "auto_copy_translated": (self.auto_copy_translated_check, "isChecked", "setChecked"),
             "clipboard_poll_timeout_ms": (self.clipboard_poll_timeout_spin, "value", "setValue"),
-            "theme": (self.theme_combo, "currentText", "setCurrentText"),
+            # "theme": (self.theme_combo, "currentText", "setCurrentText"),  # Temporarily disabled
             "log_level": (self.log_level_combo, "currentText", "setCurrentText"),
             "show_notifications": (self.show_notifications_check, "isChecked", "setChecked"),
         }
@@ -398,9 +398,9 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
         ui_group = self.factory.create_group_box("uiGroup")
         ui_layout = QFormLayout(ui_group)
 
-        # Theme selection (support system option as well)
-        self.theme_combo = self.factory.create_combo("themeCombo")
-        ui_layout.addRow(self._create_hint_label("Theme:", "general.theme"), self.theme_combo)
+        # Theme selection (support system option as well) - Temporarily disabled
+        # self.theme_combo = self.factory.create_combo("themeCombo")
+        # ui_layout.addRow(self._create_hint_label("Theme:", "general.theme"), self.theme_combo)
 
         # Log level selection (exposed to users so they can change verbosity)
         self.log_level_combo = self.factory.create_combo("logLevelCombo")
@@ -655,7 +655,7 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
             # Force reload from disk to avoid race conditions with async saves
             settings = config_service.load_settings()
         self.current_settings = settings
-        logger.debug(f"Loading settings - theme: '{settings.theme}'")
+        # logger.debug(f"Loading settings - theme: '{settings.theme}'")
 
         for key, (widget, _, setter) in self.settings_map.items():
             value = getattr(settings, key, None)
@@ -735,7 +735,7 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
             except Exception as e:
                 logger.warning(f"Failed to collect text styles from UI: {e}")
 
-            logger.debug(f"Saving settings with theme: '{settings_to_save.theme}'")
+            # logger.debug(f"Saving settings with theme: '{settings_to_save.theme}'")
 
             # Save settings asynchronously
             config_service.save_settings_async(settings_to_save)
@@ -999,7 +999,8 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
             # Update current settings
             self.current_settings = config_service.get_settings()
             # Update the theme combo box to reflect the change
-            self.theme_combo.setCurrentText(new_value)
+            if hasattr(self, "theme_combo"):
+                self.theme_combo.setCurrentText(new_value)
         elif key == "auto_swap_en_ru":
             logger.debug(f"Auto-swap setting changed from {old_value} to {new_value}")
             self.ocr_auto_swap_checkbox.setChecked(bool(new_value))

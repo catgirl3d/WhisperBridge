@@ -101,10 +101,10 @@ class SettingsUIFactory:
             'range': (500, 10000),
             'single_step': 100
         },
-        'themeCombo': {
-            'object_name': 'themeCombo',
-            'items': ['dark', 'light', 'system']
-        },
+        # 'themeCombo': {
+        #     'object_name': 'themeCombo',
+        #     'items': ['dark', 'light', 'system']
+        # },
         'logLevelCombo': {
             'object_name': 'logLevelCombo',
             'items': ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']

@@ -93,10 +93,10 @@ HELP_TEXTS = {
     },
 
     # General Tab
-    "general.theme": {
-        "tooltip": "Choose UI theme: dark, light, or system default.",
-        "detailed": "<b>Theme</b><br><b>Dark:</b> Easy on eyes in low light<br><b>Light:</b> Classic bright interface<br><b>System:</b> Follows OS preference"
-    },
+    # "general.theme": {
+    #     "tooltip": "Choose UI theme: dark, light, or system default.",
+    #     "detailed": "<b>Theme</b><br><b>Dark:</b> Easy on eyes in low light<br><b>Light:</b> Classic bright interface<br><b>System:</b> Follows OS preference"
+    # },
     "general.log_level": {
         "tooltip": "Set logging verbosity for debugging and troubleshooting.",
         "detailed": "<b>Log Level</b><br><b>DEBUG:</b> Most verbose, for development<br><b>INFO:</b> Normal operation<br><b>WARNING/ERROR:</b> Only issues"

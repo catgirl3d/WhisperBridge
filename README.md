@@ -78,7 +78,7 @@ In the Settings window you can configure:
 - **Models**: Select specific models for translation and vision tasks.
 - **Text Stylist**: Customize presets for text rewriting.
 - **Hotkeys**: Remap global shortcuts.
-- **Appearance**: Switch between Light, Dark, or System themes.
+<!-- - **Appearance**: Switch between Light, Dark, or System themes. -->
 
 ### LLM-based OCR configuration
 
