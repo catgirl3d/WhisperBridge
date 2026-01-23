@@ -8,6 +8,7 @@ Configuration Guidelines:
 - Python sets identity/state (objectName, properties); QSS handles visuals.
 """
 
+
 import sys
 import os
 
@@ -18,7 +19,7 @@ if src_path not in sys.path:
 
 from typing import Callable, Optional, Union
 
-
+from loguru import logger
 from PySide6.QtCore import QPoint, QRect, QSize, Qt
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
@@ -31,7 +32,7 @@ from PySide6.QtWidgets import (
 
 from whisperbridge.ui_qt.base_window import BaseWindow
 from ..services.config_service import config_service
-from loguru import logger
+
 
 # Configuration dictionaries for UI components
 WINDOW_CONFIG = {

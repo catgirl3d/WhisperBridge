@@ -2,6 +2,9 @@
 Overlay window implementation for Qt-based UI.
 """
 
+import time
+from typing import Optional
+
 from loguru import logger
 from PySide6.QtCore import (
     QEvent,
@@ -20,11 +23,9 @@ from PySide6.QtWidgets import (
     QMenu,
 )
 
-
 from ..services.config_service import config_service, SettingsObserver
 from ..utils.language_utils import detect_language, get_language_name
 from ..core.config import validate_api_key_format, SUPPORTED_PROVIDERS
-from typing import Optional
 from .styled_overlay_base import StyledOverlayWindow
 from .workers import TranslationWorker, StyleWorker
 from .overlay_ui_builder import OverlayUIBuilder, TranslatorSettingsDialog
@@ -851,7 +852,6 @@ class OverlayWindow(StyledOverlayWindow):
             return
 
         # Record start time and update status
-        import time
         self._translation_start_time = time.time()
         self.status_label.setText("Request sent...")
         self.ui_builder.apply_status_style(self.status_label, 'default')
@@ -931,7 +931,6 @@ class OverlayWindow(StyledOverlayWindow):
         finally:
             # Update status with completion time (only if not blocked by safety)
             if self._translation_start_time is not None:
-                import time
                 elapsed = time.time() - self._translation_start_time
                 # Only show completion time if we didn't already set safety block message
                 if "safety" not in (self.status_label.text() or "").lower():
@@ -981,7 +980,6 @@ class OverlayWindow(StyledOverlayWindow):
         finally:
             # Update status with error indication
             if self._translation_start_time is not None:
-                import time
                 elapsed = time.time() - self._translation_start_time
                 self.status_label.setText(f"{status_text} ({elapsed:.1f}s)")
                 self._translation_start_time = None
