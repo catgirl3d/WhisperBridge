@@ -80,17 +80,19 @@ def format_style_prompt(request: StyleRequest) -> str:
 
 
 def validate_translation_response(response: TranslationResponse) -> bool:
-    """Validate translation API response."""
+    """Validate translation API response.
+    
+    Empty responses are considered valid if success=True, allowing the UI
+    to handle them gracefully (e.g., display 'Model returned empty response').
+    """
     if not response.success:
         return False
 
+    # Allow empty responses - the UI will handle them appropriately
     if not response.translated_text or not response.translated_text.strip():
-        logger.warning("Empty translation response")
-        return False
-
-    if len(response.translated_text.strip()) < len(response.translated_text) * 0.1:
-        logger.warning("Translation response too short compared to original")
-        return False
+        logger.warning("Empty translation response from model")
+        # Return True to let the UI handle empty responses gracefully
+        return True
 
     return True
 

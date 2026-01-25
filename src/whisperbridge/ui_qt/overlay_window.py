@@ -901,12 +901,12 @@ class OverlayWindow(StyledOverlayWindow):
         """Handle completion of background translation."""
         try:
             if success:
-                # Check if the result is empty (indicating safety filter block)
+                # Check if the result is empty
                 if not result.strip():
-                    self.status_label.setText("Response blocked by safety filters")
+                    self.status_label.setText("Model returned empty response")
                     self.ui_builder.apply_status_style(self.status_label, 'error')
                     self.translated_text.setPlainText("")
-                    logger.warning("Translation was blocked by API safety filters")
+                    logger.warning("Model returned empty translation response")
                 else:
                     self.translated_text.setPlainText(result)
                     self.ui_builder.apply_status_style(self.status_label, 'default')
