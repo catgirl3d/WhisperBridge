@@ -64,16 +64,32 @@ class GoogleChatClientAdapter:
 
         response = model_obj.generate_content(prompt, generation_config=generation_config)
 
-        # Check if response was blocked by safety filters
-        if hasattr(response, 'candidates') and response.candidates:
-            candidate = response.candidates[0]
-            if hasattr(candidate, 'finish_reason') and candidate.finish_reason == 2:  # SAFETY
-                # Response was blocked due to safety filters
-                text = ""  # Return empty string instead of accessing text property
+        # Safely extract text from Gemini response
+        # The .text property raises ValueError if response has no valid parts
+        # (e.g., finish_reason=STOP with empty content)
+        text = ""
+        try:
+            if hasattr(response, 'candidates') and response.candidates:
+                candidate = response.candidates[0]
+                finish_reason = getattr(candidate, 'finish_reason', None)
+                # finish_reason 2 = SAFETY (blocked), 1 = STOP (normal)
+                if finish_reason == 2:
+                    # Response was blocked due to safety filters
+                    text = ""
+                elif hasattr(candidate, 'content') and hasattr(candidate.content, 'parts'):
+                    # Manually extract text from parts to avoid .text property issues
+                    for part in candidate.content.parts:
+                        if hasattr(part, 'text') and part.text:
+                            text += part.text
+                else:
+                    # Fallback: try .text but may raise
+                    text = response.text or ""
             else:
-                text = getattr(response, "text", "") or ""
-        else:
-            text = getattr(response, "text", "") or ""
+                text = response.text or ""
+        except (ValueError, AttributeError) as e:
+            # Handle "Invalid operation" when response has no valid parts
+            # This happens when finish_reason=STOP but response is empty
+            text = ""
         usage_metadata = getattr(response, "usage_metadata", None)
         total_tokens = 0
         if usage_metadata is not None:
