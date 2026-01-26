@@ -13,7 +13,7 @@ from PySide6.QtCore import (
     QThread,
     QTimer,
 )
-from PySide6.QtGui import QAction, QTextCursor
+from PySide6.QtGui import QAction, QTextCursor, QPixmap, QTransform
 from PySide6.QtWidgets import (
     QApplication,
     QLabel,
@@ -67,6 +67,12 @@ class OverlayWindow(StyledOverlayWindow):
         super().__init__(title="Translator")
         self._translator_settings_dialog = None
         self._translation_start_time = None
+
+        # Animation state for loading spinner + dots
+        self._loading_timer: Optional[QTimer] = None
+        self._loading_rotation = 0
+        self._loading_dots_count = 0
+        self._loading_base_text = ""
 
         # Create UI builder
         self.ui_builder = OverlayUIBuilder()
@@ -862,7 +868,7 @@ class OverlayWindow(StyledOverlayWindow):
 
         # Record start time and update status
         self._translation_start_time = time.time()
-        self.status_label.setText("Request sent...")
+        self.status_label.setText("Request sent")
         self.ui_builder.apply_status_style(self.status_label, 'default')
 
         settings = self._cached_settings
@@ -872,9 +878,9 @@ class OverlayWindow(StyledOverlayWindow):
         if self.translate_btn:
             self.translate_btn.setEnabled(False)
             prev_text = self.translate_btn.text()
-            if not compact:
-                self.translate_btn.setText("  Styling..." if is_style else "  Translating...")
-                QApplication.processEvents()
+            # Start loading animation
+            base_text = "Styling" if is_style else "Translating"
+            self._start_loading_animation(base_text, compact)
         else:
             prev_text = "Translate" if not is_style else "Style"
 
@@ -953,6 +959,8 @@ class OverlayWindow(StyledOverlayWindow):
             settings = self._cached_settings
             compact = getattr(settings, "compact_view", False)
             prev_text = getattr(self, "_translation_prev_text", "Translate")
+            # Stop loading animation and restore button
+            self._stop_loading_animation()
             if self.translate_btn:
                 self.translate_btn.setEnabled(True)
                 if not compact:
@@ -1004,6 +1012,8 @@ class OverlayWindow(StyledOverlayWindow):
             settings = self._cached_settings
             compact = getattr(settings, "compact_view", False)
             prev_text = getattr(self, "_translation_prev_text", "Translate")
+            # Stop loading animation and restore button
+            self._stop_loading_animation()
             if self.translate_btn:
                 self.translate_btn.setEnabled(True)
                 if not compact:
@@ -1016,6 +1026,84 @@ class OverlayWindow(StyledOverlayWindow):
                 self._update_api_state_and_ui()
             except Exception:
                 pass
+
+    def _start_loading_animation(self, base_text: str, compact: bool):
+        """Start the loading animation with spinning icon and animated dots."""
+        try:
+            self._loading_base_text = base_text
+            self._loading_rotation = 0
+            self._loading_dots_count = 0
+            self._loading_compact = compact
+
+            # Store original icon for restoration
+            if self.translate_btn:
+                self._original_icon = self.translate_btn.icon()
+
+            # Create and start timer (60ms interval for smooth animation)
+            if self._loading_timer is None:
+                self._loading_timer = QTimer(self)
+                self._loading_timer.timeout.connect(self._update_loading_animation)
+            self._loading_timer.start(60)
+
+            # Initial update
+            self._update_loading_animation()
+            logger.debug("Loading animation started")
+        except Exception as e:
+            logger.debug(f"Failed to start loading animation: {e}")
+
+    def _stop_loading_animation(self):
+        """Stop the loading animation and restore original icon."""
+        try:
+            if self._loading_timer is not None:
+                self._loading_timer.stop()
+
+            # Restore original icon
+            if self.translate_btn and hasattr(self, "_original_icon"):
+                self.translate_btn.setIcon(self._original_icon)
+
+            logger.debug("Loading animation stopped")
+        except Exception as e:
+            logger.debug(f"Failed to stop loading animation: {e}")
+
+    def _update_loading_animation(self):
+        """Update the loading animation: rotate icon and cycle dots."""
+        try:
+            if not self.translate_btn:
+                return
+
+            # Update rotation (15 degrees per tick for slower animation)
+            self._loading_rotation = (self._loading_rotation + 15) % 360
+
+            # Rotate the icon (only in compact mode)
+            is_compact = getattr(self, "_loading_compact", False)
+            if is_compact and hasattr(self, "_original_icon") and self._original_icon:
+                # Get pixmap from original icon
+                pixmap = self._original_icon.pixmap(QSize(16, 16))
+                if not pixmap.isNull():
+                    # Apply rotation transform
+                    transform = QTransform()
+                    transform.rotate(self._loading_rotation)
+                    rotated_pixmap = pixmap.transformed(transform, Qt.TransformationMode.SmoothTransformation)
+                    from PySide6.QtGui import QIcon
+                    self.translate_btn.setIcon(QIcon(rotated_pixmap))
+
+            # Update dots (cycle every 90 degrees / 6 ticks for slower animation)
+            if self._loading_rotation % 90 == 0:
+                self._loading_dots_count = (self._loading_dots_count + 1) % 4
+
+            # Update text with animated dots (only in non-compact mode)
+            if not getattr(self, "_loading_compact", False):
+                # Use fixed width: dots + spaces to prevent text jumping
+                dots = "." * self._loading_dots_count + " " * (3 - self._loading_dots_count)
+                self.translate_btn.setText(f"  {self._loading_base_text}{dots}")
+
+            # Update status label with animated dots
+            if hasattr(self, "status_label") and self.status_label:
+                dots = "." * self._loading_dots_count + " " * (3 - self._loading_dots_count)
+                self.status_label.setText(f"Request sent{dots}")
+
+        except Exception as e:
+            logger.debug(f"Failed to update loading animation: {e}")
 
     def _copy_translated_to_clipboard(self):
         """Copy translated text to clipboard."""
