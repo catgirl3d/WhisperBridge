@@ -192,6 +192,8 @@ class OverlayWindow(StyledOverlayWindow):
         self.copy_translated_btn.clicked.connect(self._copy_translated_to_clipboard)
         self.close_btn.clicked.connect(self.dismiss)
         self.close_btn.installEventFilter(self)
+        # Install event filter on original_text to capture Ctrl+Enter for translation
+        self.original_text.installEventFilter(self)
 
     def _on_mode_changed(self, index: int):
         """Handle mode combo box changes (Translate vs Style)."""
@@ -596,6 +598,13 @@ class OverlayWindow(StyledOverlayWindow):
         """Handle events for child widgets, including hover for compact buttons."""
         if not hasattr(self, "original_text"):
             return super().eventFilter(obj, event)
+
+        # Handle Ctrl+Enter in original_text to trigger translation
+        if obj == self.original_text and event.type() == QEvent.Type.KeyPress:
+            if event.key() == Qt.Key.Key_Return and event.modifiers() == Qt.KeyboardModifier.ControlModifier:
+                logger.debug("Ctrl+Enter pressed in original_text, triggering translation")
+                self._on_translate_clicked()
+                return True
 
         # PanelWidget handles its own hover-based autohide; no-op here
 
