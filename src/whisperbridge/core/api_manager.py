@@ -735,47 +735,66 @@ class APIManager:
         if not has_image:
             raise ValueError("Gemini vision request requires an image part")
 
-        # Extract text and image from messages (concatenate all text, use first image)
-        text_parts = []
+        # Separate system instruction and user content
+        system_parts = []
+        user_text_parts = []
         image_data = None
+        
         for msg in messages:
-            if msg.get("role") == "system":
-                text_parts.append(msg.get("content", ""))
-            elif msg.get("role") == "user" and isinstance(msg.get("content"), list):
-                for part in msg["content"]:
-                    if isinstance(part, dict):
-                        if part.get("type") == "text":
-                            text_parts.append(part.get("text", ""))
-                        elif part.get("type") == "image_url" and not image_data:
-                            # Decode first image
-                            image_url = part.get("image_url", {}).get("url", "")
-                            if image_url.startswith("data:image/jpeg;base64,"):
-                                try:
-                                    image_data = base64.b64decode(image_url[23:])  # Strip prefix
-                                except Exception as e:
-                                    raise ValueError(f"Failed to decode image data URL: {e}")
-                            else:
-                                raise ValueError("Unsupported image URL format; expected data:image/jpeg;base64,...")
+            role = msg.get("role")
+            content = msg.get("content")
+            
+            if role == "system":
+                system_parts.append(str(content or ""))
+            elif role == "user":
+                if isinstance(content, list):
+                    for part in content:
+                        if isinstance(part, dict):
+                            if part.get("type") == "text":
+                                user_text_parts.append(part.get("text", ""))
+                            elif part.get("type") == "image_url" and not image_data:
+                                # Decode first image
+                                image_url = part.get("image_url", {}).get("url", "")
+                                if image_url.startswith("data:image/jpeg;base64,"):
+                                    try:
+                                        image_data = base64.b64decode(image_url[23:])  # Strip prefix
+                                    except Exception as e:
+                                        raise ValueError(f"Failed to decode image data URL: {e}")
+                                else:
+                                    raise ValueError("Unsupported image URL format; expected data:image/jpeg;base64,...")
+                elif isinstance(content, str):
+                    user_text_parts.append(content)
 
-        prompt = " ".join(text_parts).strip()
+        system_instruction = " ".join(system_parts).strip() or None
+        prompt = " ".join(user_text_parts).strip() or "Describe this image"
+        
         if not image_data:
             raise ValueError("No valid image data found in messages")
 
-        # Lazy import and call Gemini
+        # Lazy import and call Gemini with new SDK
         try:
-            import google.generativeai as genai
+            from google import genai
+            from google.genai import types
         except ImportError:
-            raise RuntimeError("google-generativeai package not available")
+            raise RuntimeError("google-genai package not available")
 
         api_key = self.config_service.get_setting("google_api_key")
         if not api_key:
             raise RuntimeError("Google API key not configured")
 
-        genai.configure(api_key=api_key)
-        gemini_model = genai.GenerativeModel(model)
-        parts = [prompt, {"mime_type": "image/jpeg", "data": image_data}]
+        timeout = self.config_service.get_setting("api_timeout")
+        client = genai.Client(api_key=api_key, http_options={"timeout": (timeout or 30) * 1000})
+        
+        # Configure generation parameters
+        config = types.GenerateContentConfig(
+            max_output_tokens=2048,
+            temperature=0,
+            system_instruction=system_instruction,
+        )
 
-        generation_config = {"max_output_tokens": 2048, "temperature": 0}
+        # Add ThinkingConfig for Gemini 3 vision models
+        if model.startswith("gemini-3"):
+            config.thinking_config = types.ThinkingConfig(thinking_level="low")
 
         @retry(
             stop=stop_after_attempt(3),
@@ -784,7 +803,14 @@ class APIManager:
         )
         def do_gemini_call():
             try:
-                response = gemini_model.generate_content(parts, generation_config=generation_config)
+                response = client.models.generate_content(
+                    model=model,
+                    contents=[
+                        prompt,
+                        types.Part.from_bytes(data=image_data, mime_type="image/jpeg")
+                    ],
+                    config=config
+                )
                 return response
             except Exception as e:
                 api_error = self._classify_error(e)
@@ -800,32 +826,15 @@ class APIManager:
 
         gemini_response = do_gemini_call()
 
-        # Extract text from Gemini response
+        # Extract text from new SDK response (pydantic object)
         logger.debug(f"Gemini response object: {gemini_response}")
-        logger.debug(f"Gemini response attributes: {dir(gemini_response)}")
-
+        
         try:
             extracted_text = gemini_response.text or ""
-            logger.debug(f"Successfully extracted text using .text: '{extracted_text}'")
-        except Exception as e:
-            logger.warning(f"Failed to extract text using .text: {e}")
-            # Fallback if response.text fails
+        except (ValueError, AttributeError):
+            # Response may be blocked by safety filters or have no valid parts
+            logger.warning("Failed to extract text from Gemini response (blocked or empty)")
             extracted_text = ""
-            if hasattr(gemini_response, 'candidates') and gemini_response.candidates:
-                logger.debug(f"Using candidates fallback, found {len(gemini_response.candidates)} candidates")
-                for candidate in gemini_response.candidates:
-                    logger.debug(f"Processing candidate: {candidate}")
-                    if hasattr(candidate, 'content') and hasattr(candidate.content, 'parts'):
-                        logger.debug(f"Content has {len(candidate.content.parts)} parts")
-                        for part in candidate.content.parts:
-                            logger.debug(f"Processing part: {part}")
-                            if hasattr(part, 'text'):
-                                extracted_text += part.text or ""
-                                logger.debug(f"Extracted text from part: '{part.text}'")
-                            break
-                        break
-            else:
-                logger.warning("No candidates found in Gemini response")
 
         # Calculate total tokens correctly (usage_metadata is an object, not a dict)
         usage_metadata = getattr(gemini_response, "usage_metadata", None)
@@ -852,6 +861,7 @@ class APIManager:
         }
 
         return normalized_response, model
+
 
     @requires_initialization
     def get_usage_stats(self, provider: Optional[APIProvider] = None) -> Dict[str, Any]:
@@ -917,9 +927,13 @@ class APIManager:
             with self._lock:
                 if provider in self._model_cache:
                     models, timestamp = self._model_cache[provider]
+                    # Only use cache if it's not expired and NOT empty (unless it's DeepL which has a virtual model)
                     if time.time() - timestamp < self._model_cache_ttl:
-                        logger.debug(f"Using cached models for {provider.value}")
-                        return models, ModelSource.CACHE.value
+                        if models or provider == APIProvider.DEEPL:
+                            logger.debug(f"Using cached models for {provider.value}")
+                            return models, ModelSource.CACHE.value
+                        else:
+                            logger.debug(f"Cache for {provider.value} is empty, forcing fresh fetch.")
 
         # 2. Determine which client to use (temporary or configured)
         client = None
@@ -994,8 +1008,10 @@ class APIManager:
                 return [], ModelSource.ERROR.value
 
             # Cache the result for successful API calls (except temp API key usage)
+            # Avoid caching empty lists unless it's DeepL
             if source != ModelSource.API_TEMP_KEY:
-                self._cache_models_and_persist(provider, models)
+                if models or provider == APIProvider.DEEPL:
+                    self._cache_models_and_persist(provider, models)
             return models, source.value
 
         except Exception as e:

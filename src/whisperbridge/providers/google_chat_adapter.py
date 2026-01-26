@@ -25,12 +25,18 @@ class GoogleChatClientAdapter:
 
     def __init__(self, api_key: str, timeout: Optional[int] = None):
         try:
-            import google.generativeai as genai  # type: ignore
-        except Exception as exc:  # pragma: no cover - dependency may be optional at runtime
-            raise ImportError("google.generativeai is not installed") from exc
+            from google import genai  # type: ignore
+            from google.genai import types  # type: ignore
+        except ImportError as exc:
+            raise ImportError("google-genai is not installed") from exc
 
-        genai.configure(api_key=api_key)
-        self._genai = genai
+        # Configure HTTP options for timeout (SDK expects milliseconds)
+        http_options = None
+        if timeout:
+            http_options = {"timeout": timeout * 1000}
+
+        self._client = genai.Client(api_key=(api_key or "").strip(), http_options=http_options)
+        self._types = types
         self._timeout = timeout
         self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
         self.models = SimpleNamespace(list=self._list_models)
@@ -43,53 +49,44 @@ class GoogleChatClientAdapter:
         max_completion_tokens: int = 256,
         **kwargs: Any,
     ) -> Any:
-        model_obj = self._genai.GenerativeModel(model)
+        # Extract system instruction for native SDK support
+        system_parts = [
+            message.get("content", "")
+            for message in messages
+            if message.get("role") == "system"
+        ]
+        system_instruction = " ".join(system_parts).strip() or None
 
-        system_text = " ".join(
-            (message.get("content", "") for message in messages if message.get("role") == "system")
-        ).strip()
-        parts: List[str] = []
-        if system_text:
-            parts.append(f"System: {system_text}")
+        # Build user/assistant content
+        content_parts: List[str] = []
         for message in messages:
             role = message.get("role")
             if role in ("user", "assistant"):
-                parts.append(str(message.get("content", "")))
-        prompt = "\n\n".join(part for part in parts if part).strip() or "Hello"
+                content_parts.append(str(message.get("content", "")))
+        prompt = "\n\n".join(part for part in content_parts if part).strip() or "Hello"
 
-        generation_config = {
-            "max_output_tokens": int(max_completion_tokens or 256),
-            "temperature": float(temperature or 1.0),
-        }
+        # Configure generation parameters
+        config = self._types.GenerateContentConfig(
+            max_output_tokens=int(max_completion_tokens or 256),
+            temperature=float(temperature or 1.0),
+            system_instruction=system_instruction,
+        )
 
-        response = model_obj.generate_content(prompt, generation_config=generation_config)
+        # Add ThinkingConfig for Gemini 3 models
+        if model.startswith("gemini-3"):
+            config.thinking_config = self._types.ThinkingConfig(thinking_level="low")
 
-        # Safely extract text from Gemini response
-        # The .text property raises ValueError if response has no valid parts
-        # (e.g., finish_reason=STOP with empty content)
-        text = ""
-        try:
-            if hasattr(response, 'candidates') and response.candidates:
-                candidate = response.candidates[0]
-                finish_reason = getattr(candidate, 'finish_reason', None)
-                # finish_reason 2 = SAFETY (blocked), 1 = STOP (normal)
-                if finish_reason == 2:
-                    # Response was blocked due to safety filters
-                    text = ""
-                elif hasattr(candidate, 'content') and hasattr(candidate.content, 'parts'):
-                    # Manually extract text from parts to avoid .text property issues
-                    for part in candidate.content.parts:
-                        if hasattr(part, 'text') and part.text:
-                            text += part.text
-                else:
-                    # Fallback: try .text but may raise
-                    text = response.text or ""
-            else:
-                text = response.text or ""
-        except (ValueError, AttributeError) as e:
-            # Handle "Invalid operation" when response has no valid parts
-            # This happens when finish_reason=STOP but response is empty
-            text = ""
+        # Generate content with new SDK
+        response = self._client.models.generate_content(
+            model=model,
+            contents=prompt,
+            config=config
+        )
+
+        # Extract text from new SDK response with safety handling
+        text = self._extract_text(response)
+
+        # Extract usage metadata
         usage_metadata = getattr(response, "usage_metadata", None)
         total_tokens = 0
         if usage_metadata is not None:
@@ -98,41 +95,40 @@ class GoogleChatClientAdapter:
                 + getattr(usage_metadata, "output_token_count", 0)
             )
 
-        class _Message:
-            pass
+        # Create OpenAI-compatible response using SimpleNamespace
+        message = SimpleNamespace(content=text)
+        choice = SimpleNamespace(message=message)
+        usage = SimpleNamespace(total_tokens=int(total_tokens or 0))
+        response = SimpleNamespace(choices=[choice], usage=usage)
+        return response
 
-        class _Choice:
-            pass
-
-        class _Usage:
-            pass
-
-        class _Response:
-            pass
-
-        message = _Message()
-        message.content = text
-
-        choice = _Choice()
-        choice.message = message
-
-        usage = _Usage()
-        usage.total_tokens = int(total_tokens or 0)
-
-        mocked_response = _Response()
-        mocked_response.choices = [choice]
-        mocked_response.usage = usage
-        return mocked_response
+    def _extract_text(self, response: Any) -> str:
+        """Extract text from SDK response with safety filter handling."""
+        try:
+            return response.text or ""
+        except (ValueError, AttributeError):
+            # Response blocked by safety filters, empty content, or missing attributes
+            if hasattr(response, "candidates") and response.candidates:
+                for candidate in response.candidates:
+                    if hasattr(candidate, "content") and hasattr(candidate.content, "parts"):
+                        for part in candidate.content.parts:
+                            if hasattr(part, "text") and part.text:
+                                return part.text
+            return ""
 
     def _list_models(self) -> Any:
         data = []
-        for model in self._genai.list_models():
-            model_name = getattr(model, "name", "")
-            if "/" in model_name:
-                model_name = model_name.split("/")[-1]
-            supported_methods = set(getattr(model, "supported_generation_methods", []) or [])
-            if "generateContent" in supported_methods and "embedding" not in model_name:
-                model_info = SimpleNamespace()
-                model_info.id = model_name
-                data.append(model_info)
+        try:
+            for model in self._client.models.list():
+                model_name = getattr(model, "name", "")
+                if "/" in model_name:
+                    model_name = model_name.split("/")[-1]
+                # Simplified filter: any Gemini-branded model that isn't for embeddings
+                if model_name.lower().startswith("gemini-") and "embedding" not in model_name.lower():
+                    model_info = SimpleNamespace()
+                    model_info.id = model_name
+                    data.append(model_info)
+        except Exception as e:
+            from loguru import logger
+            logger.error(f"Error listing Gemini models: {e}")
         return SimpleNamespace(data=data)
