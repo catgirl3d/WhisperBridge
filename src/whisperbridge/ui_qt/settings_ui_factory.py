@@ -6,6 +6,7 @@ following the UI configuration guidelines.
 """
 
 from PySide6.QtWidgets import QComboBox, QLineEdit, QSpinBox, QPushButton, QCheckBox, QTextEdit, QDoubleSpinBox, QTableWidget, QLabel, QToolButton, QGroupBox, QWidget, QTabWidget
+from .widgets.hotkey_edit import HotkeyEdit
 
 
 class SettingsUIFactory:
@@ -230,7 +231,13 @@ class SettingsUIFactory:
     def create_line_edit(self, key: str) -> QLineEdit:
         """Create a QLineEdit widget using configuration."""
         config = self.get_config(key)
-        edit = QLineEdit()
+        
+        # Check if this should be a HotkeyEdit
+        if 'hotkey' in key.lower() or 'activation' in key.lower():
+            edit = HotkeyEdit()
+        else:
+            edit = QLineEdit()
+            
         self.set_properties(edit, config)
         return edit
 

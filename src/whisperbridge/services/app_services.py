@@ -88,16 +88,6 @@ class AppServices(QObject):
         except Exception as e:
             logger.debug(f"AppServices: Failed to apply show_notifications setting: {e}")
         
-        # Copy-translate service
-        self.copy_translate_service = CopyTranslateService(
-            tray_manager=(self.ui_service.tray_manager if self.ui_service else None),
-            clipboard_service=self.clipboard_service
-        )
-        try:
-            self.copy_translate_service.result_ready.connect(self.on_copy_translate_result)
-        except Exception:
-            logger.debug("AppServices: Failed to connect copy_translate result signal")
-
         # Keyboard / hotkeys
         self.keyboard_manager = KeyboardManager()
         try:
@@ -105,6 +95,17 @@ class AppServices(QObject):
         except Exception as e:
             logger.warning(f"AppServices: Hotkey service not available: {e}")
             self.hotkey_service = None
+
+        # Copy-translate service
+        self.copy_translate_service = CopyTranslateService(
+            tray_manager=(self.ui_service.tray_manager if self.ui_service else None),
+            clipboard_service=self.clipboard_service,
+            hotkey_service=self.hotkey_service
+        )
+        try:
+            self.copy_translate_service.result_ready.connect(self.on_copy_translate_result)
+        except Exception:
+            logger.debug("AppServices: Failed to connect copy_translate result signal")
 
         if self.hotkey_service:
             try:

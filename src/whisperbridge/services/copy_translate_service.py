@@ -24,6 +24,7 @@ class CopyTranslateService(QObject):
         clipboard_service=None,
         config_service=None,
         translation_service=None,
+        hotkey_service=None,
         debug_logger=None,
     ):
         super().__init__()
@@ -31,6 +32,7 @@ class CopyTranslateService(QObject):
         self.clipboard_service = clipboard_service or get_clipboard_service()
         self.config_service = config_service or _config_service  # Use global if not provided
         self.translation_service = translation_service or get_translation_service()
+        self.hotkey_service = hotkey_service
         self.debug_logger = debug_logger
         self._notification_service = None
 
@@ -88,64 +90,73 @@ class CopyTranslateService(QObject):
             pre_delay = 0.4  # seconds
             time.sleep(pre_delay)
 
-            # On Windows, wait for physical Ctrl to be released before proceeding
+            # Ensure hotkey service is paused for the entire duration of synchronization and simulation
+            if self.hotkey_service:
+                self.hotkey_service.set_paused(True)
+
+            # On Windows, wait for physical Ctrl and Alt to be released before proceeding
+            # This is critical to avoid mixing physical and virtual key states
             if system == "windows":
                 try:
                     import ctypes
 
                     VK_CONTROL = 0x11
-                    release_timeout = 1.5
+                    VK_MENU = 0x12  # Alt
+                    release_timeout = 2.0
                     release_interval = 0.05
-                    release_elapsed = 0.0
-                    try:
-                        ctrl_down = bool(ctypes.windll.user32.GetAsyncKeyState(VK_CONTROL) & 0x8000)
-                    except Exception:
-                        ctrl_down = False
-                    if ctrl_down:
-                        log.debug("Physical Ctrl detected down; waiting for release before simulating copy")
-                        while release_elapsed < release_timeout:
-                            try:
-                                if not (ctypes.windll.user32.GetAsyncKeyState(VK_CONTROL) & 0x8000):
-                                    break
-                            except Exception:
-                                # If we can't query state, stop waiting and proceed
-                                break
-                            time.sleep(release_interval)
-                            release_elapsed += release_interval
-                        # Re-check
+                    
+                    def is_physically_down():
                         try:
-                            still_down = bool(ctypes.windll.user32.GetAsyncKeyState(VK_CONTROL) & 0x8000)
+                            # GetAsyncKeyState returns MSB set if key is currently down
+                            ctrl = ctypes.windll.user32.GetAsyncKeyState(VK_CONTROL) & 0x8000
+                            alt = ctypes.windll.user32.GetAsyncKeyState(VK_MENU) & 0x8000
+                            return bool(ctrl or alt)
                         except Exception:
-                            still_down = False
-                        if still_down:
-                            log.info("Physical Ctrl key still down after waiting; aborting copy-translate to avoid accidental trigger")
-                            self.notification_service.warning("Copy-translate aborted: physical Ctrl key held down", "WhisperBridge")
-                            t_end = time.perf_counter()
-                            log.info(f"Copy-translate performance: clipboard=0ms, translation=0ms, total={(t_end - t_start) * 1000:.0f}ms")
-                            return
+                            return False
+
+                    if is_physically_down():
+                        log.debug("Physical Ctrl/Alt detected down; waiting for user to release hotkey...")
+                        start_wait = time.time()
+                        while is_physically_down() and (time.time() - start_wait < release_timeout):
+                            time.sleep(release_interval)
+                        
+                        # Add a small buffer after physical release to let OS state settle
+                        log.debug("Physical keys released, stabilizing...")
+                        time.sleep(0.15)
                 except Exception as e_ctrl_wait:
-                    log.debug(f"Failed to detect/wait for Ctrl key state: {e_ctrl_wait}")
+                    log.debug(f"Failed to detect/wait for physical key state: {e_ctrl_wait}")
 
             try:
-                log.debug("Starting simulated Ctrl+C copy")
+                log.debug("Starting clean simulated Ctrl+C copy")
                 sim_start = time.perf_counter()
-                log.debug("Simulated copy step: press ctrl")
+                
+                # Slower, more deliberate simulation for OS reliability
+                log.debug("Simulated copy: press ctrl")
                 controller.press(Key.ctrl)
-                log.debug("Simulated copy step: press c")
-                controller.press("c")
-                log.debug("Simulated copy step: release c")
-                controller.release("c")
-                log.debug("Simulated copy step: release ctrl")
+                time.sleep(0.1) # Longer delay to ensure Ctrl is registered
+                
+                log.debug("Simulated copy: press c")
+                controller.press('c')
+                time.sleep(0.05)
+                
+                log.debug("Simulated copy: release c")
+                controller.release('c')
+                time.sleep(0.05)
+                
+                log.debug("Simulated copy: release ctrl")
                 controller.release(Key.ctrl)
+                
                 # Mark after-simulation timepoint
                 t_after_sim = time.perf_counter()
                 log.debug(f"Simulated copy sequence finished in {(t_after_sim - sim_start) * 1000:.2f}ms")
             except Exception as e:
                 log.error(f"Fallback copy simulation failed: {e}")
                 self.notification_service.error(f"Copy-translate copy simulation failed: {e}", "WhisperBridge")
-                t_end = time.perf_counter()
-                log.info(f"Copy-translate performance: clipboard=0ms, translation=0ms, total={(t_end - t_start) * 1000:.0f}ms")
                 return
+            finally:
+                # Resume hotkey service after all key operations are done
+                if self.hotkey_service:
+                    self.hotkey_service.set_paused(False)
 
             # Short pause to allow OS to update clipboard
             time.sleep(0.08)
