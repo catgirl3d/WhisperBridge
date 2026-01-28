@@ -843,6 +843,81 @@ class OverlayWindow(StyledOverlayWindow):
         worker.error.connect(worker.deleteLater)
         thread.finished.connect(thread.deleteLater)
 
+        # Watchdog timer setup
+        api_timeout = config_service.get_setting("api_timeout") or 60
+        watchdog_timeout = max(api_timeout * 2, 60)  # Reduced minimum to 60 seconds
+        
+        watchdog = QTimer(self)
+        watchdog.setSingleShot(True)
+        watchdog_active = [True]  # Mutable flag for closure
+        
+        def _force_thread_termination():
+            if not watchdog_active[0]:
+                return
+            try:
+                if not thread.isRunning():
+                    logger.debug("Watchdog triggered but thread already finished")
+                    return
+                
+                # Disconnect self to prevent re-entry
+                try:
+                    watchdog.timeout.disconnect(_force_thread_termination)
+                except (RuntimeError, TypeError):
+                    pass
+                    
+                logger.error(f"Watchdog timeout: forcing thread termination after {watchdog_timeout}s")
+                thread.quit()
+                thread.wait(1000)
+                if thread.isRunning():
+                    logger.warning("Thread still running after quit, forcing termination")
+                    thread.terminate()
+                    thread.wait(1000)
+                    if thread.isRunning():
+                        logger.error("Thread still running after terminate! System instability possible.")
+            except Exception as e:
+                logger.error(f"Exception during watchdog thread termination: {e}")
+        
+        def cleanup_watchdog():
+            """Stop watchdog and clean up resources."""
+            if not watchdog_active[0]:
+                return
+            watchdog_active[0] = False
+            try:
+                logger.debug("Cleaning up watchdog timer")
+                # Disconnect signals to prevent dangling references
+                try:
+                    thread.finished.disconnect(cleanup_watchdog)
+                except (RuntimeError, TypeError):
+                    pass
+                try:
+                    worker.error.disconnect(cleanup_watchdog)
+                except (RuntimeError, TypeError):
+                    pass
+                try:
+                    worker.finished.disconnect(cleanup_watchdog)
+                except (RuntimeError, TypeError):
+                    pass
+                # Schedule deletion
+                watchdog.deleteLater()
+                logger.debug("Watchdog cleanup completed")
+            except Exception as e:
+                logger.debug(f"Watchdog cleanup error: {e}")
+        
+        watchdog.timeout.connect(_force_thread_termination)
+        
+
+        
+        # Connect cleanup signals
+        thread.finished.connect(cleanup_watchdog)
+        worker.error.connect(cleanup_watchdog)
+        worker.finished.connect(cleanup_watchdog)
+        
+        # Start watchdog immediately BEFORE thread ensures 100% coverage
+        if watchdog_active[0]:
+            logger.debug(f"Starting watchdog with {watchdog_timeout}s timeout")
+            watchdog.start(watchdog_timeout * 1000)
+            
+        # Now start the thread
         thread.start()
         return worker, thread
 

@@ -9,7 +9,7 @@ import json
 import os
 import re
 from pathlib import Path
-from typing import Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 import keyring
 from loguru import logger
@@ -210,6 +210,18 @@ class Settings(BaseSettings):
             raise ValueError("clipboard_poll_timeout_ms must be an integer")
         if iv < 500 or iv > 10000:
             raise ValueError("clipboard_poll_timeout_ms must be between 500 and 10000")
+        return iv
+
+    @field_validator("api_timeout")
+    @classmethod
+    def validate_api_timeout(cls, v: Any) -> int:
+        """Validate API timeout (seconds). Must be between 1 and 60."""
+        try:
+            iv = int(v)
+        except Exception:
+            raise ValueError("api_timeout must be an integer")
+        if iv <= 0 or iv > 60:
+            raise ValueError("api_timeout must be between 1 and 60 seconds")
         return iv
 
     @field_validator("log_level")

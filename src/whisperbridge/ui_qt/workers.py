@@ -5,7 +5,7 @@ Provides thread-safe workers for OCR/translation and settings saving operations.
 
 import asyncio
 import time
-from typing import Any, Dict
+from typing import Any, Dict, Coroutine
 
 from loguru import logger
 from PySide6.QtCore import QObject, Signal
@@ -154,12 +154,85 @@ class ApiTestWorker(QObject):
             else:
                 self.error.emit(f"Connection error: {str(e)}")
 
-
-class TranslationWorker(QObject):
-    """Worker for translating text asynchronously."""
+class BaseAsyncWorker(QObject):
+    """Base class for workers that need an asyncio event loop.
+    
+    Signals:
+        finished(bool, str): Always emitted on completion. First param is success flag, second is result or error message.
+        error(str): Emitted on error.
+    """
 
     finished = Signal(bool, str)  # success, result_or_error
     error = Signal(str)
+
+    def _run_async_task(self, coro: Coroutine[Any, Any, Any], worker_name: str):
+        """Run an async coroutine in a new event loop with timeout and cleanup."""
+        # Get timeout from settings (default to 60 seconds)
+        timeout = config_service.get_setting("api_timeout") or 60
+        # Validate timeout is positive
+        if not isinstance(timeout, (int, float)) or timeout <= 0:
+            logger.warning(f"Invalid api_timeout value: {timeout}, using default 60")
+            timeout = 60
+        start_time = time.time()
+
+        # Create and use a new event loop in this thread to avoid conflicting with Qt's loop
+        loop = asyncio.new_event_loop()
+        try:
+            asyncio.set_event_loop(loop)
+
+            # Wrap async call with timeout to prevent indefinite hanging
+            async def with_timeout():
+                return await asyncio.wait_for(coro, timeout=timeout)
+
+            resp = loop.run_until_complete(with_timeout())
+
+            elapsed = time.time() - start_time
+            logger.info(f"{worker_name} completed successfully in {elapsed:.2f}s")
+            return resp
+        except asyncio.TimeoutError:
+            logger.error(f"{worker_name} timed out after {timeout}s")
+            msg = f"Request timed out after {timeout} seconds"
+            self.error.emit(msg)
+            self.finished.emit(False, msg)
+            return None
+        except Exception as e:
+            logger.error(f"{worker_name} failed: {e}", exc_info=True)
+            msg = str(e)
+            self.error.emit(msg)
+            self.finished.emit(False, msg)
+            return None
+        finally:
+            # Cancel all pending tasks before closing loop to prevent hanging
+            try:
+                pending = asyncio.all_tasks(loop)
+                if pending:
+                    logger.debug(f"Cancelling {len(pending)} pending tasks")
+                    # Note: Main task (with_timeout) is already finished here, so we only cancel 
+                    # lingering background tasks started by the service.
+                    for task in pending:
+                        task.cancel()
+                    # Give tasks a chance to handle cancellation with timeout to prevent infinite hang
+                    try:
+                        loop.run_until_complete(asyncio.wait_for(
+                            asyncio.gather(*pending, return_exceptions=True),
+                            timeout=5.0  # 5 second grace period for task cancellation
+                        ))
+                    except asyncio.TimeoutError:
+                        logger.warning("Task cancellation timed out after 5 seconds, proceeding with loop cleanup")
+            except Exception as e:
+                logger.debug(f"Error during task cancellation: {e}")
+            finally:
+                try:
+                    loop.close()
+                except Exception as e:
+                    logger.debug(f"Error closing event loop: {e}")
+                finally:
+                    # Detach loop from thread
+                    asyncio.set_event_loop(None)
+
+
+class TranslationWorker(BaseAsyncWorker):
+    """Worker for translating text asynchronously."""
 
     def __init__(self, text_to_translate: str, ui_source_lang: str, ui_target_lang: str):
         super().__init__()
@@ -168,39 +241,36 @@ class TranslationWorker(QObject):
         self.ui_target_lang = ui_target_lang
 
     def run(self):
+        logger.info("TranslationWorker started")
         try:
             from ..services.translation_service import get_translation_service
             service = get_translation_service()
 
-            # Create and use a new event loop in this thread to avoid conflicting with Qt's loop
-            loop = asyncio.new_event_loop()
-            try:
-                asyncio.set_event_loop(loop)
-                resp = loop.run_until_complete(
-                    service.translate_text_async(
-                        self.text,
-                        ui_source_lang=self.ui_source_lang,
-                        ui_target_lang=self.ui_target_lang,
-                    )
-                )
-            finally:
-                try:
-                    loop.close()
-                except Exception:
-                    pass
+            coro = service.translate_text_async(
+                self.text,
+                ui_source_lang=self.ui_source_lang,
+                ui_target_lang=self.ui_target_lang,
+            )
+
+            resp = self._run_async_task(coro, "TranslationWorker")
+            if resp is None:
+                return  # Error already emitted by _run_async_task
 
             if resp and getattr(resp, "success", False):
                 self.finished.emit(True, resp.translated_text or "")
             else:
-                self.error.emit(getattr(resp, "error_message", "Translation failed"))
+                msg = getattr(resp, "error_message", "Translation failed")
+                self.error.emit(msg)
+                self.finished.emit(False, msg)
         except Exception as e:
-            self.error.emit(str(e))
+            logger.error(f"TranslationWorker failed: {e}", exc_info=True)
+            msg = str(e)
+            self.error.emit(msg)
+            self.finished.emit(False, msg)
 
-class StyleWorker(QObject):
+
+class StyleWorker(BaseAsyncWorker):
     """Worker for styling (rewriting) text asynchronously using presets."""
-
-    finished = Signal(bool, str)  # success, result_or_error
-    error = Signal(str)
 
     def __init__(self, text_to_style: str, style_name: str):
         super().__init__()
@@ -208,30 +278,29 @@ class StyleWorker(QObject):
         self.style_name = style_name
 
     def run(self):
+        logger.info(f"StyleWorker started with style: '{self.style_name}'")
         try:
             from ..services.translation_service import get_translation_service
             service = get_translation_service()
 
-            # Create and use a new event loop in this thread to avoid conflicting with Qt's loop
-            loop = asyncio.new_event_loop()
-            try:
-                asyncio.set_event_loop(loop)
-                resp = loop.run_until_complete(
-                    service.style_text_async(
-                        self.text,
-                        style_name=self.style_name,
-                        use_cache=True,
-                    )
-                )
-            finally:
-                try:
-                    loop.close()
-                except Exception:
-                    pass
+            coro = service.style_text_async(
+                self.text,
+                style_name=self.style_name,
+                use_cache=True,
+            )
+
+            resp = self._run_async_task(coro, "StyleWorker")
+            if resp is None:
+                return  # Error already emitted by _run_async_task
 
             if resp and getattr(resp, "success", False):
                 self.finished.emit(True, resp.translated_text or "")
             else:
-                self.error.emit(getattr(resp, "error_message", "Styling failed"))
+                msg = getattr(resp, "error_message", "Styling failed")
+                self.error.emit(msg)
+                self.finished.emit(False, msg)
         except Exception as e:
-            self.error.emit(str(e))
+            logger.error(f"StyleWorker failed: {e}", exc_info=True)
+            msg = str(e)
+            self.error.emit(msg)
+            self.finished.emit(False, msg) 
