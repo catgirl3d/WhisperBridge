@@ -13,6 +13,15 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..',
 import pytest
 from unittest.mock import Mock, patch, MagicMock
 
+# Import dependencies for integration tests
+try:
+    from whisperbridge.ui_qt.workers import BaseAsyncWorker
+    from whisperbridge.services.config_service import config_service
+except ImportError:
+    # Allow running other tests even if dependencies are missing (e.g. in minimal env)
+    BaseAsyncWorker = None
+    config_service = None
+
 
 class TestAsyncioTimeoutWrapper:
     """Test the asyncio timeout wrapper logic."""
@@ -186,7 +195,98 @@ class TestTimeoutErrorHandling:
         assert "seconds" in error_msg
 
 
-# If run directly, execute pytest with very verbose output
+@pytest.mark.skipif(BaseAsyncWorker is None, reason="Requires BaseAsyncWorker and config_service")
+class TestBaseAsyncWorkerIntegration:
+    """Integration tests for BaseAsyncWorker and config_service."""
+
+    @pytest.fixture
+    def worker(self):
+        """Create a BaseAsyncWorker instance with mocked signals."""
+        worker = BaseAsyncWorker()
+        # Mock signals to avoid Qt event loop requirement
+        worker.finished = Mock()
+        worker.error = Mock()
+        # Mock signal emit methods specifically
+        worker.finished.emit = Mock()
+        worker.error.emit = Mock()
+        return worker
+
+    def test_import_successful(self):
+        """Test that BaseAsyncWorker can be imported."""
+        assert BaseAsyncWorker is not None
+
+    def test_run_async_task_uses_config_timeout(self, worker):
+        """Test that _run_async_task uses timeout from config_service."""
+        async def mock_coro():
+            await asyncio.sleep(0.01)
+            return "success"
+        
+        with patch('whisperbridge.services.config_service.config_service.get_setting') as mock_conf:
+            mock_conf.return_value = 10.0
+            
+            result = worker._run_async_task(mock_coro(), "TestWorker")
+            
+            assert result == "success"
+            mock_conf.assert_called_with("api_timeout")
+
+    def test_run_async_task_timeout_enforcement(self, worker):
+        """Test that _run_async_task enforces timeout."""
+        async def slow_coro():
+            await asyncio.sleep(0.5)
+            
+        with patch('whisperbridge.services.config_service.config_service.get_setting') as mock_conf:
+            # Set timeout smaller than coro duration
+            mock_conf.return_value = 0.1
+            
+            result = worker._run_async_task(slow_coro(), "TimeoutTest")
+            
+            assert result is None
+            # Verify error signals emitted
+            assert worker.error.emit.called
+            assert worker.finished.emit.called
+            
+            # Check error message format
+            error_args = worker.error.emit.call_args[0]
+            assert "timed out" in error_args[0]
+            assert "0.1" in error_args[0]
+            
+            # Check finished signal args (False, error_msg)
+            finished_args = worker.finished.emit.call_args[0]
+            assert finished_args[0] is False
+            assert "timed out" in finished_args[1]
+
+    def test_run_async_task_handles_exceptions(self, worker):
+        """Test that _run_async_task handles exceptions in coroutine."""
+        async def failing_coro():
+            raise ValueError("Something went wrong")
+            
+        with patch('whisperbridge.services.config_service.config_service.get_setting') as mock_conf:
+            mock_conf.return_value = 5.0
+            
+            result = worker._run_async_task(failing_coro(), "FailTest")
+            
+            assert result is None
+            assert worker.error.emit.called
+            assert "Something went wrong" in worker.error.emit.call_args[0][0]
+            assert worker.finished.emit.called
+            assert worker.finished.emit.call_args[0][0] is False
+
+    def test_invalid_timeout_fallback(self, worker):
+        """Test fallback to default timeout if config is invalid."""
+        async def fast_coro():
+            return "ok"
+            
+        with patch('whisperbridge.services.config_service.config_service.get_setting') as mock_conf:
+            mock_conf.return_value = -5  # Invalid negative timeout
+            
+            # Should not raise, uses default 60
+            result = worker._run_async_task(fast_coro(), "InvalidConfigTest")
+            
+            assert result == "ok"
+            
+            # Verify it was called
+            mock_conf.assert_called_with("api_timeout")
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
-  
