@@ -100,6 +100,24 @@ class Settings(BaseSettings):
     openai_model: str = Field(default="gpt-5-nano", description="Default OpenAI model")
     google_model: str = Field(default="gemini-2.5-flash", description="Default Google model")
     api_timeout: int = Field(default=30, description="API request timeout in seconds")
+    llm_temperature_translation: float = Field(
+        default=1.0,
+        ge=0.0,
+        le=2.0,
+        description="LLM temperature for translation (0.0-2.0). Lower = more deterministic, higher = more creative"
+    )
+    llm_temperature_vision: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=2.0,
+        description="LLM temperature for vision/OCR (0.0-2.0). Lower = more accurate, higher = more interpretive"
+    )
+    llm_temperature_stylist: float = Field(
+        default=1.2,
+        ge=0.0,
+        le=2.0,
+        description="LLM temperature for text stylist mode (0.0-2.0). Lower = more faithful, higher = more creative"
+    )
     default_models: Optional[List[str]] = Field(
         default=None, description="Custom default models list (overrides built-in default)"
     )

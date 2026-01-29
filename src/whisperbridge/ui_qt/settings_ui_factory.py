@@ -52,6 +52,27 @@ class SettingsUIFactory:
             'object_name': 'apiTimeoutSpin',
             'range': (1, 300)
         },
+        'llmTemperatureTranslationSpin': {
+            'object_name': 'llmTemperatureTranslationSpin',
+            'range': (0.0, 2.0),
+            'decimals': 2,
+            'single_step': 0.1,
+            'value': 1.0
+        },
+        'llmTemperatureVisionSpin': {
+            'object_name': 'llmTemperatureVisionSpin',
+            'range': (0.0, 2.0),
+            'decimals': 2,
+            'single_step': 0.1,
+            'value': 0.0
+        },
+        'llmTemperatureStylistSpin': {
+            'object_name': 'llmTemperatureStylistSpin',
+            'range': (0.0, 2.0),
+            'decimals': 2,
+            'single_step': 0.1,
+            'value': 1.2
+        },
         'openaiVisionModelEdit': {
             'object_name': 'openaiVisionModelEdit',
             'placeholder': 'e.g., gpt-4-vision-preview'
@@ -218,6 +239,10 @@ class SettingsUIFactory:
         },
         'stylistTab': {
             'object_name': 'stylistTab'
+        },
+        'llmTemperatureGroup': {
+            'object_name': 'llmTemperatureGroup',
+            'title': 'LLM Temperature Settings'
         }
     }
 
@@ -346,6 +371,10 @@ class SettingsUIFactory:
             widget.setHorizontalHeaderLabels(cfg['headers'])
         if 'title' in cfg and hasattr(widget, 'setTitle'):
             widget.setTitle(cfg['title'])
+        if 'decimals' in cfg and hasattr(widget, 'setDecimals'):
+            widget.setDecimals(cfg['decimals'])
+        if 'value' in cfg and hasattr(widget, 'setValue'):
+            widget.setValue(cfg['value'])
 
     def get_config(self, key: str) -> dict:
         """Retrieve configuration for a given key."""

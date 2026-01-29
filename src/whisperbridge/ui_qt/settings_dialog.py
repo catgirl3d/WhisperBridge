@@ -140,6 +140,9 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
         self.settings_map = {
             "api_provider": (self.api_provider_combo, "currentText", "setCurrentText"),
             "api_timeout": (self.api_timeout_spin, "value", "setValue"),
+            "llm_temperature_translation": (self.llm_temperature_translation_spin, "value", "setValue"),
+            "llm_temperature_vision": (self.llm_temperature_vision_spin, "value", "setValue"),
+            "llm_temperature_stylist": (self.llm_temperature_stylist_spin, "value", "setValue"),
             "deepl_plan": (self.deepl_plan_combo, "currentText", "setCurrentText"),
             "auto_swap_en_ru": (self.ocr_auto_swap_checkbox, "isChecked", "setChecked"),
             "system_prompt": (self.system_prompt_edit, "toPlainText", "setPlainText"),
@@ -273,6 +276,21 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
 
         self.api_timeout_spin = self.factory.create_spin("apiTimeoutSpin")
         model_layout.addRow(self._create_hint_label("Timeout (seconds):", "api.timeout"), self.api_timeout_spin)
+
+        # LLM Temperature Settings
+        llm_temp_group = self.factory.create_group_box("llmTemperatureGroup")
+        llm_temp_layout = QFormLayout(llm_temp_group)
+
+        self.llm_temperature_translation_spin = self.factory.create_double_spin("llmTemperatureTranslationSpin")
+        llm_temp_layout.addRow(self._create_hint_label("Translation:", "api.temperature_translation"), self.llm_temperature_translation_spin)
+
+        self.llm_temperature_vision_spin = self.factory.create_double_spin("llmTemperatureVisionSpin")
+        llm_temp_layout.addRow(self._create_hint_label("Vision/OCR:", "api.temperature_vision"), self.llm_temperature_vision_spin)
+
+        self.llm_temperature_stylist_spin = self.factory.create_double_spin("llmTemperatureStylistSpin")
+        llm_temp_layout.addRow(self._create_hint_label("Stylist:", "api.temperature_stylist"), self.llm_temperature_stylist_spin)
+
+        layout.addWidget(llm_temp_group)
 
         # Vision model fields
         self.openai_vision_model_label = self.factory.create_label("openaiVisionModelLabel")

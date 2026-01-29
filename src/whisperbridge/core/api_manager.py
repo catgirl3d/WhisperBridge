@@ -535,7 +535,7 @@ class APIManager:
 
     @requires_initialization
     def make_translation_request(
-        self, messages: List[Dict[str, Any]], model_hint: Optional[str] = None, **api_kwargs
+        self, messages: List[Dict[str, Any]], model_hint: Optional[str] = None, temperature: Optional[float] = None, **api_kwargs
     ) -> tuple[Any, str]:
         """
         Makes a translation request using the configured provider.
@@ -548,6 +548,7 @@ class APIManager:
         Args:
             messages: A list of messages for the chat completion.
             model_hint: The model name to use for the request.
+            temperature: Optional temperature override.
             api_kwargs: Additional provider-specific kwargs (e.g., target_lang/source_lang for DeepL).
 
         Returns:
@@ -611,14 +612,29 @@ class APIManager:
         min_output_tokens = 2048
         max_completion_tokens = max(min_output_tokens, max_total_tokens - estimated_input_tokens)
         
+        # Use provided temperature or fall back to translation temperature setting
+        if temperature is None:
+            try:
+                val = self.config_service.get_setting("llm_temperature_translation")
+                translation_temp = round(float(val if val is not None else 1.0), 2)
+            except (ValueError, TypeError) as e:
+                logger.warning(f"Failed to parse translation temperature from config, using default 1.0. Error: {e}")
+                translation_temp = 1.0
+        else:
+            try:
+                translation_temp = round(float(temperature), 2)
+            except (ValueError, TypeError) as e:
+                logger.warning(f"Failed to parse provided temperature '{temperature}', using default 1.0. Error: {e}")
+                translation_temp = 1.0
+        
         api_params = {
             "model": final_model,
             "messages": messages,
-            "temperature": 1,
+            "temperature": translation_temp,
             "max_completion_tokens": max_completion_tokens,
         }
         
-        logger.debug(f"Dynamic token allocation: estimated_input={estimated_input_tokens}, max_completion_tokens={max_completion_tokens}")
+        logger.debug(f"Translation temperature: {translation_temp}, Dynamic token allocation: estimated_input={estimated_input_tokens}, max_completion_tokens={max_completion_tokens}")
 
         if selected_provider == APIProvider.OPENAI:
             if final_model.startswith(("gpt-5")):
@@ -758,13 +774,21 @@ class APIManager:
         min_output_tokens = 2048
         max_completion_tokens = max(min_output_tokens, max_total_tokens - estimated_input_tokens)
         
-        logger.debug(f"Vision request - dynamic token allocation: estimated_input={estimated_input_tokens}, max_completion_tokens={max_completion_tokens}")
+        # Get temperature from config for vision
+        try:
+            val = self.config_service.get_setting("llm_temperature_vision")
+            vision_temp = round(float(val if val is not None else 0.0), 2)
+        except (ValueError, TypeError) as e:
+            logger.warning(f"Failed to parse vision temperature from config (OpenAI), using default 0.0. Error: {e}")
+            vision_temp = 0.0
+        
+        logger.debug(f"Vision temperature: {vision_temp}, Dynamic token allocation: estimated_input={estimated_input_tokens}, max_completion_tokens={max_completion_tokens}")
         
         response = self.make_request_sync(
             APIProvider.OPENAI,
             model=model,
             messages=messages,
-            temperature=0,
+            temperature=vision_temp,
             max_completion_tokens=max_completion_tokens,
         )
         return response, model
@@ -842,11 +866,19 @@ class APIManager:
         min_output_tokens = 2048
         max_output_tokens = max(min_output_tokens, max_total_tokens - estimated_input_tokens)
         
-        logger.debug(f"Google vision request - dynamic token allocation: estimated_input={estimated_input_tokens}, max_output_tokens={max_output_tokens}")
+        # Get temperature from config for vision
+        try:
+            val = self.config_service.get_setting("llm_temperature_vision")
+            vision_temp = round(float(val if val is not None else 0.0), 2)
+        except (ValueError, TypeError) as e:
+            logger.warning(f"Failed to parse vision temperature from config (Google), using default 0.0. Error: {e}")
+            vision_temp = 0.0
+        
+        logger.debug(f"Google vision temperature: {vision_temp}, Dynamic token allocation: estimated_input={estimated_input_tokens}, max_output_tokens={max_output_tokens}")
         
         config = types.GenerateContentConfig(
             max_output_tokens=max_output_tokens,
-            temperature=0,
+            temperature=vision_temp,
             system_instruction=system_instruction,
         )
 

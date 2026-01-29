@@ -372,13 +372,23 @@ class TranslationService:
 
             language_policy = "\n".join(language_policy_lines)
 
+            # Get stylist temperature from config
+            try:
+                val = config_service.get_setting("llm_temperature_stylist")
+                stylist_temp = round(float(val if val is not None else 1.2), 2)
+            except (ValueError, TypeError) as e:
+                logger.warning(f"Failed to parse stylist temperature from config, using default 1.2. Error: {e}")
+                stylist_temp = 1.2
+            
             messages = [
                 {"role": "system", "content": f"{style_prompt}\n\n{language_policy}"},
                 {"role": "user", "content": format_style_prompt(request)},
             ]
-
+            
+            logger.debug(f"Stylist temperature: {stylist_temp}")
+            
             response, final_model = self._api_manager.make_translation_request(
-                messages=messages, model_hint=intended_model
+                messages=messages, model_hint=intended_model, temperature=stylist_temp
             )
 
             raw_text = response.choices[0].message.content

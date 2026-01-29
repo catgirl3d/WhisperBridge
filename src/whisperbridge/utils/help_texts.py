@@ -37,6 +37,18 @@ HELP_TEXTS = {
         "tooltip": "Select your DeepL subscription plan (free or pro).",
         "detailed": "<b>DeepL Plan</b><br>Free plan has limits, Pro plan offers unlimited translations and better quality."
     },
+    "api.temperature_translation": {
+        "tooltip": "Temperature for translation (0.0-2.0). Lower = more deterministic, higher = more creative.",
+        "detailed": "<b>Translation Temperature</b><br>Controls creativity and variability of translation.<br><br><b>Values:</b><br>• <b>0.0-0.3:</b> Most accurate, literal translation<br>• <b>0.4-0.7:</b> Balanced translation (technical texts)<br>• <b>0.8-1.2:</b> More natural, adaptive translation (default)<br>• <b>1.3-2.0:</b> Creative translation with interpretation<br><br><b>Recommendations:</b><br>• Documentation: 0.3-0.5<br>• Business: 0.5-0.8<br>• General text: 0.8-1.2<br>• Creative text: 1.0-1.5"
+    },
+    "api.temperature_vision": {
+        "tooltip": "Temperature for OCR/vision (0.0-2.0). Lower = more accurate, higher = more interpretive.",
+        "detailed": "<b>Vision/OCR Temperature</b><br>Controls text recognition behavior from images.<br><br><b>Values:</b><br>• <b>0.0:</b> Maximum accuracy (recommended)<br>• <b>0.1-0.3:</b> Minimal interpretation for unclear text<br>• <b>0.4-0.7:</b> Moderate interpretation (handwriting)<br>• <b>0.8+:</b> High interpretation (may be inaccurate)<br><br><b>Recommendations:</b><br>• Printed text: 0.0 (default)<br>• Screenshots: 0.0-0.1<br>• Handwriting: 0.2-0.5<br>• Blurry images: 0.3-0.7<br><br><b>Default:</b> 0.0 for maximum accuracy."
+    },
+    "api.temperature_stylist": {
+        "tooltip": "Temperature for text stylist mode (0.0-2.0). Lower = more faithful, higher = more creative.",
+        "detailed": "<b>Stylist Temperature</b><br>Controls creativity and variability in text rewriting.<br><br><b>Values:</b><br>• <b>0.0-0.3:</b> Most faithful to original meaning<br>• <b>0.4-0.7:</b> Balanced rewriting (recommended)<br>• <b>0.8-1.2:</b> More creative rewriting (default)<br>• <b>1.3-2.0:</b> Highly creative with interpretation<br><br><b>Recommendations:</b><br>• Technical documentation: 0.2-0.5<br>• Business correspondence: 0.4-0.8<br>• General content: 0.8-1.2<br>• Creative writing: 1.0-1.5<br><br><b>Default:</b> 1.2 for balanced creativity."
+    },
 
     # Translation Tab
     "translation.auto_swap": {
