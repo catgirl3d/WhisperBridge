@@ -104,7 +104,7 @@ class APIError:
     message: str
     status_code: Optional[int] = None
     retry_after: Optional[int] = None
-    timestamp: datetime = None
+    timestamp: Optional[datetime] = None
 
     def __post_init__(self):
         if self.timestamp is None:
@@ -219,7 +219,7 @@ class APIManager:
         """Get default model list with optional configuration override."""
         try:
             # Check for custom models in configuration
-            custom_models = self.config_service.get_setting("default_models", None)
+            custom_models = self.config_service.get_setting("default_models", use_cache=False)
             if custom_models and isinstance(custom_models, list) and self._validate_model_list(custom_models):
                 logger.debug(f"Using custom default models from config: {custom_models}")
                 return custom_models.copy()
@@ -407,7 +407,7 @@ class APIManager:
         if any(keyword in error_str for keyword in ["rate limit", "too many requests"]):
             retry_after = None
             if hasattr(error, "retry_after"):
-                retry_after = error.retry_after
+                retry_after = getattr(error, "retry_after", None)
             return APIError(APIErrorType.RATE_LIMIT, str(error), retry_after=retry_after)
 
         # Quota exceeded
@@ -425,8 +425,10 @@ class APIManager:
             return APIError(APIErrorType.INVALID_REQUEST, str(error))
 
         # Server errors
-        if hasattr(error, "status_code") and error.status_code >= 500:
-            return APIError(APIErrorType.SERVER_ERROR, str(error), error.status_code)
+        if hasattr(error, "status_code"):
+            status_code = getattr(error, "status_code", None)
+            if status_code and status_code >= 500:
+                return APIError(APIErrorType.SERVER_ERROR, str(error), status_code)
 
         # Unknown error
         return APIError(APIErrorType.UNKNOWN, str(error))
@@ -532,7 +534,7 @@ class APIManager:
 
     @requires_initialization
     def make_translation_request(
-        self, messages: List[Dict[str, str]], model_hint: Optional[str] = None, **api_kwargs
+        self, messages: List[Dict[str, Any]], model_hint: Optional[str] = None, **api_kwargs
     ) -> tuple[Any, str]:
         """
         Makes a translation request using the configured provider.
@@ -585,12 +587,37 @@ class APIManager:
             raise ValueError("Model name must be provided for the translation request.")
 
         # 3. Prepare API call parameters for LLM providers
+        # Dynamic token allocation: estimate input tokens and calculate available output tokens
+        # Rough approximation: ~4 characters per token for English text
+        input_text = ""
+        for msg in messages:
+            if isinstance(msg, dict):
+                content = msg.get("content", "")
+                if isinstance(content, str):
+                    input_text += content
+                elif isinstance(content, list):
+                    for part in content:
+                        if isinstance(part, dict) and part.get("type") == "text":
+                            text_part = part.get("text", "")
+                            if isinstance(text_part, str):
+                                input_text += text_part
+        
+        # Estimate input tokens (conservative estimate: 4 chars per token)
+        estimated_input_tokens = len(input_text) // 4
+        
+        # Calculate max output tokens with upper limit of 65536
+        max_total_tokens = 65536
+        min_output_tokens = 2048
+        max_completion_tokens = max(min_output_tokens, max_total_tokens - estimated_input_tokens)
+        
         api_params = {
             "model": final_model,
             "messages": messages,
             "temperature": 1,
-            "max_completion_tokens": 2048,
+            "max_completion_tokens": max_completion_tokens,
         }
+        
+        logger.debug(f"Dynamic token allocation: estimated_input={estimated_input_tokens}, max_completion_tokens={max_completion_tokens}")
 
         if selected_provider == APIProvider.OPENAI:
             if final_model.startswith(("gpt-5")):
@@ -687,12 +714,14 @@ class APIManager:
 
         try:
             # Try OpenAI-like object structure
-            if hasattr(response, 'choices') and response.choices:
-                choice = response.choices[0]
-                if hasattr(choice, 'message'):
-                    message = choice.message
-                    if hasattr(message, 'content'):
-                        return getattr(message, 'content', '')
+            if not isinstance(response, dict) and hasattr(response, 'choices'):
+                choices = getattr(response, 'choices', [])
+                if choices:
+                    choice = choices[0]
+                    if hasattr(choice, 'message'):
+                        message = choice.message
+                        if hasattr(message, 'content'):
+                            return getattr(message, 'content', '')
         except (AttributeError, IndexError, TypeError):
             pass
 
@@ -710,13 +739,32 @@ class APIManager:
         return ""
 
     def _make_openai_vision_request(self, messages: list[dict], model: str) -> tuple[object, str]:
-        """Handle OpenAI vision request via make_request_sync."""
+        """Handle OpenAI vision request via make_request_sync with dynamic token allocation."""
+        # Calculate input tokens for dynamic allocation
+        input_text = ""
+        for msg in messages:
+            if isinstance(msg, dict):
+                content = msg.get("content", "")
+                if isinstance(content, str):
+                    input_text += content
+                elif isinstance(content, list):
+                    for part in content:
+                        if isinstance(part, dict) and part.get("type") == "text":
+                            input_text += part.get("text", "")
+        
+        estimated_input_tokens = len(input_text) // 4
+        max_total_tokens = 65536
+        min_output_tokens = 2048
+        max_completion_tokens = max(min_output_tokens, max_total_tokens - estimated_input_tokens)
+        
+        logger.debug(f"Vision request - dynamic token allocation: estimated_input={estimated_input_tokens}, max_completion_tokens={max_completion_tokens}")
+        
         response = self.make_request_sync(
             APIProvider.OPENAI,
             model=model,
             messages=messages,
             temperature=0,
-            max_completion_tokens=2048,
+            max_completion_tokens=max_completion_tokens,
         )
         return response, model
 
@@ -785,16 +833,26 @@ class APIManager:
         timeout = self.config_service.get_setting("api_timeout")
         client = genai.Client(api_key=api_key, http_options={"timeout": (timeout or 30) * 1000})
         
-        # Configure generation parameters
+        # Configure generation parameters with dynamic token allocation
+        # Calculate input tokens for dynamic allocation
+        estimated_input_tokens = len(prompt) // 4
+        
+        max_total_tokens = 65536
+        min_output_tokens = 2048
+        max_output_tokens = max(min_output_tokens, max_total_tokens - estimated_input_tokens)
+        
+        logger.debug(f"Google vision request - dynamic token allocation: estimated_input={estimated_input_tokens}, max_output_tokens={max_output_tokens}")
+        
         config = types.GenerateContentConfig(
-            max_output_tokens=2048,
+            max_output_tokens=max_output_tokens,
             temperature=0,
             system_instruction=system_instruction,
         )
 
         # Add ThinkingConfig for Gemini 3 vision models
         if model.startswith("gemini-3"):
-            config.thinking_config = types.ThinkingConfig(thinking_level="low")
+            from google.genai.types import ThinkingLevel
+            config.thinking_config = types.ThinkingConfig(thinking_level=ThinkingLevel.LOW)
 
         @retry(
             stop=stop_after_attempt(3),
