@@ -356,18 +356,17 @@ class APIManager:
     def initialize(self) -> bool:
         """Initialize API manager with configured providers."""
         with self._lock:
+            success = False
             try:
                 self._initialize_providers()
-                self._finalize_initialization()
-                return True
+                success = True
             except Exception as e:
-                logger.error(f"Failed to initialize API manager: {e}")
-                # Still allow initialization even if there are errors
-                self._is_initialized = False  # Set to False as initialization failed
-                logger.warning("API manager failed to initialize; limited offline cache may be available")
-                # Try loading cache even on errors to provide offline model list
-                self._initialize_cache_safely()
-                return False  # Return False to indicate failure
+                logger.error(f"Failed to initialize API providers: {e}")
+
+            # Always finalize to allow offline/partial functionality
+            # This sets _is_initialized to True and loads the cache
+            self._finalize_initialization()
+            return success
 
     def reinitialize(self) -> bool:
         """
