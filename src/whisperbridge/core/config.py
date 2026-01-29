@@ -13,8 +13,8 @@ from typing import Any, Dict, List, Literal, Optional
 
 import keyring
 from loguru import logger
-from pydantic import ConfigDict, Field, field_validator
-from pydantic_settings import BaseSettings
+from pydantic import Field, field_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Build-time flag to enable/disable OCR features globally
 # This controls whether OCR code is reachable/UI elements are shown.
@@ -39,6 +39,46 @@ except Exception:
 
 # Supported API Providers (centralized constant)
 SUPPORTED_PROVIDERS: List[str] = ["openai", "google", "deepl"]
+
+GOOGLE_MODEL_EXCLUDE_DEFAULT: List[str] = [
+    "embedding",
+    "robotics",
+    "robotics-er",
+    "robotics-er-1.5-preview",
+    "gemini-exp-1206",
+    "gemini-3-pro-image-preview",
+    "gemini-2.5-flash-preview-09-2025",
+    "audio",
+    "tts",
+    "001",
+    "exp",
+    "computer-use",
+    "preview-",
+    
+]
+
+OPENAI_MODEL_EXCLUDE_DEFAULT: List[str] = [
+    "audio",
+    "realtime",
+    "image",
+    "dall-e",
+    "whisper",
+    "embedding",
+    "moderation",
+    "codex",
+    "gpt-3",
+    "gpt-4o-mini-audio",
+    "-transcribe",
+    "-search",
+    "gpt-4-turbo",
+    "gpt-4.1",
+    "preview",
+    "2024",
+    "-0613",
+    "-pro",
+    "-2025",
+    "-2026",
+]
 
 
 class Settings(BaseSettings):
@@ -158,7 +198,7 @@ class Settings(BaseSettings):
         description="Enable caching for translation mode (separate from general caching).",
     )
 
-    model_config = ConfigDict(
+    model_config = SettingsConfigDict(
         env_file=Path(__file__).resolve().parent.parent.parent.parent / ".env",
         case_sensitive=False, validate_assignment=True, extra="ignore"
     )
@@ -251,6 +291,16 @@ def get_deepl_identifier() -> str:
     """Get the DeepL identifier from settings."""
     from ..services.config_service import config_service
     return config_service.get_setting("deepl_identifier")
+
+
+def get_google_model_excludes() -> List[str]:
+    """Return the list of substrings that should hide Google models (global defaults only)."""
+    return [term.lower() for term in GOOGLE_MODEL_EXCLUDE_DEFAULT]
+
+
+def get_openai_model_excludes() -> List[str]:
+    """Return the list of substrings that should hide OpenAI models (global defaults only)."""
+    return [term.lower() for term in OPENAI_MODEL_EXCLUDE_DEFAULT]
 
 
 def is_llm_provider(provider: str) -> bool:

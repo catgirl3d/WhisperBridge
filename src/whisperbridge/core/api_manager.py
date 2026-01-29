@@ -36,6 +36,8 @@ from .config import (
     ensure_config_dir,
     validate_api_key_format,
     get_deepl_identifier,
+    get_google_model_excludes,
+    get_openai_model_excludes,
 )
 
 
@@ -989,7 +991,9 @@ class APIManager:
                     if time.time() - timestamp < self._model_cache_ttl:
                         if models or provider == APIProvider.DEEPL:
                             logger.debug(f"Using cached models for {provider.value}")
-                            return models, ModelSource.CACHE.value
+                            # Apply global filters to cached data to ensure any newly added exclusions take effect
+                            filtered_models = self._apply_global_filters(provider, models)
+                            return filtered_models, ModelSource.CACHE.value
                         else:
                             logger.debug(f"Cache for {provider.value} is empty, forcing fresh fetch.")
 
@@ -1021,41 +1025,43 @@ class APIManager:
                 models_response = client.models.list()
                 all_models = [model.id for model in models_response.data]
                 logger.debug(f"All available models from API: {all_models}")
+
+                # First, narrow down to chat-completion prefix patterns
                 chat_models = [
                     model.id for model in models_response.data
                     if (model.id.lower().startswith("gpt-") or model.id.lower().startswith("chatgpt-"))
-                    and not any(
-                        exclude in model.id.lower()
-                        for exclude in ["audio", "realtime", "image", "dall-e", "tts", "whisper", "embedding", "moderation", "codex"]
-                    )
-                    and not model.id.lower().startswith("gpt-3")
                 ]
-                chat_models.sort(
+                # Then apply global exclusion filters
+                models = self._apply_global_filters(provider, chat_models)
+
+                models.sort(
                     key=lambda x: (
                         (0 if x.lower().startswith("gpt-5") else 1 if x.lower().startswith("gpt-4") else 2), x
                     ),
                     reverse=False,
                 )
-                logger.debug(f"Filtered chat completion models: {chat_models}")
-                models = chat_models
+                logger.debug(f"Filtered chat completion models: {models}")
 
             elif provider == APIProvider.GOOGLE:
                 models_response = client.models.list()
                 all_models = [m.id for m in models_response.data]
                 logger.debug(f"All available GOOGLE models from API: {all_models}")
+
+                # First, narrow down to Gemini prefix patterns
                 gemini_models = [
                     m.id for m in models_response.data
-                    if m.id.lower().startswith("gemini-") and "embedding" not in m.id.lower()
+                    if m.id.lower().startswith("gemini-")
                 ]
+                # Then apply global exclusion filters
+                models = self._apply_global_filters(provider, gemini_models)
                 def _rank(mid: str) -> tuple:
                     lm = mid.lower()
                     if "flash-8b" in lm: return (0, mid)
                     if "flash" in lm: return (1, mid)
                     if "pro" in lm: return (2, mid)
                     return (3, mid)
-                gemini_models.sort(key=_rank)
-                logger.debug(f"Filtered Gemini chat models: {gemini_models}")
-                models = gemini_models
+                models.sort(key=_rank)
+                logger.debug(f"Filtered Gemini chat models: {models}")
 
             elif provider == APIProvider.DEEPL:
                 models_response = client.models.list()
@@ -1078,6 +1084,22 @@ class APIManager:
             with self._lock:
                 self._model_cache.pop(provider, None)
             return [], ModelSource.ERROR.value
+
+    def _apply_global_filters(self, provider: APIProvider, model_ids: List[str]) -> List[str]:
+        """Apply global exclusion filters to a list of model IDs."""
+        if provider == APIProvider.OPENAI:
+            exclude_terms = get_openai_model_excludes()
+        elif provider == APIProvider.GOOGLE:
+            exclude_terms = get_google_model_excludes()
+        else:
+            return model_ids
+
+        def _is_excluded(model_id: str) -> bool:
+            lowered = model_id.lower()
+            # Check for prefix-based exclusions (starts with) and substring-based exclusions (contains)
+            return any(lowered.startswith(term) or term in lowered for term in exclude_terms)
+
+        return [m for m in model_ids if not _is_excluded(m)]
 
     def shutdown(self):
         """Shutdown API manager and cleanup resources."""
