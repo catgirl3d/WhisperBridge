@@ -413,7 +413,7 @@ class APIManager:
             return APIError(APIErrorType.RATE_LIMIT, str(error), retry_after=retry_after)
 
         # Quota exceeded
-        if any(keyword in error_str for keyword in ["quota", "exceeded", "insufficient"]):
+        if any(keyword in error_str for keyword in ["quota", "billing"]):
             return APIError(APIErrorType.QUOTA_EXCEEDED, str(error))
 
         # Network/timeout errors
