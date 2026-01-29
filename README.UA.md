@@ -38,11 +38,11 @@ pip install -r requirements.txt
 
 ```
 Встановлення залежностей (рекомендовано для розробки)
-pip install -e .[qt,dev]
+pip install -e .[dev]
 
 Примітки:
-- Проєкт оголошує опціональні extras у pyproject.toml; використайте `qt` щоб встановити PySide6 та залежності UI, і `dev` для інструментів розробника.
-- Для мінімальної установки можна використати: `pip install -r requirements.txt`, але для розробки рекомендовано editable install з extras.
+- Проєкт оголошує опціональні extras у pyproject.toml; використайте `dev` для інструментів розробника.
+- Для мінімальної установки можна використати: `pip install -r requirements.txt`, но для розробки рекомендовано editable install з extras.
 ```
 
 ### Запуск

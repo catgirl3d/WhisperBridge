@@ -20,7 +20,6 @@ from functools import wraps
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
-import openai
 from loguru import logger
 from tenacity import (
     retry,
@@ -32,6 +31,7 @@ from tenacity import (
 from ..services.config_service import ConfigService, config_service
 from ..providers.google_chat_adapter import GoogleChatClientAdapter
 from ..providers.deepl_adapter import DeepLClientAdapter
+from ..providers.openai_adapter import OpenAIChatClientAdapter, DEFAULT_GPT_MODELS
 from .config import (
     ensure_config_dir,
     validate_api_key_format,
@@ -121,9 +121,6 @@ class RetryableAPIError(Exception):
 
 class APIManager:
     """Centralized API manager for handling authentication and requests."""
-
-    # Default GPT models list to avoid duplication
-    DEFAULT_GPT_MODELS = ["gpt-5", "gpt-5-mini", "gpt-5-nano", "gpt-4.1-mini", "gpt-4.1-nano", "gpt-4o-mini"]
 
     def __init__(self, config_service: ConfigService):
         """
@@ -229,8 +226,8 @@ class APIManager:
             logger.warning(f"Failed to get custom default models from config: {e}")
 
         # Fallback to built-in default models
-        logger.debug(f"Using built-in default models: {self.DEFAULT_GPT_MODELS}")
-        return self.DEFAULT_GPT_MODELS.copy()
+        logger.debug(f"Using built-in default models: {DEFAULT_GPT_MODELS}")
+        return DEFAULT_GPT_MODELS.copy()
 
     def _initialize_providers(self):
         """Initialize all available API providers.
@@ -300,7 +297,7 @@ class APIManager:
             provider=APIProvider.OPENAI,
             config_key_name="openai_api_key",
             key_prefix="sk-",
-            client_factory=lambda key, timeout: openai.OpenAI(api_key=key, timeout=timeout),
+            client_factory=lambda key, timeout: OpenAIChatClientAdapter(api_key=key, timeout=timeout),
             provider_name="OpenAI",
         )
 
@@ -636,12 +633,6 @@ class APIManager:
         
         logger.debug(f"Translation temperature: {translation_temp}, Dynamic token allocation: estimated_input={estimated_input_tokens}, max_completion_tokens={max_completion_tokens}")
 
-        if selected_provider == APIProvider.OPENAI:
-            if final_model.startswith(("gpt-5")):
-                extra_body = {"reasoning_effort": "minimal", "verbosity": "low"}
-                api_params["extra_body"] = extra_body
-                logger.debug(f"Using OpenAI GPT-5 optimizations: {', '.join(f'{k}={v}' for k, v in extra_body.items())}")
-
         logger.debug(f"Final API parameters for {selected_provider.value}: {api_params}")
 
         # 4. Make the API call
@@ -698,7 +689,17 @@ class APIManager:
 
         # 3. Route to provider-specific implementation
         if selected_provider == APIProvider.OPENAI:
-            return self._make_openai_vision_request(messages, final_model)
+            # Get temperature from config for vision
+            try:
+                val = self.config_service.get_setting("llm_temperature_vision")
+                vision_temp = round(float(val if val is not None else 0.0), 2)
+            except (ValueError, TypeError) as e:
+                logger.warning(f"Failed to parse vision temperature from config (OpenAI), using default 0.0. Error: {e}")
+                vision_temp = 0.0
+            
+            # Delegate to adapter's vision method
+            response = self.make_request_sync(APIProvider.OPENAI, model=final_model, messages=messages, temperature=vision_temp, is_vision=True)
+            return response, final_model
         elif selected_provider == APIProvider.GOOGLE:
             return self._make_google_vision_request(messages, final_model)
         else:
@@ -754,44 +755,6 @@ class APIManager:
             self._logged_response_structure = True
 
         return ""
-
-    def _make_openai_vision_request(self, messages: list[dict], model: str) -> tuple[object, str]:
-        """Handle OpenAI vision request via make_request_sync with dynamic token allocation."""
-        # Calculate input tokens for dynamic allocation
-        input_text = ""
-        for msg in messages:
-            if isinstance(msg, dict):
-                content = msg.get("content", "")
-                if isinstance(content, str):
-                    input_text += content
-                elif isinstance(content, list):
-                    for part in content:
-                        if isinstance(part, dict) and part.get("type") == "text":
-                            input_text += part.get("text", "")
-        
-        estimated_input_tokens = len(input_text) // 4
-        max_total_tokens = 65536
-        min_output_tokens = 2048
-        max_completion_tokens = max(min_output_tokens, max_total_tokens - estimated_input_tokens)
-        
-        # Get temperature from config for vision
-        try:
-            val = self.config_service.get_setting("llm_temperature_vision")
-            vision_temp = round(float(val if val is not None else 0.0), 2)
-        except (ValueError, TypeError) as e:
-            logger.warning(f"Failed to parse vision temperature from config (OpenAI), using default 0.0. Error: {e}")
-            vision_temp = 0.0
-        
-        logger.debug(f"Vision temperature: {vision_temp}, Dynamic token allocation: estimated_input={estimated_input_tokens}, max_completion_tokens={max_completion_tokens}")
-        
-        response = self.make_request_sync(
-            APIProvider.OPENAI,
-            model=model,
-            messages=messages,
-            temperature=vision_temp,
-            max_completion_tokens=max_completion_tokens,
-        )
-        return response, model
 
     def _make_google_vision_request(self, messages: list[dict], model: str) -> tuple[object, str]:
         """Handle Google Gemini vision request with direct SDK usage and retry."""
@@ -1035,7 +998,7 @@ class APIManager:
             try:
                 logger.debug(f"Creating temporary client for {provider.value} using provided key.")
                 if provider == APIProvider.OPENAI:
-                    client = openai.OpenAI(api_key=temp_api_key, timeout=10)
+                    client = OpenAIChatClientAdapter(api_key=temp_api_key, timeout=10)
                 elif provider == APIProvider.GOOGLE:
                     client = GoogleChatClientAdapter(api_key=temp_api_key, timeout=10)
                 source = ModelSource.API_TEMP_KEY
@@ -1054,24 +1017,8 @@ class APIManager:
         try:
             if provider == APIProvider.OPENAI:
                 models_response = client.models.list()
-                all_models = [model.id for model in models_response.data]
-                logger.debug(f"All available models from API: {all_models}")
-
-                # First, narrow down to chat-completion prefix patterns
-                chat_models = [
-                    model.id for model in models_response.data
-                    if (model.id.lower().startswith("gpt-") or model.id.lower().startswith("chatgpt-"))
-                ]
-                # Then apply global exclusion filters
-                models = self._apply_global_filters(provider, chat_models)
-
-                models.sort(
-                    key=lambda x: (
-                        (0 if x.lower().startswith("gpt-5") else 1 if x.lower().startswith("gpt-4") else 2), x
-                    ),
-                    reverse=False,
-                )
-                logger.debug(f"Filtered chat completion models: {models}")
+                models = [model.id for model in models_response.data]
+                logger.debug(f"Filtered OpenAI chat completion models: {models}")
 
             elif provider == APIProvider.GOOGLE:
                 models_response = client.models.list()

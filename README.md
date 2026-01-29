@@ -39,10 +39,10 @@ pip install -r requirements.txt
 
 ```
 Install dependencies (recommended for development)
-pip install -e .[qt,dev]
+pip install -e .[dev]
 
 Notes:
-- The project declares optional extras in pyproject.toml; use the `qt` extra to install PySide6 and UI dependencies, and `dev` for developer tooling.
+- The project declares optional extras in pyproject.toml; use the `dev` extra for developer tooling.
 - For a minimal runtime-only install you can still use: `pip install -r requirements.txt`, but the editable install with extras is recommended during development.
 ```
 
