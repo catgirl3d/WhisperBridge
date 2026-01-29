@@ -68,7 +68,7 @@ class GoogleChatClientAdapter:
         # Configure generation parameters
         config = self._types.GenerateContentConfig(
             max_output_tokens=int(max_completion_tokens or 256),
-            temperature=float(temperature or 1.0),
+            temperature=float(temperature if temperature is not None else 1.0),
             system_instruction=system_instruction,
         )
 

@@ -41,6 +41,61 @@ from .config import (
 )
 
 
+def _model_supports_temperature(model: str) -> bool:
+    """
+    Check if the model supports custom temperature values.
+    
+    Reasoning models (o1, o3, GPT-5 reasoning) only support temperature=1.0.
+    Other models support temperature in range [0.0, 2.0].
+    
+    Args:
+        model: Model name (e.g., "gpt-5-nano", "o1-preview", "gpt-4o-mini")
+    
+    Returns:
+        True if model supports custom temperature, False otherwise.
+    """
+    model_lower = model.lower()
+    
+    # Models that only support temperature=1.0 (reasoning models)
+    restricted_prefixes = [
+        "o1-",      # o1-preview, o1-mini
+        "o3-",      # o3-mini, o3-preview (future models)
+        "gpt-5",    # GPT-5 models with reasoning_effort parameter
+    ]
+    
+    # Check if model starts with any restricted prefix
+    for prefix in restricted_prefixes:
+        if model_lower.startswith(prefix):
+            logger.debug(f"Model '{model}' is restricted (prefix: {prefix}), temperature must be 1.0")
+            return False
+    
+    return True
+
+
+def _adjust_temperature_for_model(model: str, temperature: float) -> float:
+    """
+    Adjust temperature value based on model capabilities.
+    
+    If the model doesn't support custom temperature, forces temperature=1.0.
+    Logs the adjustment if it occurs.
+    
+    Args:
+        model: Model name to check
+        temperature: Desired temperature value
+    
+    Returns:
+        Adjusted temperature (1.0 for restricted models, otherwise original value)
+    """
+    if not _model_supports_temperature(model):
+        if temperature != 1.0:
+            logger.info(
+                f"Model '{model}' does not support custom temperature. "
+                f"Overriding {temperature} -> 1.0"
+            )
+        return 1.0
+    return temperature
+
+
 def requires_initialization(func):
     """Decorator to ensure API manager is initialized before method execution."""
     @wraps(func)
@@ -507,6 +562,36 @@ class APIManager:
             return response
 
         except Exception as e:
+            error_str = str(e).lower()
+            
+            # Handle unsupported temperature error by retrying without temperature parameter
+            if "unsupported_value" in error_str and "temperature" in error_str:
+                logger.warning(
+                    f"Temperature parameter not supported by this model. "
+                    f"Retrying without temperature parameter (API default). Original error: {e}"
+                )
+                # Remove temperature from kwargs and retry once
+                retry_kwargs = kwargs.copy()
+                retry_kwargs.pop("temperature", None)
+                
+                try:
+                    response = client.chat.completions.create(**retry_kwargs)
+                    request_time = time.time() - start_time
+                    logger.debug(f"API request completed in {request_time:.2f}s (retried without temperature)")
+
+                    with self._lock:
+                        usage.requests_count += 1
+                        usage.successful_requests += 1
+                        usage.last_request_time = datetime.now()
+                        if hasattr(response, "usage") and response.usage:
+                            usage.tokens_used += response.usage.total_tokens
+
+                    return response
+                except Exception as retry_e:
+                    # If retry also fails, fall through to normal error handling
+                    logger.debug(f"Retry without temperature also failed: {retry_e}")
+                    e = retry_e
+            
             api_error = self._classify_error(e)
 
             with self._lock:
@@ -624,6 +709,9 @@ class APIManager:
                 logger.warning(f"Failed to parse provided temperature '{temperature}', using default 1.0. Error: {e}")
                 translation_temp = 1.0
         
+        # Adjust temperature based on model capabilities
+        translation_temp = _adjust_temperature_for_model(final_model, translation_temp)
+        
         api_params = {
             "model": final_model,
             "messages": messages,
@@ -696,6 +784,9 @@ class APIManager:
             except (ValueError, TypeError) as e:
                 logger.warning(f"Failed to parse vision temperature from config (OpenAI), using default 0.0. Error: {e}")
                 vision_temp = 0.0
+            
+            # Adjust temperature based on model capabilities
+            vision_temp = _adjust_temperature_for_model(final_model, vision_temp)
             
             # Delegate to adapter's vision method
             response = self.make_request_sync(APIProvider.OPENAI, model=final_model, messages=messages, temperature=vision_temp, is_vision=True)
@@ -836,6 +927,9 @@ class APIManager:
         except (ValueError, TypeError) as e:
             logger.warning(f"Failed to parse vision temperature from config (Google), using default 0.0. Error: {e}")
             vision_temp = 0.0
+        
+        # Adjust temperature based on model capabilities
+        vision_temp = _adjust_temperature_for_model(model, vision_temp)
         
         logger.debug(f"Google vision temperature: {vision_temp}, Dynamic token allocation: estimated_input={estimated_input_tokens}, max_output_tokens={max_output_tokens}")
         
