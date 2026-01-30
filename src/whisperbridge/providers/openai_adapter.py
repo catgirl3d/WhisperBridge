@@ -13,11 +13,12 @@ from loguru import logger
 from openai.types.chat import ChatCompletionMessageParam
 
 from ..core.config import get_openai_model_excludes
+from ..core.model_limits import calculate_dynamic_completion_tokens, DEFAULT_MIN_OUTPUT_TOKENS
 
 __all__ = ["OpenAIChatClientAdapter", "DEFAULT_GPT_MODELS"]
 
-# Default GPT models list to avoid duplication
-DEFAULT_GPT_MODELS = ["gpt-5", "gpt-5-mini", "gpt-5-nano", "gpt-4.1-mini", "gpt-4.1-nano", "gpt-4o-mini"]
+# Default GPT models list
+DEFAULT_GPT_MODELS = ["gpt-5-mini", "gpt-5-nano"]
 
 
 class OpenAIChatClientAdapter:
@@ -68,7 +69,7 @@ class OpenAIChatClientAdapter:
         # Check if this is a vision request
         is_vision = kwargs.pop("is_vision", False)
         if is_vision:
-            return self._create_vision(model, messages, temperature, max_completion_tokens)
+            return self._create_vision(model, messages, temperature)
 
         # Apply GPT-5 optimizations if model starts with "gpt-5"
         if model.startswith(("gpt-5")):
@@ -96,7 +97,6 @@ class OpenAIChatClientAdapter:
         model: str,
         messages: List[ChatCompletionMessageParam],
         temperature: float = 0.0,
-        max_completion_tokens: int = 2048,
         **kwargs: Any,
     ) -> Any:
         """
@@ -106,7 +106,6 @@ class OpenAIChatClientAdapter:
             model: Model name to use.
             messages: List of message dictionaries with multimodal content.
             temperature: Sampling temperature (default 0.0 for vision).
-            max_completion_tokens: Maximum tokens to generate.
             **kwargs: Additional parameters (is_vision flag is handled here).
 
         Returns:
@@ -114,29 +113,17 @@ class OpenAIChatClientAdapter:
         """
         # Remove is_vision from kwargs to avoid passing to SDK
         kwargs.pop("is_vision", None)
-        # Calculate input tokens for dynamic allocation
-        input_text = ""
-        for msg in messages:
-            if isinstance(msg, dict):
-                content = msg.get("content", "")
-                if isinstance(content, str):
-                    input_text += content
-                elif isinstance(content, list):
-                    for part in content:
-                        if isinstance(part, dict) and part.get("type") == "text":
-                            text_part = part.get("text", "")
-                            if isinstance(text_part, str):
-                                input_text += text_part
-
-        estimated_input_tokens = len(input_text) // 4
-        max_total_tokens = 65536
-        min_output_tokens = 2048
-        max_completion_tokens = max(min_output_tokens, max_total_tokens - estimated_input_tokens)
+        
+        # Dynamically calculate max_completion_tokens based on model limits
+        max_completion_tokens = calculate_dynamic_completion_tokens(
+            model=model,
+            min_output_tokens=DEFAULT_MIN_OUTPUT_TOKENS,
+            output_safety_margin=0.1
+        )
 
         logger.debug(
             f"Vision temperature: {temperature}, "
-            f"Dynamic token allocation: estimated_input={estimated_input_tokens}, "
-            f"max_completion_tokens={max_completion_tokens}"
+            f"max_completion_tokens={max_completion_tokens}, model={model}"
         )
 
         response = self._client.chat.completions.create(

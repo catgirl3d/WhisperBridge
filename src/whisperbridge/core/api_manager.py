@@ -39,6 +39,7 @@ from .config import (
     get_google_model_excludes,
     get_openai_model_excludes,
 )
+from .model_limits import calculate_dynamic_completion_tokens, DEFAULT_MIN_OUTPUT_TOKENS
 
 
 def _model_supports_temperature(model: str) -> bool:
@@ -671,28 +672,12 @@ class APIManager:
             raise ValueError("Model name must be provided for the translation request.")
 
         # 3. Prepare API call parameters for LLM providers
-        # Dynamic token allocation: estimate input tokens and calculate available output tokens
-        # Rough approximation: ~4 characters per token for English text
-        input_text = ""
-        for msg in messages:
-            if isinstance(msg, dict):
-                content = msg.get("content", "")
-                if isinstance(content, str):
-                    input_text += content
-                elif isinstance(content, list):
-                    for part in content:
-                        if isinstance(part, dict) and part.get("type") == "text":
-                            text_part = part.get("text", "")
-                            if isinstance(text_part, str):
-                                input_text += text_part
-        
-        # Estimate input tokens (conservative estimate: 4 chars per token)
-        estimated_input_tokens = len(input_text) // 4
-        
-        # Calculate max output tokens with upper limit of 65536
-        max_total_tokens = 65536
-        min_output_tokens = 2048
-        max_completion_tokens = max(min_output_tokens, max_total_tokens - estimated_input_tokens)
+        # Calculate max output tokens with dynamic model limits
+        max_completion_tokens = calculate_dynamic_completion_tokens(
+            model=final_model,
+            min_output_tokens=DEFAULT_MIN_OUTPUT_TOKENS,
+            output_safety_margin=0.1
+        )
         
         # Use provided temperature or fall back to translation temperature setting
         if temperature is None:
@@ -719,7 +704,7 @@ class APIManager:
             "max_completion_tokens": max_completion_tokens,
         }
         
-        logger.debug(f"Translation temperature: {translation_temp}, Dynamic token allocation: estimated_input={estimated_input_tokens}, max_completion_tokens={max_completion_tokens}")
+        logger.debug(f"Translation temperature: {translation_temp}, max_completion_tokens={max_completion_tokens}")
 
         logger.debug(f"Final API parameters for {selected_provider.value}: {api_params}")
 
@@ -913,12 +898,11 @@ class APIManager:
         client = genai.Client(api_key=api_key, http_options={"timeout": (timeout or 30) * 1000})
         
         # Configure generation parameters with dynamic token allocation
-        # Calculate input tokens for dynamic allocation
-        estimated_input_tokens = len(prompt) // 4
-        
-        max_total_tokens = 65536
-        min_output_tokens = 2048
-        max_output_tokens = max(min_output_tokens, max_total_tokens - estimated_input_tokens)
+        max_output_tokens = calculate_dynamic_completion_tokens(
+            model=model,
+            min_output_tokens=DEFAULT_MIN_OUTPUT_TOKENS,
+            output_safety_margin=0.1
+        )
         
         # Get temperature from config for vision
         try:
@@ -931,7 +915,7 @@ class APIManager:
         # Adjust temperature based on model capabilities
         vision_temp = _adjust_temperature_for_model(model, vision_temp)
         
-        logger.debug(f"Google vision temperature: {vision_temp}, Dynamic token allocation: estimated_input={estimated_input_tokens}, max_output_tokens={max_output_tokens}")
+        logger.debug(f"Google vision temperature: {vision_temp}, max_output_tokens={max_output_tokens}")
         
         config = types.GenerateContentConfig(
             max_output_tokens=max_output_tokens,
