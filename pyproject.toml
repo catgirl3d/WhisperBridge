@@ -142,6 +142,7 @@ ignore_missing_imports = true
 minversion = "7.4"
 addopts = "-ra -q"
 testpaths = ["tests"]
+pythonpath = ["src"]
 python_files = "test_*.py"
 python_classes = "Test*"
 python_functions = "test_*"

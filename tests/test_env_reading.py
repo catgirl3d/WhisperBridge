@@ -4,21 +4,18 @@ Simple test to check how Pydantic reads .env files and environment variables.
 """
 
 import os
-import sys
 from pathlib import Path
-
-# Add src to path
-sys.path.insert(0, str(Path(__file__).parent))
 
 from whisperbridge.core.config import BUILD_OCR_ENABLED, Settings
 
 def test_env_reading():
     print("=== Testing Environment Variable Reading ===")
     print(f"Current working directory: {os.getcwd()}")
-    print(f"Project root: {Settings.get_project_root()}")
+    project_root = Settings.get_project_root()
+    print(f"Project root: {project_root}")
 
-    # Check if .env file exists
-    env_file = Path('.env')
+    # Check if .env file exists (use absolute path)
+    env_file = project_root / '.env'
     print(f".env file exists: {env_file.exists()}")
     if env_file.exists():
         print(f".env file path: {env_file.absolute()}")

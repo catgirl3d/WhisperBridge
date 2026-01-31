@@ -5,8 +5,9 @@ Based on test_implementation_plan.md
 Coverage Goal: ≥95% for model_limits.py
 """
 
+import logging
+
 import pytest
-from unittest.mock import patch
 
 from whisperbridge.core.model_limits import (
     get_model_max_completion_tokens,
@@ -43,23 +44,15 @@ class TestGetModelMaxTokens:
         """TC-ML-003: Unknown models should return safe default."""
         assert get_model_max_completion_tokens("unknown-model-xyz") == DEFAULT_MAX_COMPLETION_TOKENS
 
-    def test_get_model_max_tokens_unknown_logs_warning(self, caplog):
+    def test_get_model_max_tokens_unknown_logs_warning(self, loguru_caplog):
         """Unknown models should log a WARNING (not DEBUG)."""
-        import logging
-        from loguru import logger
-        
-        # Loguru → caplog bridge
-        logger.remove()  # Remove default handler to avoid duplicate logs
-        logger.add(caplog.handler, format="{message}")
-        caplog.set_level(logging.WARNING)
-        
         get_model_max_completion_tokens("unknown-model-xyz")
         
         # Verify WARNING was logged
-        assert any("Unknown model" in record.message for record in caplog.records), \
-            f"Expected 'Unknown model' in log messages, got: {[r.message for r in caplog.records]}"
-        assert any(record.levelname == "WARNING" for record in caplog.records), \
-            f"Expected WARNING level, got: {[r.levelname for r in caplog.records]}"
+        assert any("Unknown model" in record.message for record in loguru_caplog.records), \
+            f"Expected 'Unknown model' in log messages, got: {[r.message for r in loguru_caplog.records]}"
+        assert any(record.levelname == "WARNING" for record in loguru_caplog.records), \
+            f"Expected WARNING level, got: {[r.levelname for r in loguru_caplog.records]}"
 
     @pytest.mark.parametrize("deprecated_model", [
         "gpt-3.5-turbo",
@@ -94,7 +87,7 @@ class TestGetModelMaxTokens:
         # Since both have same limit, we verify it returns 128000
         assert result == 128000
 
-    def test_prefix_matching_longest_wins_different_limits(self):
+    def test_prefix_matching_longest_wins_different_limits(self, mocker):
         """
         TC-ML-005b: Verify longest prefix matching with different token limits.
         
@@ -110,12 +103,12 @@ class TestGetModelMaxTokens:
             "gpt-5-mini": 100000,  # Longer prefix, higher limit
         }
         
-        with patch('whisperbridge.core.model_limits.MODEL_TOKEN_LIMITS', test_limits):
-            result = get_model_max_completion_tokens("gpt-5-mini-turbo-test")
-            
-            # Should match "gpt-5-mini" (longest prefix), return 100000
-            # NOT match "gpt-5" (shorter prefix), which would return 50000
-            assert result == 100000, (
+        mocker.patch('whisperbridge.core.model_limits.MODEL_TOKEN_LIMITS', test_limits)
+        result = get_model_max_completion_tokens("gpt-5-mini-turbo-test")
+        
+        # Should match "gpt-5-mini" (longest prefix), return 100000
+        # NOT match "gpt-5" (shorter prefix), which would return 50000
+        assert result == 100000, (
                 f"Expected 100000 (from 'gpt-5-mini' prefix), got {result}. "
                 "This indicates the shortest prefix was matched instead of the longest."
             )
@@ -261,46 +254,24 @@ class TestCalculateDynamicTokens:
         expected_safe = int(DEFAULT_MAX_COMPLETION_TOKENS * 0.9)  # With margin
         assert abs(result - expected_safe) / expected_safe < 0.1
 
-    def test_calculate_dynamic_tokens_logging(self, caplog):
+    def test_calculate_dynamic_tokens_logging(self, loguru_caplog):
         """TC-ML-020: Verify debug logging contains expected information."""
-        # Setup caplog to capture loguru messages
-        import logging
-        import sys
-        from loguru import logger
+        # Set log level to DEBUG to capture debug messages
+        loguru_caplog.set_level(logging.DEBUG)
         
-        # Remove default loguru handler to avoid duplicate logs
-        logger.remove()
-        
-        # Add a handler that forwards loguru messages to standard logging
-        # This allows pytest's caplog to capture them
-        class PropagateHandler:
-            def __init__(self):
-                self.level = 0
-            
-            def write(self, message):
-                record = message.record
-                # Convert loguru record to standard logging record
-                levelno = getattr(logging, record["level"].name)
-                logger_std = logging.getLogger(record["name"])
-                logger_std.log(levelno, record["message"])
-        
-        logger.add(PropagateHandler(), format="{message}")
-        
-        # Capture logs at DEBUG level
-        with caplog.at_level(logging.DEBUG):
-            result = calculate_dynamic_completion_tokens(
-                model="gpt-5"
-            )
+        result = calculate_dynamic_completion_tokens(
+            model="gpt-5"
+        )
         
         # Verify the function returns a valid result
         assert isinstance(result, int)
         assert result > 0
         
         # Verify that debug logging occurred
-        assert len(caplog.records) > 0, "No debug logs were captured"
+        assert len(loguru_caplog.records) > 0, "No debug logs were captured"
         
         # Verify the log message contains expected information
-        log_messages = [record.message for record in caplog.records]
+        log_messages = [record.message for record in loguru_caplog.records]
         assert any("Model: gpt-5" in msg for msg in log_messages), \
             f"Expected log message containing 'Model: gpt-5', got: {log_messages}"
 

@@ -1,12 +1,7 @@
-import os
-import sys
-from unittest.mock import patch, MagicMock
-
-# Add the project root to Python paths for correct module imports
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+"""Tests for Settings configuration and validation."""
 
 import pytest
-from src.whisperbridge.core.config import Settings
+from whisperbridge.core.config import Settings
 
 def test_settings_initialization():
     """Test that settings can be initialized."""

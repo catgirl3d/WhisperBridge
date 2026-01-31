@@ -1,11 +1,6 @@
 
-import sys
-import os
 import time
 from loguru import logger
-
-# Add src to path
-sys.path.append(os.path.join(os.path.dirname(__file__), "..", "src"))
 
 try:
     from pynput import keyboard
@@ -13,6 +8,7 @@ try:
 except ImportError as e:
     print(f"Error: {e}")
     print("Ensure dependencies are installed: pip install pynput loguru")
+    import sys
     sys.exit(1)
 
 def run_interactive_test():

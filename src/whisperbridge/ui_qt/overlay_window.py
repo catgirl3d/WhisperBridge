@@ -693,12 +693,19 @@ class OverlayWindow(StyledOverlayWindow):
             except Exception:
                 pass
             button.setText("")
+            
+            def _restore_button(p_icon, p_text):
+                """Restore button icon and text, handling deleted button gracefully."""
+                try:
+                    button.setIcon(p_icon)
+                    button.setText(p_text)
+                except RuntimeError:
+                    # Button already deleted, ignore
+                    pass
+            
             QTimer.singleShot(
                 1200,
-                lambda p_icon=prev_icon, p_text=prev_text: (
-                    button.setIcon(p_icon),
-                    button.setText(p_text),
-                ),
+                lambda p_icon=prev_icon, p_text=prev_text: _restore_button(p_icon, p_text),
             )
         except Exception as e:
             logger.error(f"Failed to show button feedback: {e}")

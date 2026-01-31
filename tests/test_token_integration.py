@@ -6,7 +6,7 @@ Coverage Goal: ≥80% coverage of affected code paths in api_manager.py
 """
 
 import pytest
-from unittest.mock import Mock, patch
+from unittest.mock import Mock
 
 from whisperbridge.core.model_limits import calculate_dynamic_completion_tokens
 from whisperbridge.core.api_manager import APIManager, APIProvider
@@ -32,13 +32,13 @@ def api_manager(mock_config_service):
 class TestAPIManagerTokenIntegration:
     """Category 1: API Manager Integration (4 tests)"""
 
-    @patch('whisperbridge.core.api_manager.OpenAIChatClientAdapter')
-    def test_api_manager_vision_uses_dynamic_tokens(self, mock_adapter, api_manager, mock_config_service):
+    def test_api_manager_vision_uses_dynamic_tokens(self, api_manager, mock_config_service, mocker):
         """
         TC-INT-001: APIManager.send_vision_request should use calculate_dynamic_completion_tokens.
         
         This test verifies that the vision request properly calculates dynamic tokens.
         """
+        mock_adapter = mocker.patch('whisperbridge.core.api_manager.OpenAIChatClientAdapter')
         # Setup mock client
         mock_client = Mock()
         mock_adapter.return_value = mock_client
@@ -121,9 +121,9 @@ class TestAPIManagerTokenIntegration:
 class TestTranslationRequestTokenIntegration:
     """Additional integration tests for translation requests."""
 
-    @patch('whisperbridge.core.api_manager.OpenAIChatClientAdapter')
-    def test_translation_request_with_dynamic_tokens(self, mock_adapter, api_manager, mock_config_service):
+    def test_translation_request_with_dynamic_tokens(self, api_manager, mock_config_service, mocker):
         """Test that translation requests use dynamic token calculation."""
+        mock_adapter = mocker.patch('whisperbridge.core.api_manager.OpenAIChatClientAdapter')
         # Setup mock client
         mock_client = Mock()
         mock_adapter.return_value = mock_client
@@ -162,9 +162,9 @@ class TestTranslationRequestTokenIntegration:
         assert max_tokens <= 16384  # gpt-4o-mini limit
         assert max_tokens >= 2048  # min_output_tokens
 
-    @patch('whisperbridge.core.api_manager.OpenAIChatClientAdapter')
-    def test_translation_with_large_cyrillic_text(self, mock_adapter, api_manager, mock_config_service):
+    def test_translation_with_large_cyrillic_text(self, api_manager, mock_config_service, mocker):
         """Test translation with large Cyrillic text doesn't overflow."""
+        mock_adapter = mocker.patch('whisperbridge.core.api_manager.OpenAIChatClientAdapter')
         # Setup mock client
         mock_client = Mock()
         mock_adapter.return_value = mock_client
@@ -248,14 +248,14 @@ class TestModelLimitsIntegration:
 class TestOpenAIAdapterRemovedModels:
     """Tests for OpenAI adapter behavior with removed models."""
 
-    @patch('whisperbridge.providers.openai_adapter.openai.OpenAI')
-    def test_gpt41_models_do_not_get_gpt5_optimizations(self, mock_openai):
+    def test_gpt41_models_do_not_get_gpt5_optimizations(self, mocker):
         """
         TC-INT-004: Removed GPT-4.1 models should NOT receive GPT-5 optimizations.
         
         Regression test to ensure that gpt-4.1-mini and gpt-4.1-nano don't
         accidentally get GPT-5 specific parameters (reasoning_effort, verbosity).
         """
+        mock_openai = mocker.patch('whisperbridge.providers.openai_adapter.openai.OpenAI')
         from whisperbridge.providers.openai_adapter import OpenAIChatClientAdapter
         
         # Setup mock client
@@ -285,14 +285,14 @@ class TestOpenAIAdapterRemovedModels:
             "gpt-4.1-mini should NOT receive GPT-5 optimizations (extra_body)"
         )
 
-    @patch('whisperbridge.providers.openai_adapter.openai.OpenAI')
-    def test_gpt5_models_do_get_gpt5_optimizations(self, mock_openai):
+    def test_gpt5_models_do_get_gpt5_optimizations(self, mocker):
         """
         TC-INT-005: GPT-5 models SHOULD receive GPT-5 optimizations.
         
         This is a positive control test to verify that GPT-5 models
         correctly receive the extra_body parameters.
         """
+        mock_openai = mocker.patch('whisperbridge.providers.openai_adapter.openai.OpenAI')
         from whisperbridge.providers.openai_adapter import OpenAIChatClientAdapter
         
         # Setup mock client
@@ -324,7 +324,6 @@ class TestOpenAIAdapterRemovedModels:
         assert extra_body.get('reasoning_effort') == 'minimal'
         assert extra_body.get('verbosity') == 'low'
 
-    @patch('whisperbridge.providers.openai_adapter.openai.OpenAI')
     @pytest.mark.parametrize("model,should_have_optimizations", [
         ("gpt-5-mini", True),
         ("gpt-5-nano", True),
@@ -334,13 +333,14 @@ class TestOpenAIAdapterRemovedModels:
         ("gpt-4o-mini", False),
         ("gpt-4o", False),
     ])
-    def test_gpt5_optimizations_applied_correctly(self, mock_openai, model, should_have_optimizations):
+    def test_gpt5_optimizations_applied_correctly(self, mocker, model, should_have_optimizations):
         """
         TC-INT-006: GPT-5 optimizations should only be applied to GPT-5 models.
         
         Parametrized test to verify that the startswith("gpt-5") check
         correctly identifies which models get optimizations.
         """
+        mock_openai = mocker.patch('whisperbridge.providers.openai_adapter.openai.OpenAI')
         from whisperbridge.providers.openai_adapter import OpenAIChatClientAdapter
         
         # Setup mock client
@@ -378,14 +378,14 @@ class TestOpenAIAdapterRemovedModels:
                 f"Model '{model}' should NOT have GPT-5 optimizations"
             )
 
-    @patch('whisperbridge.providers.openai_adapter.openai.OpenAI')
-    def test_vision_request_with_removed_models(self, mock_openai):
+    def test_vision_request_with_removed_models(self, mocker):
         """
         TC-INT-007: Vision requests with removed models should work correctly.
         
         Tests that _create_vision handles gpt-4.1-mini and gpt-4.1-nano
         correctly with dynamic token calculation.
         """
+        mock_openai = mocker.patch('whisperbridge.providers.openai_adapter.openai.OpenAI')
         from whisperbridge.providers.openai_adapter import OpenAIChatClientAdapter
         
         # Setup mock client

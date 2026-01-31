@@ -16,15 +16,6 @@ from PySide6.QtWidgets import QApplication, QComboBox, QLineEdit, QListView, QPu
 from whisperbridge.ui_qt import widget_factory
 
 
-@pytest.fixture(scope="session")
-def qapp():
-    """Ensure a QApplication exists for Qt widget tests."""
-    app = QApplication.instance()
-    if app is None:
-        app = QApplication([])
-    yield app
-
-
 def test_create_widget_applies_common_keys(qapp):
     """create_widget should apply common config keys to widgets (best-effort)."""
     config_maps = {
@@ -78,6 +69,8 @@ def test_make_qta_icon_returns_qicon(qapp):
 
 def test_make_icon_from_spec_asset_returns_qicon(qapp):
     """make_icon_from_spec should return a QIcon for a PNG asset."""
-    assets_base = Path("src/whisperbridge/assets")
+    # Use absolute path to assets directory
+    project_root = Path(__file__).parent.parent
+    assets_base = project_root / "src" / "whisperbridge" / "assets"
     icon = widget_factory.make_icon_from_spec({"asset": "translation-icon.png"}, assets_base)
     assert isinstance(icon, QIcon)

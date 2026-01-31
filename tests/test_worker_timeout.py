@@ -4,15 +4,10 @@ Includes integration tests for Watchdog timer and Qt signals using pytest-qt.
 Run with: python -m pytest tests/test_worker_timeout.py -v
 """
 
-import sys
-import os
 import asyncio
 import time
 import pytest
-from unittest.mock import Mock, patch, MagicMock, AsyncMock
-
-# Add project root to Python path for imports
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'src')))
+from unittest.mock import Mock, AsyncMock
 
 # Import dependencies
 try:
@@ -122,10 +117,10 @@ class TestQtIntegration:
         return timeout_value
 
     @pytest.fixture(autouse=True)
-    def mock_qmessagebox(self):
+    def mock_qmessagebox(self, mocker):
         """Mock QMessageBox to prevent blocking dialogs and crashes in tests."""
-        with patch('PySide6.QtWidgets.QMessageBox.warning') as mock_warn:
-            yield mock_warn
+        mock_warn = mocker.patch('PySide6.QtWidgets.QMessageBox.warning')
+        yield mock_warn
 
     @pytest.fixture
     def overlay(self, qtbot, mock_config_service):
@@ -142,7 +137,7 @@ class TestQtIntegration:
 
     # --- Watchdog Timer Tests ---
 
-    def test_watchdog_starts_with_correct_timeout(self, overlay, qtbot, mock_config_service):
+    def test_watchdog_starts_with_correct_timeout(self, qtbot, overlay, mock_config_service):
         """Verify watchdog starts with correct timeout value."""
         mock_config_service[0] = 10
         worker, thread = overlay._setup_worker(TranslationWorker, "test", "en", "ru")
@@ -157,7 +152,7 @@ class TestQtIntegration:
         # Verify thread stopped
         assert not thread.isRunning()
 
-    def test_watchdog_cleanup_on_success(self, overlay, qtbot):
+    def test_watchdog_cleanup_on_success(self, qtbot, overlay):
         """Verify watchdog cleans up when worker finishes successfully."""
         worker, thread = overlay._setup_worker(TranslationWorker, "test", "en", "ru")
         
@@ -175,7 +170,7 @@ class TestQtIntegration:
         timers_after = len(overlay.findChildren(QTimer))
         assert timers_after <= timers_before
 
-    def test_watchdog_cleanup_on_error(self, overlay, qtbot):
+    def test_watchdog_cleanup_on_error(self, qtbot, overlay):
         """Verify watchdog cleans up when worker fails."""
         worker, thread = overlay._setup_worker(TranslationWorker, "test", "en", "ru")
         
@@ -190,34 +185,34 @@ class TestQtIntegration:
         timers_after = len(overlay.findChildren(QTimer))
         assert timers_after <= timers_before
 
-    def test_watchdog_timeout_calculation_only(self, overlay, qtbot, mock_config_service):
-        """Test watchdog timeout calculation without actual termination."""
-        # This test verifies timeout calculation logic
-        # Actual termination testing is difficult in unit tests due to Qt's deleteLater
-        test_cases = [
-            (10, 60),   # api_timeout=10 -> watchdog=max(20,60)=60
-            (30, 60),   # api_timeout=30 -> watchdog=max(60,60)=60
-            (60, 120),  # api_timeout=60 -> watchdog=max(120,60)=120
-            (100, 200), # api_timeout=100 -> watchdog=max(200,60)=200
-        ]
+    @pytest.mark.parametrize("api_timeout,expected_watchdog", [
+        (10, 60),   # api_timeout=10 -> watchdog=max(20,60)=60
+        (30, 60),   # api_timeout=30 -> watchdog=max(60,60)=60
+        (60, 120),  # api_timeout=60 -> watchdog=max(120,60)=120
+        (100, 200), # api_timeout=100 -> watchdog=max(200,60)=200
+    ])
+    def test_watchdog_timeout_calculation_only(self, qtbot, overlay, mock_config_service, mocker, api_timeout, expected_watchdog):
+        """Test watchdog timeout calculation without actual termination.
         
-        for api_timeout, expected_watchdog in test_cases:
-            mock_config_service[0] = api_timeout
-            
-            # Patch QTimer.start to capture the timeout value
-            with patch('whisperbridge.ui_qt.overlay_window.QTimer.start') as mock_start:
-                worker, thread = overlay._setup_worker(TranslationWorker, "test", "en", "ru")
-                
-                # Verify QTimer.start was called with expected timeout (in ms)
-                assert mock_start.called
-                actual_timeout_ms = mock_start.call_args[0][0]
-                expected_timeout_ms = expected_watchdog * 1000
-                assert actual_timeout_ms == expected_timeout_ms, \
-                    f"api_timeout={api_timeout}, expected watchdog={expected_watchdog}s, got {actual_timeout_ms/1000}s"
-                
-                # Cleanup
-                with qtbot.waitSignal(thread.finished, timeout=1000):
-                    worker.finished.emit(True, "")
+        This test verifies timeout calculation logic.
+        Actual termination testing is difficult in unit tests due to Qt's deleteLater.
+        """
+        mock_config_service[0] = api_timeout
+        
+        # Patch QTimer.start to capture the timeout value
+        mock_start = mocker.patch('whisperbridge.ui_qt.overlay_window.QTimer.start')
+        worker, thread = overlay._setup_worker(TranslationWorker, "test", "en", "ru")
+        
+        # Verify QTimer.start was called with expected timeout (in ms)
+        assert mock_start.called
+        actual_timeout_ms = mock_start.call_args[0][0]
+        expected_timeout_ms = expected_watchdog * 1000
+        assert actual_timeout_ms == expected_timeout_ms, \
+            f"api_timeout={api_timeout}, expected watchdog={expected_watchdog}s, got {actual_timeout_ms/1000}s"
+        
+        # Cleanup
+        with qtbot.waitSignal(thread.finished, timeout=1000):
+            worker.finished.emit(True, "")
 
     # --- Signal Emission Order Tests ---
 
@@ -249,7 +244,7 @@ class TestQtIntegration:
         assert result == "ok"
         assert error_spy.count() == 0
 
-    def test_signal_disconnection_after_cleanup(self, overlay, qtbot):
+    def test_signal_disconnection_after_cleanup(self, qtbot, overlay):
         """Verify cleanup happens correctly and worker is deleted."""
         worker, thread = overlay._setup_worker(TranslationWorker, "test", "en", "ru")
         
@@ -272,52 +267,52 @@ class TestQtIntegration:
 
     # --- Worker Integration Tests ---
 
-    def test_translation_worker_integration(self, qtbot, mock_config_service):
+    def test_translation_worker_integration(self, qtbot, mock_config_service, mocker):
         """Integration test for TranslationWorker with mocked service."""
         mock_service = Mock()
         mock_service.translate_text_async = AsyncMock(return_value=Mock(success=True, translated_text="Hola"))
         
-        with patch('whisperbridge.services.translation_service.get_translation_service', return_value=mock_service):
-            worker = TranslationWorker("Hello", "en", "es")
-            finished_spy = QSignalSpy(worker.finished)
-            worker.run()
-            assert finished_spy.count() == 1
-            assert finished_spy.at(0)[0] is True
-            assert finished_spy.at(0)[1] == "Hola"
+        mocker.patch('whisperbridge.services.translation_service.get_translation_service', return_value=mock_service)
+        worker = TranslationWorker("Hello", "en", "es")
+        finished_spy = QSignalSpy(worker.finished)
+        worker.run()
+        assert finished_spy.count() == 1
+        assert finished_spy.at(0)[0] is True
+        assert finished_spy.at(0)[1] == "Hola"
 
-    def test_style_worker_integration(self, qtbot):
+    def test_style_worker_integration(self, qtbot, mocker):
         """Integration test for StyleWorker."""
         mock_service = Mock()
         mock_service.style_text_async = AsyncMock(return_value=Mock(success=True, translated_text="Styled Text"))
         
-        with patch('whisperbridge.services.translation_service.get_translation_service', return_value=mock_service):
-            worker = StyleWorker("Raw", "Formal")
-            finished_spy = QSignalSpy(worker.finished)
-            worker.run()
-            assert finished_spy.count() == 1
-            assert finished_spy.at(0)[0] is True
-            assert finished_spy.at(0)[1] == "Styled Text"
+        mocker.patch('whisperbridge.services.translation_service.get_translation_service', return_value=mock_service)
+        worker = StyleWorker("Raw", "Formal")
+        finished_spy = QSignalSpy(worker.finished)
+        worker.run()
+        assert finished_spy.count() == 1
+        assert finished_spy.at(0)[0] is True
+        assert finished_spy.at(0)[1] == "Styled Text"
 
-    def test_worker_timeout_handling(self, qtbot, mock_config_service):
+    def test_worker_timeout_handling(self, qtbot, mock_config_service, mocker):
         """Test TranslationWorker handles timeout correctly."""
         mock_config_service[0] = 0.1
         mock_service = Mock()
         async def slow_mock(*args, **kwargs): await asyncio.sleep(0.5)
         mock_service.translate_text_async = AsyncMock(side_effect=slow_mock)
         
-        with patch('whisperbridge.services.translation_service.get_translation_service', return_value=mock_service):
-            worker = TranslationWorker("Slow", "en", "es")
-            finished_spy = QSignalSpy(worker.finished)
-            error_spy = QSignalSpy(worker.error)
-            worker.run()
-            assert finished_spy.count() == 1
-            assert error_spy.count() == 1
-            assert finished_spy.at(0)[0] is False
-            assert "timed out" in error_spy.at(0)[0]
+        mocker.patch('whisperbridge.services.translation_service.get_translation_service', return_value=mock_service)
+        worker = TranslationWorker("Slow", "en", "es")
+        finished_spy = QSignalSpy(worker.finished)
+        error_spy = QSignalSpy(worker.error)
+        worker.run()
+        assert finished_spy.count() == 1
+        assert error_spy.count() == 1
+        assert finished_spy.at(0)[0] is False
+        assert "timed out" in error_spy.at(0)[0]
 
     # --- Race Condition Scenarios ---
 
-    def test_concurrent_cleanup_calls(self, overlay, qtbot):
+    def test_concurrent_cleanup_calls(self, qtbot, overlay):
         """Verify multiple cleanup calls don't cause crash (idempotency)."""
         worker, thread = overlay._setup_worker(TranslationWorker, "test", "en", "ru")
         
@@ -330,7 +325,7 @@ class TestQtIntegration:
         # Verify thread stopped cleanly
         assert not thread.isRunning()
 
-    def test_cleanup_before_thread_start(self, overlay, qtbot):
+    def test_cleanup_before_thread_start(self, qtbot, overlay):
         """Verify cleanup works even if signals fire rapidly after setup."""
         worker, thread = overlay._setup_worker(TranslationWorker, "test", "en", "ru")
         
@@ -347,7 +342,7 @@ class TestQtIntegration:
         timers_after = len(overlay.findChildren(QTimer))
         assert timers_after <= timers_before
 
-    def test_late_signal_after_cleanup_no_crash(self, overlay, qtbot):
+    def test_late_signal_after_cleanup_no_crash(self, qtbot, overlay):
         """Verify late signals after cleanup are handled gracefully."""
         worker, thread = overlay._setup_worker(TranslationWorker, "test", "en", "ru")
         
@@ -378,7 +373,7 @@ class TestQtIntegration:
         
         # No crash = success
 
-    def test_watchdog_vs_completion_race(self, overlay, qtbot, mock_config_service):
+    def test_watchdog_vs_completion_race(self, qtbot, overlay, mock_config_service):
         """Test race condition between watchdog timeout and normal completion."""
         mock_config_service[0] = 0.5
         
@@ -396,7 +391,7 @@ class TestQtIntegration:
 
     # --- Memory Leak Tests ---
 
-    def test_no_qtimer_leak(self, overlay, qtbot):
+    def test_no_qtimer_leak(self, qtbot, overlay):
         """Verify QTimer objects are properly cleaned up after multiple tasks."""
         initial_timers = len(overlay.findChildren(QTimer))
         
@@ -416,7 +411,7 @@ class TestQtIntegration:
         assert final_timers - initial_timers < 3, \
             f"QTimer leak detected: {final_timers - initial_timers} leaked timers"
 
-    def test_no_worker_leak(self, overlay, qtbot):
+    def test_no_worker_leak(self, qtbot, overlay):
         """Verify worker objects are properly cleaned up."""
         initial_workers = len(overlay.findChildren(BaseAsyncWorker))
         
@@ -435,7 +430,7 @@ class TestQtIntegration:
         assert final_workers - initial_workers < 3, \
             f"Worker leak detected: {final_workers - initial_workers} leaked workers"
 
-    def test_no_thread_leak(self, overlay, qtbot):
+    def test_no_thread_leak(self, qtbot, overlay):
         """Verify thread objects are properly cleaned up."""
         initial_threads = len(overlay.findChildren(QThread))
         
@@ -456,7 +451,7 @@ class TestQtIntegration:
 
     # --- Stress Tests ---
 
-    def test_rapid_fire_requests(self, overlay, qtbot):
+    def test_rapid_fire_requests(self, qtbot, overlay):
         """Test that rapid consecutive requests don't cause crashes."""
         results = []
         errors = []
@@ -484,7 +479,7 @@ class TestQtIntegration:
         # Main check: we got here without crash
         assert True
 
-    def test_many_workers_sequential(self, overlay, qtbot):
+    def test_many_workers_sequential(self, qtbot, overlay):
         """Test that many sequential operations don't cause memory issues."""
         initial_timers = len(overlay.findChildren(QTimer))
         
@@ -506,7 +501,7 @@ class TestQtIntegration:
         assert final_timers - initial_timers < 5, \
             f"Memory leak detected after 20 operations: {final_timers - initial_timers} leaked objects"
 
-    def test_multiple_workers_concurrent(self, overlay, qtbot):
+    def test_multiple_workers_concurrent(self, qtbot, overlay):
         """Test that multiple workers can run concurrently without issues."""
         workers_and_threads = []
         
@@ -568,59 +563,59 @@ class TestQtIntegration:
         assert result == "done"
     
     
-    def test_translation_worker_empty_response(self, qtbot, mock_config_service):
+    def test_translation_worker_empty_response(self, qtbot, mock_config_service, mocker):
         """Test TranslationWorker handles empty API response."""
         mock_service = Mock()
         mock_service.translate_text_async = AsyncMock(return_value=Mock(success=True, translated_text=None))
         
-        with patch('whisperbridge.services.translation_service.get_translation_service', return_value=mock_service):
-            worker = TranslationWorker("Hello", "en", "es")
-            finished_spy = QSignalSpy(worker.finished)
-            worker.run()
-            assert finished_spy.count() == 1
-            assert finished_spy.at(0)[0] is True
-            assert finished_spy.at(0)[1] == ""
+        mocker.patch('whisperbridge.services.translation_service.get_translation_service', return_value=mock_service)
+        worker = TranslationWorker("Hello", "en", "es")
+        finished_spy = QSignalSpy(worker.finished)
+        worker.run()
+        assert finished_spy.count() == 1
+        assert finished_spy.at(0)[0] is True
+        assert finished_spy.at(0)[1] == ""
     
-    def test_translation_worker_service_error(self, qtbot, mock_config_service):
+    def test_translation_worker_service_error(self, qtbot, mock_config_service, mocker):
         """Test TranslationWorker handles service errors."""
         mock_service = Mock()
         mock_service.translate_text_async = AsyncMock(side_effect=Exception("Service unavailable"))
         
-        with patch('whisperbridge.services.translation_service.get_translation_service', return_value=mock_service):
-            worker = TranslationWorker("Hello", "en", "es")
-            error_spy = QSignalSpy(worker.error)
-            finished_spy = QSignalSpy(worker.finished)
-            worker.run()
-            assert error_spy.count() == 1
-            assert finished_spy.count() == 1
-            assert finished_spy.at(0)[0] is False
+        mocker.patch('whisperbridge.services.translation_service.get_translation_service', return_value=mock_service)
+        worker = TranslationWorker("Hello", "en", "es")
+        error_spy = QSignalSpy(worker.error)
+        finished_spy = QSignalSpy(worker.finished)
+        worker.run()
+        assert error_spy.count() == 1
+        assert finished_spy.count() == 1
+        assert finished_spy.at(0)[0] is False
     
-    def test_style_worker_empty_response(self, qtbot, mock_config_service):
+    def test_style_worker_empty_response(self, qtbot, mock_config_service, mocker):
         """Test StyleWorker handles empty API response."""
         mock_service = Mock()
         mock_service.style_text_async = AsyncMock(return_value=Mock(success=True, translated_text=None))
         
-        with patch('whisperbridge.services.translation_service.get_translation_service', return_value=mock_service):
-            worker = StyleWorker("Raw", "Formal")
-            finished_spy = QSignalSpy(worker.finished)
-            worker.run()
-            assert finished_spy.count() == 1
-            assert finished_spy.at(0)[0] is True
-            assert finished_spy.at(0)[1] == ""
+        mocker.patch('whisperbridge.services.translation_service.get_translation_service', return_value=mock_service)
+        worker = StyleWorker("Raw", "Formal")
+        finished_spy = QSignalSpy(worker.finished)
+        worker.run()
+        assert finished_spy.count() == 1
+        assert finished_spy.at(0)[0] is True
+        assert finished_spy.at(0)[1] == ""
     
-    def test_style_worker_service_error(self, qtbot, mock_config_service):
+    def test_style_worker_service_error(self, qtbot, mock_config_service, mocker):
         """Test StyleWorker handles service errors."""
         mock_service = Mock()
         mock_service.style_text_async = AsyncMock(side_effect=Exception("Service unavailable"))
         
-        with patch('whisperbridge.services.translation_service.get_translation_service', return_value=mock_service):
-            worker = StyleWorker("Raw", "Formal")
-            error_spy = QSignalSpy(worker.error)
-            finished_spy = QSignalSpy(worker.finished)
-            worker.run()
-            assert error_spy.count() == 1
-            assert finished_spy.count() == 1
-            assert finished_spy.at(0)[0] is False
+        mocker.patch('whisperbridge.services.translation_service.get_translation_service', return_value=mock_service)
+        worker = StyleWorker("Raw", "Formal")
+        error_spy = QSignalSpy(worker.error)
+        finished_spy = QSignalSpy(worker.finished)
+        worker.run()
+        assert error_spy.count() == 1
+        assert finished_spy.count() == 1
+        assert finished_spy.at(0)[0] is False
 
 
 @pytest.mark.skipif(CaptureOcrTranslateWorker is None, reason="Requires Qt and project dependencies")
@@ -628,55 +623,55 @@ class TestCaptureOcrTranslateWorker:
     """Tests for CaptureOcrTranslateWorker."""
     
     @pytest.fixture
-    def mock_services(self):
+    def mock_services(self, mocker):
         """Mock OCR and capture services."""
-        with patch('whisperbridge.services.ocr_service.get_ocr_service') as mock_ocr, \
-             patch('whisperbridge.services.screen_capture_service.get_capture_service') as mock_capture:
-            
-            ocr_instance = Mock()
-            ocr_instance.ensure_ready.return_value = True
-            mock_ocr.return_value = ocr_instance
-            
-            capture_instance = Mock()
-            capture_result = Mock()
-            capture_result.success = True
-            capture_result.image = Mock()
-            capture_instance.capture_area.return_value = capture_result
-            mock_capture.return_value = capture_instance
-            
-            yield ocr_instance, capture_instance
+        mock_ocr = mocker.patch('whisperbridge.services.ocr_service.get_ocr_service')
+        mock_capture = mocker.patch('whisperbridge.services.screen_capture_service.get_capture_service')
+        
+        ocr_instance = Mock()
+        ocr_instance.ensure_ready.return_value = True
+        mock_ocr.return_value = ocr_instance
+        
+        capture_instance = Mock()
+        capture_result = Mock()
+        capture_result.success = True
+        capture_result.image = Mock()
+        capture_instance.capture_area.return_value = capture_result
+        mock_capture.return_value = capture_instance
+        
+        yield ocr_instance, capture_instance
     
-    def test_capture_ocr_worker_with_image(self, mock_services):
+    def test_capture_ocr_worker_with_image(self, mock_services, mocker):
         """Test worker processes pre-captured image."""
         ocr_instance, _ = mock_services
         
-        with patch('whisperbridge.services.ocr_translation_service.get_ocr_translation_coordinator') as mock_coord:
-            coord = Mock()
-            coord.process_image_with_translation.return_value = ("original", "translated", "")
-            mock_coord.return_value = coord
-            
-            worker = CaptureOcrTranslateWorker(image=Mock())
-            worker.run()
-            
-            # Note: Signals won't be emitted in non-Qt thread test
-            # Just verify that worker completed without exception
-            # The actual signal emission is tested in integration tests
+        mock_coord = mocker.patch('whisperbridge.services.ocr_translation_service.get_ocr_translation_coordinator')
+        coord = Mock()
+        coord.process_image_with_translation.return_value = ("original", "translated", "")
+        mock_coord.return_value = coord
+        
+        worker = CaptureOcrTranslateWorker(image=Mock())
+        worker.run()
+        
+        # Note: Signals won't be emitted in non-Qt thread test
+        # Just verify that worker completed without exception
+        # The actual signal emission is tested in integration tests
     
-    def test_capture_ocr_worker_with_region(self, mock_services):
+    def test_capture_ocr_worker_with_region(self, mock_services, mocker):
         """Test worker captures and processes region."""
         _, capture_instance = mock_services
         
-        with patch('whisperbridge.services.ocr_translation_service.get_ocr_translation_coordinator') as mock_coord:
-            coord = Mock()
-            coord.process_image_with_translation.return_value = ("original", "translated", "")
-            mock_coord.return_value = coord
-            
-            worker = CaptureOcrTranslateWorker(region=Mock())
-            worker.run()
-            
-            # Verify worker completed without exception
+        mock_coord = mocker.patch('whisperbridge.services.ocr_translation_service.get_ocr_translation_coordinator')
+        coord = Mock()
+        coord.process_image_with_translation.return_value = ("original", "translated", "")
+        mock_coord.return_value = coord
+        
+        worker = CaptureOcrTranslateWorker(region=Mock())
+        worker.run()
+        
+        # Verify worker completed without exception
     
-    def test_capture_ocr_worker_cancel(self, mock_services):
+    def test_capture_ocr_worker_cancel(self, mock_services, mocker):
         """Test worker respects cancel request."""
         worker = CaptureOcrTranslateWorker(image=Mock())
         worker.request_cancel()
@@ -696,7 +691,7 @@ class TestCaptureOcrTranslateWorker:
         # In non-Qt thread test, we can't spy on signals easily
         # Just verify it completes without exception
     
-    def test_ocr_service_timeout_handling(self, mock_services, qtbot):
+    def test_ocr_service_timeout_handling(self, qtbot, mock_services):
         """Test worker handles OCR service timeout gracefully."""
         ocr_instance, _ = mock_services
         # Simulate OCR service timeout
@@ -713,7 +708,7 @@ class TestCaptureOcrTranslateWorker:
         # Just verify an error was emitted
         assert len(error_spy.at(0)[0]) > 0
     
-    def test_capture_service_failure(self, mock_services, qtbot):
+    def test_capture_service_failure(self, qtbot, mock_services):
         """Test worker handles screen capture failure."""
         _, capture_instance = mock_services
         # Simulate capture failure
@@ -730,7 +725,7 @@ class TestCaptureOcrTranslateWorker:
         assert error_spy.count() == 1
         assert "Screen capture failed" in error_spy.at(0)[0]
     
-    def test_worker_cancellation_during_processing(self, mock_services, qtbot):
+    def test_worker_cancellation_during_processing(self, qtbot, mock_services):
         """Test worker respects cancellation request during processing."""
         worker = CaptureOcrTranslateWorker(image=Mock())
         progress_spy = QSignalSpy(worker.progress)
@@ -749,56 +744,56 @@ class TestCaptureOcrTranslateWorker:
 class TestApiTestWorker:
     """Tests for ApiTestWorker."""
     
-    def test_api_test_worker_error(self, qtbot):
+    def test_api_test_worker_error(self, qtbot, mocker):
         """Test API test worker handles errors."""
         # Patch where the function is imported and used, not where it's defined
-        with patch('whisperbridge.ui_qt.workers.get_api_manager') as mock_get_api:
-            mock_api = Mock()
-            mock_api.is_initialized.return_value = True
-            mock_api.get_available_models_sync.return_value = ([], 'error')
-            mock_get_api.return_value = mock_api
-            
-            worker = ApiTestWorker("openai", "invalid-key")
-            error_spy = QSignalSpy(worker.error)
-            
-            worker.run()
-            
-            assert error_spy.count() == 1
-            assert "API error or invalid key" in error_spy.at(0)[0]
+        mock_get_api = mocker.patch('whisperbridge.ui_qt.workers.get_api_manager')
+        mock_api = Mock()
+        mock_api.is_initialized.return_value = True
+        mock_api.get_available_models_sync.return_value = ([], 'error')
+        mock_get_api.return_value = mock_api
+        
+        worker = ApiTestWorker("openai", "invalid-key")
+        error_spy = QSignalSpy(worker.error)
+        
+        worker.run()
+        
+        assert error_spy.count() == 1
+        assert "API error or invalid key" in error_spy.at(0)[0]
     
-    def test_api_test_worker_no_models(self, qtbot):
+    def test_api_test_worker_no_models(self, qtbot, mocker):
         """Test API test worker handles no models available."""
         # Patch where the function is imported and used, not where it's defined
-        with patch('whisperbridge.ui_qt.workers.get_api_manager') as mock_get_api:
-            mock_api = Mock()
-            mock_api.is_initialized.return_value = True
-            mock_api.get_available_models_sync.return_value = ([], 'api')
-            mock_get_api.return_value = mock_api
-            
-            worker = ApiTestWorker("openai", "valid-key")
-            error_spy = QSignalSpy(worker.error)
-            
-            worker.run()
-            
-            assert error_spy.count() == 1
-            assert "No models available" in error_spy.at(0)[0]
+        mock_get_api = mocker.patch('whisperbridge.ui_qt.workers.get_api_manager')
+        mock_api = Mock()
+        mock_api.is_initialized.return_value = True
+        mock_api.get_available_models_sync.return_value = ([], 'api')
+        mock_get_api.return_value = mock_api
+        
+        worker = ApiTestWorker("openai", "valid-key")
+        error_spy = QSignalSpy(worker.error)
+        
+        worker.run()
+        
+        assert error_spy.count() == 1
+        assert "No models available" in error_spy.at(0)[0]
     
-    def test_api_test_worker_unconfigured(self, qtbot):
+    def test_api_test_worker_unconfigured(self, qtbot, mocker):
         """Test API test worker handles unconfigured provider."""
         # Patch where the function is imported and used, not where it's defined
-        with patch('whisperbridge.ui_qt.workers.get_api_manager') as mock_get_api:
-            mock_api = Mock()
-            mock_api.is_initialized.return_value = False
-            mock_api.get_available_models_sync.return_value = ([], 'unconfigured')
-            mock_get_api.return_value = mock_api
-            
-            worker = ApiTestWorker("openai", "valid-key")
-            error_spy = QSignalSpy(worker.error)
-            
-            worker.run()
-            
-            assert error_spy.count() == 1
-            assert "API error or invalid key" in error_spy.at(0)[0]
+        mock_get_api = mocker.patch('whisperbridge.ui_qt.workers.get_api_manager')
+        mock_api = Mock()
+        mock_api.is_initialized.return_value = False
+        mock_api.get_available_models_sync.return_value = ([], 'unconfigured')
+        mock_get_api.return_value = mock_api
+        
+        worker = ApiTestWorker("openai", "valid-key")
+        error_spy = QSignalSpy(worker.error)
+        
+        worker.run()
+        
+        assert error_spy.count() == 1
+        assert "API error or invalid key" in error_spy.at(0)[0]
         
 
 @pytest.mark.skipif(BaseAsyncWorker is None, reason="Requires Qt and project dependencies")
@@ -806,10 +801,10 @@ class TestErrorRecovery:
     """Tests for worker error recovery scenarios."""
     
     @pytest.fixture(autouse=True)
-    def mock_qmessagebox(self):
+    def mock_qmessagebox(self, mocker):
         """Mock QMessageBox to prevent blocking dialogs and crashes in tests."""
-        with patch('PySide6.QtWidgets.QMessageBox.warning') as mock_warn:
-            yield mock_warn
+        mock_warn = mocker.patch('PySide6.QtWidgets.QMessageBox.warning')
+        yield mock_warn
     
     @pytest.fixture
     def mock_config_service(self, monkeypatch):
@@ -842,7 +837,7 @@ class TestErrorRecovery:
                 thread.quit()
                 thread.wait(500)
     
-    def test_worker_recovery_after_timeout(self, overlay, qtbot, mock_config_service):
+    def test_worker_recovery_after_timeout(self, qtbot, overlay, mock_config_service):
         """Test that a new worker can be created after previous one timed out."""
         mock_config_service[0] = 0.1
         
@@ -874,7 +869,7 @@ class TestErrorRecovery:
             # Thread was deleted - that's OK, means cleanup worked
             pass
     
-    def test_worker_recovery_after_exception(self, overlay, qtbot):
+    def test_worker_recovery_after_exception(self, qtbot, overlay):
         """Test that a new worker can be created after previous one raised exception."""
         # First worker raises exception
         worker1, thread1 = overlay._setup_worker(TranslationWorker, "test1", "en", "ru")
@@ -905,7 +900,7 @@ class TestErrorRecovery:
             # Thread was deleted - that's OK, means cleanup worked
             pass
     
-    def test_multiple_consecutive_worker_failures(self, overlay, qtbot):
+    def test_multiple_consecutive_worker_failures(self, qtbot, overlay):
         """Test that multiple consecutive worker failures don't break the system."""
         # Run 5 workers that all fail
         for i in range(5):

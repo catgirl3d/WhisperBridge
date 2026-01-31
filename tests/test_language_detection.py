@@ -1,6 +1,6 @@
 """Test script for enhanced language detection."""
 
-from src.whisperbridge.utils.language_utils import (
+from whisperbridge.utils.language_utils import (
     detect_language,
     detect_language_with_confidence,
     normalize_homoglyphs,

@@ -10,7 +10,6 @@ This test validates the complete DeepL translation pipeline:
 
 import sys
 import os
-from pathlib import Path
 
 # Configure UTF-8 encoding for Windows console
 if sys.platform == 'win32':
@@ -21,10 +20,6 @@ if sys.platform == 'win32':
         sys.stdout.reconfigure(encoding='utf-8')
     if hasattr(sys.stderr, 'reconfigure'):
         sys.stderr.reconfigure(encoding='utf-8')
-
-# Add src to path to import WhisperBridge modules
-src_path = Path(__file__).parent / "src"
-sys.path.insert(0, str(src_path))
 
 from whisperbridge.core.api_manager import APIManager, APIProvider
 from whisperbridge.services.config_service import ConfigService
