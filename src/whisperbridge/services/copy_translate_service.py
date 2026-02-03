@@ -66,7 +66,7 @@ class CopyTranslateService(QObject):
 
             # Fallback-only approach: simulate Ctrl+C and read clipboard
             try:
-                from pynput.keyboard import Controller, Key
+                from pynput.keyboard import Controller, Key, KeyCode
 
                 controller = Controller()
             except ImportError:
@@ -102,6 +102,7 @@ class CopyTranslateService(QObject):
 
                     VK_CONTROL = 0x11
                     VK_MENU = 0x12  # Alt
+                    VK_SHIFT = 0x10
                     release_timeout = 2.0
                     release_interval = 0.05
                     
@@ -110,12 +111,13 @@ class CopyTranslateService(QObject):
                             # GetAsyncKeyState returns MSB set if key is currently down
                             ctrl = ctypes.windll.user32.GetAsyncKeyState(VK_CONTROL) & 0x8000
                             alt = ctypes.windll.user32.GetAsyncKeyState(VK_MENU) & 0x8000
-                            return bool(ctrl or alt)
+                            shift = ctypes.windll.user32.GetAsyncKeyState(VK_SHIFT) & 0x8000
+                            return bool(ctrl or alt or shift)
                         except Exception:
                             return False
 
                     if is_physically_down():
-                        log.debug("Physical Ctrl/Alt detected down; waiting for user to release hotkey...")
+                        log.debug("Physical Ctrl/Alt/Shift detected down; waiting for user to release hotkey...")
                         start_wait = time.time()
                         while is_physically_down() and (time.time() - start_wait < release_timeout):
                             time.sleep(release_interval)
@@ -135,12 +137,17 @@ class CopyTranslateService(QObject):
                 controller.press(Key.ctrl)
                 time.sleep(0.1) # Longer delay to ensure Ctrl is registered
                 
-                log.debug("Simulated copy: press c")
-                controller.press('c')
+                from ..utils.keyboard_utils import WIN_VK_MAP
+
+                c_vk = WIN_VK_MAP.get("c", 67)
+                c_key = KeyCode.from_vk(c_vk)
+
+                log.debug("Simulated copy: press c (VK)")
+                controller.press(c_key)
                 time.sleep(0.05)
                 
-                log.debug("Simulated copy: release c")
-                controller.release('c')
+                log.debug("Simulated copy: release c (VK)")
+                controller.release(c_key)
                 time.sleep(0.05)
                 
                 log.debug("Simulated copy: release ctrl")
