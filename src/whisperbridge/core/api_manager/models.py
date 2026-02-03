@@ -78,9 +78,75 @@ class ModelManager:
         self._cache.cache_models_and_persist(provider.value, fallback_models)
         return fallback_models, ModelSource.FALLBACK.value
 
+    def _get_exclude_terms(self, provider: APIProvider) -> Optional[List[str]]:
+        if provider == APIProvider.OPENAI:
+            return get_openai_model_excludes()
+        if provider == APIProvider.GOOGLE:
+            return get_google_model_excludes()
+        return None
+
+    def _is_excluded(self, model_id: str, exclude_terms: List[str]) -> bool:
+        lowered = model_id.lower()
+        # Check for prefix-based exclusions (starts with) and substring-based exclusions (contains)
+        return any(lowered.startswith(term) or term in lowered for term in exclude_terms)
+
+    def _sort_openai_models(self, model_ids: List[str]) -> List[str]:
+        def _rank_openai(mid: str) -> tuple:
+            lm = mid.lower()
+            # 1. Models with "-latest" should be at the absolute end
+            is_latest = 1 if "-latest" in lm else 0
+
+            # 2. GPT-4 models (including chatgpt-4) should be second to last
+            is_gpt4 = 1 if ("gpt-4" in lm or "chatgpt-4" in lm) else 0
+
+            # 3. GPT-5 models have internal hierarchy: nano -> mini -> standard
+            gpt5_rank = 3
+            if lm.startswith("gpt-5"):
+                if "nano" in lm:
+                    gpt5_rank = 0
+                elif "mini" in lm:
+                    gpt5_rank = 1
+                else:
+                    gpt5_rank = 2
+
+            # Calculate overall priority group
+            # 0: GPT-5 (nano -> mini -> standard)
+            # 1: Others
+            # 2: GPT-4 (second to last)
+            # 3: Latest (last)
+            if is_latest:
+                priority = 3
+            elif is_gpt4:
+                priority = 2
+            elif gpt5_rank < 3:
+                priority = 0
+            else:
+                priority = 1
+
+            return (priority, gpt5_rank, mid)
+
+        return sorted(model_ids, key=_rank_openai)
+
+    def _sort_google_models(self, model_ids: List[str]) -> List[str]:
+        def _rank_google(mid: str) -> tuple:
+            lm = mid.lower()
+            # Models with "-latest" should be at the end
+            is_latest = 1 if "-latest" in lm else 0
+
+            if "flash" in lm:
+                base_rank = 0
+            elif "pro" in lm:
+                base_rank = 1
+            else:
+                base_rank = 2
+
+            return (is_latest, base_rank, mid)
+
+        return sorted(model_ids, key=_rank_google)
+
     def apply_filters(self, provider: APIProvider, model_ids: List[str]) -> List[str]:
         """
-        Apply global exclusion filters to a list of model IDs.
+        Apply global exclusion filters and provider-specific ordering.
 
         Args:
             provider: The API provider.
@@ -89,19 +155,18 @@ class ModelManager:
         Returns:
             Filtered list of model IDs.
         """
-        if provider == APIProvider.OPENAI:
-            exclude_terms = get_openai_model_excludes()
-        elif provider == APIProvider.GOOGLE:
-            exclude_terms = get_google_model_excludes()
-        else:
+        exclude_terms = self._get_exclude_terms(provider)
+        if exclude_terms is None:
             return model_ids
 
-        def _is_excluded(model_id: str) -> bool:
-            lowered = model_id.lower()
-            # Check for prefix-based exclusions (starts with) and substring-based exclusions (contains)
-            return any(lowered.startswith(term) or term in lowered for term in exclude_terms)
+        filtered = [m for m in model_ids if not self._is_excluded(m, exclude_terms)]
 
-        return [m for m in model_ids if not _is_excluded(m)]
+        if provider == APIProvider.OPENAI:
+            return self._sort_openai_models(filtered)
+        if provider == APIProvider.GOOGLE:
+            return self._sort_google_models(filtered)
+
+        return filtered
 
     def get_available_models(
         self,
@@ -179,15 +244,8 @@ class ModelManager:
                     m.id for m in models_response.data
                     if m.id.lower().startswith("gemini-")
                 ]
-                # Then apply global exclusion filters
+                # Then apply global exclusion filters (which now also handles ranking)
                 models = self.apply_filters(provider, gemini_models)
-                def _rank(mid: str) -> tuple:
-                    lm = mid.lower()
-                    if "flash-8b" in lm: return (0, mid)
-                    if "flash" in lm: return (1, mid)
-                    if "pro" in lm: return (2, mid)
-                    return (3, mid)
-                models.sort(key=_rank)
                 logger.debug(f"Filtered Gemini chat models: {models}")
 
             elif provider == APIProvider.DEEPL:

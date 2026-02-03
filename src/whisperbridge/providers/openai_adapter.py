@@ -176,16 +176,7 @@ class OpenAIChatClientAdapter:
 
             models = [m for m in chat_models if not _is_excluded(m)]
 
-            # Sort with GPT-5 first, then GPT-4, then others
-            models.sort(
-                key=lambda x: (
-                    (0 if x.lower().startswith("gpt-5") else 1 if x.lower().startswith("gpt-4") else 2),
-                    x,
-                ),
-                reverse=False,
-            )
-
-            logger.debug(f"Filtered chat completion models: {models}")
+            logger.debug(f"Filtered OpenAI chat completion models: {models}")
 
             # Return SimpleNamespace with data list
             return SimpleNamespace(data=[SimpleNamespace(id=model_id) for model_id in models])
