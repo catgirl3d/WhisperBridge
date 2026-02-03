@@ -528,6 +528,112 @@ class APIManager:
         except Exception as e:
             logger.debug(f"Failed to log network diagnostics: {e}")
 
+    def _resolve_provider(self, provider_name: Optional[str] = None) -> APIProvider:
+        """Resolve and validate the configured API provider."""
+        resolved_name = (provider_name or self.config_service.get_setting("api_provider") or "openai").strip().lower()
+        try:
+            selected_provider = APIProvider(resolved_name)
+        except ValueError:
+            raise RuntimeError(f"Invalid API provider '{resolved_name}' configured in settings.")
+
+        if selected_provider not in self._clients:
+            raise RuntimeError(
+                f"The configured API provider '{resolved_name}' is not available. "
+                "Please check your API key in the settings."
+            )
+
+        return selected_provider
+
+    def _resolve_model(self, model_hint: Optional[str], provider: APIProvider, *, missing_message: str) -> str:
+        """Resolve model name, applying provider-specific defaults if needed."""
+        final_model = (model_hint or "").strip()
+        if provider == APIProvider.DEEPL:
+            return final_model or get_deepl_identifier()
+        if not final_model:
+            raise ValueError(missing_message)
+        return final_model
+
+    def _build_deepl_params(
+        self,
+        *,
+        model: str,
+        messages: List[Dict[str, Any]],
+        api_kwargs: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Build API params for DeepL translation requests."""
+        api_params: Dict[str, Any] = {
+            "model": model,
+            "messages": messages,
+        }
+        for key, value in (api_kwargs or {}).items():
+            if value is not None:
+                api_params[key] = value
+        return api_params
+
+    def _resolve_llm_temperature_and_limits(
+        self,
+        *,
+        model: str,
+        temperature: Optional[float],
+        temperature_setting_key: str,
+        temperature_default: float,
+        log_label: str,
+    ) -> tuple[float, int]:
+        """Resolve LLM temperature and max completion tokens for a request."""
+        if temperature is None:
+            try:
+                val = self.config_service.get_setting(temperature_setting_key)
+                resolved_temp = round(float(val if val is not None else temperature_default), 2)
+            except (ValueError, TypeError) as e:
+                logger.warning(
+                    f"Failed to parse {log_label.lower()} temperature from config, using default {temperature_default}. Error: {e}"
+                )
+                resolved_temp = temperature_default
+        else:
+            try:
+                resolved_temp = round(float(temperature), 2)
+            except (ValueError, TypeError) as e:
+                logger.warning(
+                    f"Failed to parse provided temperature '{temperature}', using default {temperature_default}. Error: {e}"
+                )
+                resolved_temp = temperature_default
+
+        resolved_temp = _adjust_temperature_for_model(model, resolved_temp)
+
+        max_completion_tokens = calculate_dynamic_completion_tokens(
+            model=model,
+            min_output_tokens=DEFAULT_MIN_OUTPUT_TOKENS,
+            output_safety_margin=0.1
+        )
+
+        logger.debug(f"{log_label} temperature: {resolved_temp}, max_completion_tokens={max_completion_tokens}")
+        return resolved_temp, max_completion_tokens
+
+    def _build_llm_params(
+        self,
+        *,
+        model: str,
+        messages: List[Dict[str, Any]],
+        temperature: Optional[float],
+        temperature_setting_key: str,
+        temperature_default: float,
+        log_label: str,
+    ) -> Dict[str, Any]:
+        """Build API params for LLM providers with normalized temperature and limits."""
+        resolved_temp, max_completion_tokens = self._resolve_llm_temperature_and_limits(
+            model=model,
+            temperature=temperature,
+            temperature_setting_key=temperature_setting_key,
+            temperature_default=temperature_default,
+            log_label=log_label,
+        )
+        return {
+            "model": model,
+            "messages": messages,
+            "temperature": resolved_temp,
+            "max_completion_tokens": max_completion_tokens,
+        }
+
     @requires_initialization
     @retry(
         stop=stop_after_attempt(3),
@@ -638,73 +744,34 @@ class APIManager:
             A tuple containing the API response and the model name used.
         """
         # 1. Select the configured provider
-        provider_name = (self.config_service.get_setting("api_provider") or "openai").strip().lower()
-        try:
-            selected_provider = APIProvider(provider_name)
-        except ValueError:
-            raise RuntimeError(f"Invalid API provider '{provider_name}' configured in settings.")
+        selected_provider = self._resolve_provider()
 
-        if selected_provider not in self._clients:
-            raise RuntimeError(
-                f"The configured API provider '{provider_name}' is not available. "
-                "Please check your API key in the settings."
-            )
+        # 2. Resolve model (provider-specific defaults)
+        final_model = self._resolve_model(
+            model_hint,
+            selected_provider,
+            missing_message="Model name must be provided for the translation request.",
+        )
 
-        # 2. Use the provided model hint directly (with DeepL special-case)
-        final_model = (model_hint or "").strip()
         if selected_provider == APIProvider.DEEPL:
-            # DeepL doesn't use real models; use a fixed identifier
-            if not final_model:
-                final_model = get_deepl_identifier()
-            api_params = {
-                "model": final_model,
-                "messages": messages,
-            }
-            # Pass through DeepL specifics if provided (e.g., target_lang/source_lang)
-            for k, v in (api_kwargs or {}).items():
-                if v is not None:
-                    api_params[k] = v
+            api_params = self._build_deepl_params(
+                model=final_model,
+                messages=messages,
+                api_kwargs=api_kwargs,
+            )
             logger.debug(f"Final API parameters for {selected_provider.value}: {api_params}")
             response = self.make_request_sync(selected_provider, **api_params)
             return response, final_model
 
-        if not final_model:
-            raise ValueError("Model name must be provided for the translation request.")
-
         # 3. Prepare API call parameters for LLM providers
-        # Calculate max output tokens with dynamic model limits
-        max_completion_tokens = calculate_dynamic_completion_tokens(
+        api_params = self._build_llm_params(
             model=final_model,
-            min_output_tokens=DEFAULT_MIN_OUTPUT_TOKENS,
-            output_safety_margin=0.1
+            messages=messages,
+            temperature=temperature,
+            temperature_setting_key="llm_temperature_translation",
+            temperature_default=1.0,
+            log_label="Translation",
         )
-        
-        # Use provided temperature or fall back to translation temperature setting
-        if temperature is None:
-            try:
-                val = self.config_service.get_setting("llm_temperature_translation")
-                translation_temp = round(float(val if val is not None else 1.0), 2)
-            except (ValueError, TypeError) as e:
-                logger.warning(f"Failed to parse translation temperature from config, using default 1.0. Error: {e}")
-                translation_temp = 1.0
-        else:
-            try:
-                translation_temp = round(float(temperature), 2)
-            except (ValueError, TypeError) as e:
-                logger.warning(f"Failed to parse provided temperature '{temperature}', using default 1.0. Error: {e}")
-                translation_temp = 1.0
-        
-        # Adjust temperature based on model capabilities
-        translation_temp = _adjust_temperature_for_model(final_model, translation_temp)
-        
-        api_params = {
-            "model": final_model,
-            "messages": messages,
-            "temperature": translation_temp,
-            "max_completion_tokens": max_completion_tokens,
-        }
-        
-        logger.debug(f"Translation temperature: {translation_temp}, max_completion_tokens={max_completion_tokens}")
 
         logger.debug(f"Final API parameters for {selected_provider.value}: {api_params}")
 
@@ -732,22 +799,14 @@ class APIManager:
             ValueError: If provider doesn't support vision or input validation fails.
         """
         # 1. Select provider from settings
-        provider_name = (self.config_service.get_setting("api_provider") or "openai").strip().lower()
-        try:
-            selected_provider = APIProvider(provider_name)
-        except ValueError:
-            raise RuntimeError(f"Invalid API provider '{provider_name}' configured in settings.")
-
-        if selected_provider not in self._clients:
-            raise RuntimeError(
-                f"The configured API provider '{provider_name}' is not available. "
-                "Please check your API key in the settings."
-            )
+        selected_provider = self._resolve_provider()
 
         # 2. Resolve final model
-        final_model = (model_hint or "").strip()
-        if not final_model:
-            raise ValueError("Model hint must be provided for vision request.")
+        final_model = self._resolve_model(
+            model_hint,
+            selected_provider,
+            missing_message="Model hint must be provided for vision request.",
+        )
 
         # 3. Validate provider supports vision
         if selected_provider not in (APIProvider.OPENAI, APIProvider.GOOGLE):
@@ -768,33 +827,20 @@ class APIManager:
 
         logger.debug(f"Vision request: provider={selected_provider.value}, model={final_model}")
 
-        # 4. Get vision temperature from config
-        try:
-            val = self.config_service.get_setting("llm_temperature_vision")
-            vision_temp = round(float(val if val is not None else 0.0), 2)
-        except (ValueError, TypeError) as e:
-            logger.warning(f"Failed to parse vision temperature from config, using default 0.0. Error: {e}")
-            vision_temp = 0.0
-        
-        # Adjust temperature based on model capabilities
-        vision_temp = _adjust_temperature_for_model(final_model, vision_temp)
-        
-        # 5. Calculate max output tokens with dynamic model limits
-        max_completion_tokens = calculate_dynamic_completion_tokens(
-            model=final_model,
-            min_output_tokens=DEFAULT_MIN_OUTPUT_TOKENS,
-            output_safety_margin=0.1
-        )
-        
-        logger.debug(f"Vision temperature: {vision_temp}, max_completion_tokens={max_completion_tokens}")
-
-        # 6. Route to adapter (both providers now use the same path)
-        response = self.make_request_sync(
-            selected_provider,
+        # 4. Build LLM params (temperature + limits)
+        api_params = self._build_llm_params(
             model=final_model,
             messages=messages,
-            temperature=vision_temp,
-            max_completion_tokens=max_completion_tokens
+            temperature=None,
+            temperature_setting_key="llm_temperature_vision",
+            temperature_default=0.0,
+            log_label="Vision",
+        )
+
+        # 5. Route to adapter (both providers now use the same path)
+        response = self.make_request_sync(
+            selected_provider,
+            **api_params
         )
         return response, final_model
 

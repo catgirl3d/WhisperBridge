@@ -6,18 +6,18 @@ Coverage Goal: ≥80% coverage of affected code paths in api_manager.py
 """
 
 import pytest
-from unittest.mock import Mock
 
 from whisperbridge.core.model_limits import calculate_dynamic_completion_tokens
 from whisperbridge.core.api_manager import APIManager, APIProvider
+from whisperbridge.core.config import get_deepl_identifier
 from whisperbridge.services.config_service import ConfigService
 
 
 @pytest.fixture
-def mock_config_service():
+def mock_config_service(mocker):
     """Create a mock config service."""
-    config = Mock(spec=ConfigService)
-    config.get_setting = Mock(return_value=None)
+    config = mocker.Mock(spec=ConfigService)
+    config.get_setting = mocker.Mock(return_value=None)
     return config
 
 
@@ -40,13 +40,13 @@ class TestAPIManagerTokenIntegration:
         """
         mock_adapter = mocker.patch('whisperbridge.core.api_manager.OpenAIChatClientAdapter')
         # Setup mock client
-        mock_client = Mock()
+        mock_client = mocker.Mock()
         mock_adapter.return_value = mock_client
         
         # Mock the chat.completions.create method
-        mock_response = Mock()
-        mock_response.choices = [Mock(message=Mock(content="Test response"))]
-        mock_response.usage = Mock(total_tokens=100)
+        mock_response = mocker.Mock()
+        mock_response.choices = [mocker.Mock(message=mocker.Mock(content="Test response"))]
+        mock_response.usage = mocker.Mock(total_tokens=100)
         mock_client.chat.completions.create.return_value = mock_response
         
         # Configure the manager
@@ -125,13 +125,13 @@ class TestTranslationRequestTokenIntegration:
         """Test that translation requests use dynamic token calculation."""
         mock_adapter = mocker.patch('whisperbridge.core.api_manager.OpenAIChatClientAdapter')
         # Setup mock client
-        mock_client = Mock()
+        mock_client = mocker.Mock()
         mock_adapter.return_value = mock_client
         
         # Mock the chat.completions.create method
-        mock_response = Mock()
-        mock_response.choices = [Mock(message=Mock(content="Translated text"))]
-        mock_response.usage = Mock(total_tokens=100)
+        mock_response = mocker.Mock()
+        mock_response.choices = [mocker.Mock(message=mocker.Mock(content="Translated text"))]
+        mock_response.usage = mocker.Mock(total_tokens=100)
         mock_client.chat.completions.create.return_value = mock_response
         
         # Configure the manager
@@ -166,13 +166,13 @@ class TestTranslationRequestTokenIntegration:
         """Test translation with large Cyrillic text doesn't overflow."""
         mock_adapter = mocker.patch('whisperbridge.core.api_manager.OpenAIChatClientAdapter')
         # Setup mock client
-        mock_client = Mock()
+        mock_client = mocker.Mock()
         mock_adapter.return_value = mock_client
         
         # Mock the chat.completions.create method
-        mock_response = Mock()
-        mock_response.choices = [Mock(message=Mock(content="Translation result"))]
-        mock_response.usage = Mock(total_tokens=100)
+        mock_response = mocker.Mock()
+        mock_response.choices = [mocker.Mock(message=mocker.Mock(content="Translation result"))]
+        mock_response.usage = mocker.Mock(total_tokens=100)
         mock_client.chat.completions.create.return_value = mock_response
         
         # Configure the manager
@@ -201,6 +201,85 @@ class TestTranslationRequestTokenIntegration:
         assert max_tokens <= 128000
         # Should reserve minimum output
         assert max_tokens >= 2048
+
+
+class TestAPIManagerHelperMethods:
+    """Targeted tests for APIManager helper methods."""
+
+    def test_resolve_provider_uses_config_and_client(self, api_manager, mock_config_service, mocker):
+        api_manager._clients[APIProvider.OPENAI] = mocker.Mock()
+        mock_config_service.get_setting.side_effect = lambda key: {
+            "api_provider": "openai",
+        }.get(key)
+
+        assert api_manager._resolve_provider() == APIProvider.OPENAI
+
+    def test_resolve_provider_raises_on_invalid_provider(self, api_manager, mock_config_service):
+        mock_config_service.get_setting.side_effect = lambda key: {
+            "api_provider": "not-a-provider",
+        }.get(key)
+
+        with pytest.raises(RuntimeError):
+            api_manager._resolve_provider()
+
+    def test_resolve_provider_raises_when_client_missing(self, api_manager, mock_config_service):
+        mock_config_service.get_setting.side_effect = lambda key: {
+            "api_provider": "openai",
+        }.get(key)
+
+        with pytest.raises(RuntimeError):
+            api_manager._resolve_provider()
+
+    def test_resolve_model_deepl_fallback(self, api_manager, mocker):
+        model = api_manager._resolve_model(None, APIProvider.DEEPL, missing_message="missing")
+        assert model == get_deepl_identifier()
+
+    def test_resolve_model_llm_missing_raises(self, api_manager):
+        with pytest.raises(ValueError):
+            api_manager._resolve_model("", APIProvider.OPENAI, missing_message="missing")
+
+    def test_build_deepl_params_filters_none(self, api_manager):
+        params = api_manager._build_deepl_params(
+            model="deepl-model",
+            messages=[{"role": "user", "content": "Hello"}],
+            api_kwargs={"target_lang": "EN", "source_lang": None},
+        )
+
+        assert params["model"] == "deepl-model"
+        assert params["messages"]
+        assert params["target_lang"] == "EN"
+        assert "source_lang" not in params
+
+    def test_build_llm_params_uses_config_temperature(self, api_manager, mock_config_service):
+        mock_config_service.get_setting.side_effect = lambda key: {
+            "llm_temperature_translation": "1.5",
+        }.get(key)
+
+        params = api_manager._build_llm_params(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": "Hi"}],
+            temperature=None,
+            temperature_setting_key="llm_temperature_translation",
+            temperature_default=1.0,
+            log_label="Translation",
+        )
+
+        assert params["temperature"] == 1.5
+        assert isinstance(params["max_completion_tokens"], int)
+
+    def test_build_llm_params_uses_override_temperature(self, api_manager, mock_config_service):
+        params = api_manager._build_llm_params(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": "Hi"}],
+            temperature=0.35,
+            temperature_setting_key="llm_temperature_translation",
+            temperature_default=1.0,
+            log_label="Translation",
+        )
+
+        mock_config_service.get_setting.assert_not_called()
+        assert params["temperature"] == 0.35
+        assert isinstance(params["max_completion_tokens"], int)
 
 
 
@@ -259,12 +338,12 @@ class TestOpenAIAdapterRemovedModels:
         from whisperbridge.providers.openai_adapter import OpenAIChatClientAdapter
         
         # Setup mock client
-        mock_client = Mock()
+        mock_client = mocker.Mock()
         mock_openai.return_value = mock_client
         
         # Mock the chat.completions.create response
-        mock_response = Mock()
-        mock_response.choices = [Mock(message=Mock(content="Test response"))]
+        mock_response = mocker.Mock()
+        mock_response.choices = [mocker.Mock(message=mocker.Mock(content="Test response"))]
         mock_client.chat.completions.create.return_value = mock_response
         
         # Create adapter
@@ -296,12 +375,12 @@ class TestOpenAIAdapterRemovedModels:
         from whisperbridge.providers.openai_adapter import OpenAIChatClientAdapter
         
         # Setup mock client
-        mock_client = Mock()
+        mock_client = mocker.Mock()
         mock_openai.return_value = mock_client
         
         # Mock the chat.completions.create response
-        mock_response = Mock()
-        mock_response.choices = [Mock(message=Mock(content="Test response"))]
+        mock_response = mocker.Mock()
+        mock_response.choices = [mocker.Mock(message=mocker.Mock(content="Test response"))]
         mock_client.chat.completions.create.return_value = mock_response
         
         # Create adapter
@@ -344,12 +423,12 @@ class TestOpenAIAdapterRemovedModels:
         from whisperbridge.providers.openai_adapter import OpenAIChatClientAdapter
         
         # Setup mock client
-        mock_client = Mock()
+        mock_client = mocker.Mock()
         mock_openai.return_value = mock_client
         
         # Mock the chat.completions.create response
-        mock_response = Mock()
-        mock_response.choices = [Mock(message=Mock(content="Test response"))]
+        mock_response = mocker.Mock()
+        mock_response.choices = [mocker.Mock(message=mocker.Mock(content="Test response"))]
         mock_client.chat.completions.create.return_value = mock_response
         
         # Create adapter
@@ -389,12 +468,12 @@ class TestOpenAIAdapterRemovedModels:
         from whisperbridge.providers.openai_adapter import OpenAIChatClientAdapter
         
         # Setup mock client
-        mock_client = Mock()
+        mock_client = mocker.Mock()
         mock_openai.return_value = mock_client
         
         # Mock the chat.completions.create response
-        mock_response = Mock()
-        mock_response.choices = [Mock(message=Mock(content="Vision response"))]
+        mock_response = mocker.Mock()
+        mock_response.choices = [mocker.Mock(message=mocker.Mock(content="Vision response"))]
         mock_client.chat.completions.create.return_value = mock_response
         
         # Create adapter
