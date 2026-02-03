@@ -22,7 +22,7 @@ def mock_config_service(mocker):
 
 
 @pytest.fixture
-def api_manager(mock_config_service):
+def api_manager(mock_config_service, mocker):
     """Create an API manager instance for testing."""
     manager = APIManager(mock_config_service)
     manager._is_initialized = True  # Skip initialization for tests
@@ -38,7 +38,7 @@ class TestAPIManagerTokenIntegration:
         
         This test verifies that the vision request properly calculates dynamic tokens.
         """
-        mock_adapter = mocker.patch('whisperbridge.core.api_manager.OpenAIChatClientAdapter')
+        mock_adapter = mocker.patch('whisperbridge.core.api_manager.providers.OpenAIChatClientAdapter')
         # Setup mock client
         mock_client = mocker.Mock()
         mock_adapter.return_value = mock_client
@@ -50,7 +50,7 @@ class TestAPIManagerTokenIntegration:
         mock_client.chat.completions.create.return_value = mock_response
         
         # Configure the manager
-        api_manager._clients[APIProvider.OPENAI] = mock_client
+        api_manager._providers._clients[APIProvider.OPENAI] = mock_client
         mock_config_service.get_setting.side_effect = lambda key: {
             "api_provider": "openai",
             "llm_temperature_vision": 0.0,
@@ -123,7 +123,7 @@ class TestTranslationRequestTokenIntegration:
 
     def test_translation_request_with_dynamic_tokens(self, api_manager, mock_config_service, mocker):
         """Test that translation requests use dynamic token calculation."""
-        mock_adapter = mocker.patch('whisperbridge.core.api_manager.OpenAIChatClientAdapter')
+        mock_adapter = mocker.patch('whisperbridge.core.api_manager.providers.OpenAIChatClientAdapter')
         # Setup mock client
         mock_client = mocker.Mock()
         mock_adapter.return_value = mock_client
@@ -135,7 +135,7 @@ class TestTranslationRequestTokenIntegration:
         mock_client.chat.completions.create.return_value = mock_response
         
         # Configure the manager
-        api_manager._clients[APIProvider.OPENAI] = mock_client
+        api_manager._providers._clients[APIProvider.OPENAI] = mock_client
         mock_config_service.get_setting.side_effect = lambda key: {
             "api_provider": "openai",
             "llm_temperature_translation": 1.0,
@@ -164,7 +164,7 @@ class TestTranslationRequestTokenIntegration:
 
     def test_translation_with_large_cyrillic_text(self, api_manager, mock_config_service, mocker):
         """Test translation with large Cyrillic text doesn't overflow."""
-        mock_adapter = mocker.patch('whisperbridge.core.api_manager.OpenAIChatClientAdapter')
+        mock_adapter = mocker.patch('whisperbridge.core.api_manager.providers.OpenAIChatClientAdapter')
         # Setup mock client
         mock_client = mocker.Mock()
         mock_adapter.return_value = mock_client
@@ -176,7 +176,7 @@ class TestTranslationRequestTokenIntegration:
         mock_client.chat.completions.create.return_value = mock_response
         
         # Configure the manager
-        api_manager._clients[APIProvider.OPENAI] = mock_client
+        api_manager._providers._clients[APIProvider.OPENAI] = mock_client
         mock_config_service.get_setting.side_effect = lambda key: {
             "api_provider": "openai",
             "llm_temperature_translation": 1.0,
@@ -207,7 +207,7 @@ class TestAPIManagerHelperMethods:
     """Targeted tests for APIManager helper methods."""
 
     def test_resolve_provider_uses_config_and_client(self, api_manager, mock_config_service, mocker):
-        api_manager._clients[APIProvider.OPENAI] = mocker.Mock()
+        api_manager._providers._clients[APIProvider.OPENAI] = mocker.Mock()
         mock_config_service.get_setting.side_effect = lambda key: {
             "api_provider": "openai",
         }.get(key)
@@ -223,6 +223,8 @@ class TestAPIManagerHelperMethods:
             api_manager._resolve_provider()
 
     def test_resolve_provider_raises_when_client_missing(self, api_manager, mock_config_service):
+        # Ensure client is missing
+        api_manager._providers.clear()
         mock_config_service.get_setting.side_effect = lambda key: {
             "api_provider": "openai",
         }.get(key)
@@ -239,7 +241,7 @@ class TestAPIManagerHelperMethods:
             api_manager._resolve_model("", APIProvider.OPENAI, missing_message="missing")
 
     def test_build_deepl_params_filters_none(self, api_manager):
-        params = api_manager._build_deepl_params(
+        params = api_manager._request_builder.build_deepl_params(
             model="deepl-model",
             messages=[{"role": "user", "content": "Hello"}],
             api_kwargs={"target_lang": "EN", "source_lang": None},
@@ -255,7 +257,7 @@ class TestAPIManagerHelperMethods:
             "llm_temperature_translation": "1.5",
         }.get(key)
 
-        params = api_manager._build_llm_params(
+        params = api_manager._request_builder.build_llm_params(
             model="gpt-4o-mini",
             messages=[{"role": "user", "content": "Hi"}],
             temperature=None,
@@ -268,7 +270,7 @@ class TestAPIManagerHelperMethods:
         assert isinstance(params["max_completion_tokens"], int)
 
     def test_build_llm_params_uses_override_temperature(self, api_manager, mock_config_service):
-        params = api_manager._build_llm_params(
+        params = api_manager._request_builder.build_llm_params(
             model="gpt-4o-mini",
             messages=[{"role": "user", "content": "Hi"}],
             temperature=0.35,
