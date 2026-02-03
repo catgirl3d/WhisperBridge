@@ -114,6 +114,19 @@ class OpenAIChatClientAdapter:
         # Remove is_vision from kwargs to avoid passing to SDK
         kwargs.pop("is_vision", None)
         
+        # Defensive check: validate that we have at least one image in the request
+        has_image = False
+        for msg in messages:
+            if isinstance(msg.get("content"), list):
+                for part in msg["content"]:
+                    if isinstance(part, dict) and part.get("type") == "image_url":
+                        has_image = True
+                        break
+            if has_image:
+                break
+        if not has_image:
+            raise ValueError("Vision request requires at least one image part")
+        
         # Dynamically calculate max_completion_tokens based on model limits
         max_completion_tokens = calculate_dynamic_completion_tokens(
             model=model,

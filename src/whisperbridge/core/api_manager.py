@@ -749,38 +749,54 @@ class APIManager:
         if not final_model:
             raise ValueError("Model hint must be provided for vision request.")
 
-        if selected_provider == APIProvider.OPENAI:
-            # Use model_hint directly (typically settings.openai_vision_model)
-            pass
-        elif selected_provider == APIProvider.GOOGLE:
-            # Use model_hint directly (typically settings.google_vision_model)
-            pass
-        else:
+        # 3. Validate provider supports vision
+        if selected_provider not in (APIProvider.OPENAI, APIProvider.GOOGLE):
             raise ValueError(f"Provider '{selected_provider.value}' does not support vision requests.")
+
+        # 3.5. Validate input: require at least one image part for vision request
+        has_image = False
+        for msg in messages:
+            if msg.get("role") == "user" and isinstance(msg.get("content"), list):
+                for part in msg["content"]:
+                    if isinstance(part, dict) and part.get("type") == "image_url":
+                        has_image = True
+                        break
+            if has_image:
+                break
+        if not has_image:
+            raise ValueError("Vision request requires an image part")
 
         logger.debug(f"Vision request: provider={selected_provider.value}, model={final_model}")
 
-        # 3. Route to provider-specific implementation
-        if selected_provider == APIProvider.OPENAI:
-            # Get temperature from config for vision
-            try:
-                val = self.config_service.get_setting("llm_temperature_vision")
-                vision_temp = round(float(val if val is not None else 0.0), 2)
-            except (ValueError, TypeError) as e:
-                logger.warning(f"Failed to parse vision temperature from config (OpenAI), using default 0.0. Error: {e}")
-                vision_temp = 0.0
-            
-            # Adjust temperature based on model capabilities
-            vision_temp = _adjust_temperature_for_model(final_model, vision_temp)
-            
-            # Delegate to adapter's vision method
-            response = self.make_request_sync(APIProvider.OPENAI, model=final_model, messages=messages, temperature=vision_temp, is_vision=True)
-            return response, final_model
-        elif selected_provider == APIProvider.GOOGLE:
-            return self._make_google_vision_request(messages, final_model)
-        else:
-            # Should not reach here due to check above, but defensive
-            raise ValueError(f"Unsupported vision provider: {selected_provider.value}")
+        # 4. Get vision temperature from config
+        try:
+            val = self.config_service.get_setting("llm_temperature_vision")
+            vision_temp = round(float(val if val is not None else 0.0), 2)
+        except (ValueError, TypeError) as e:
+            logger.warning(f"Failed to parse vision temperature from config, using default 0.0. Error: {e}")
+            vision_temp = 0.0
+        
+        # Adjust temperature based on model capabilities
+        vision_temp = _adjust_temperature_for_model(final_model, vision_temp)
+        
+        # 5. Calculate max output tokens with dynamic model limits
+        max_completion_tokens = calculate_dynamic_completion_tokens(
+            model=final_model,
+            min_output_tokens=DEFAULT_MIN_OUTPUT_TOKENS,
+            output_safety_margin=0.1
+        )
+        
+        logger.debug(f"Vision temperature: {vision_temp}, max_completion_tokens={max_completion_tokens}")
+
+        # 6. Route to adapter (both providers now use the same path)
+        response = self.make_request_sync(
+            selected_provider,
+            model=final_model,
+            messages=messages,
+            temperature=vision_temp,
+            max_completion_tokens=max_completion_tokens
+        )
+        return response, final_model
 
     def extract_text_from_response(self, response: Any) -> str:
         """
@@ -831,169 +847,6 @@ class APIManager:
             self._logged_response_structure = True
 
         return ""
-
-    def _make_google_vision_request(self, messages: list[dict], model: str) -> tuple[object, str]:
-        """Handle Google Gemini vision request with direct SDK usage and retry."""
-        # Validate input: require at least one image part for Gemini
-        has_image = False
-        for msg in messages:
-            if msg.get("role") == "user" and isinstance(msg.get("content"), list):
-                for part in msg["content"]:
-                    if isinstance(part, dict) and part.get("type") == "image_url":
-                        has_image = True
-                        break
-            if has_image:
-                break
-        if not has_image:
-            raise ValueError("Gemini vision request requires an image part")
-
-        # Separate system instruction and user content
-        system_parts = []
-        user_text_parts = []
-        image_data = None
-        
-        for msg in messages:
-            role = msg.get("role")
-            content = msg.get("content")
-            
-            if role == "system":
-                system_parts.append(str(content or ""))
-            elif role == "user":
-                if isinstance(content, list):
-                    for part in content:
-                        if isinstance(part, dict):
-                            if part.get("type") == "text":
-                                user_text_parts.append(part.get("text", ""))
-                            elif part.get("type") == "image_url" and not image_data:
-                                # Decode first image
-                                image_url = part.get("image_url", {}).get("url", "")
-                                if image_url.startswith("data:image/jpeg;base64,"):
-                                    try:
-                                        image_data = base64.b64decode(image_url[23:])  # Strip prefix
-                                    except Exception as e:
-                                        raise ValueError(f"Failed to decode image data URL: {e}")
-                                else:
-                                    raise ValueError("Unsupported image URL format; expected data:image/jpeg;base64,...")
-                elif isinstance(content, str):
-                    user_text_parts.append(content)
-
-        system_instruction = " ".join(system_parts).strip() or None
-        prompt = " ".join(user_text_parts).strip() or "Describe this image"
-        
-        if not image_data:
-            raise ValueError("No valid image data found in messages")
-
-        # Lazy import and call Gemini with new SDK
-        try:
-            from google import genai
-            from google.genai import types
-        except ImportError:
-            raise RuntimeError("google-genai package not available")
-
-        api_key = self.config_service.get_setting("google_api_key")
-        if not api_key:
-            raise RuntimeError("Google API key not configured")
-
-        timeout = self.config_service.get_setting("api_timeout")
-        client = genai.Client(api_key=api_key, http_options={"timeout": (timeout or 30) * 1000})
-        
-        # Configure generation parameters with dynamic token allocation
-        max_output_tokens = calculate_dynamic_completion_tokens(
-            model=model,
-            min_output_tokens=DEFAULT_MIN_OUTPUT_TOKENS,
-            output_safety_margin=0.1
-        )
-        
-        # Get temperature from config for vision
-        try:
-            val = self.config_service.get_setting("llm_temperature_vision")
-            vision_temp = round(float(val if val is not None else 0.0), 2)
-        except (ValueError, TypeError) as e:
-            logger.warning(f"Failed to parse vision temperature from config (Google), using default 0.0. Error: {e}")
-            vision_temp = 0.0
-        
-        # Adjust temperature based on model capabilities
-        vision_temp = _adjust_temperature_for_model(model, vision_temp)
-        
-        logger.debug(f"Google vision temperature: {vision_temp}, max_output_tokens={max_output_tokens}")
-        
-        config = types.GenerateContentConfig(
-            max_output_tokens=max_output_tokens,
-            temperature=vision_temp,
-            system_instruction=system_instruction,
-        )
-
-        # Add ThinkingConfig for Gemini 3 vision models
-        if model.startswith("gemini-3"):
-            from google.genai.types import ThinkingLevel
-            config.thinking_config = types.ThinkingConfig(thinking_level=ThinkingLevel.LOW)
-
-        @retry(
-            stop=stop_after_attempt(3),
-            wait=wait_exponential(multiplier=1, min=4, max=60),
-            retry=retry_if_exception_type(RetryableAPIError),
-        )
-        def do_gemini_call():
-            try:
-                response = client.models.generate_content(
-                    model=model,
-                    contents=[
-                        prompt,
-                        types.Part.from_bytes(data=image_data, mime_type="image/jpeg")
-                    ],
-                    config=config
-                )
-                return response
-            except Exception as e:
-                api_error = self._classify_error(e)
-                if api_error.error_type in [
-                    APIErrorType.RATE_LIMIT,
-                    APIErrorType.NETWORK,
-                    APIErrorType.TIMEOUT,
-                    APIErrorType.SERVER_ERROR,
-                ]:
-                    raise RetryableAPIError(f"Retryable Gemini error: {api_error.message}") from e
-                else:
-                    raise e
-
-        gemini_response = do_gemini_call()
-
-        # Extract text from new SDK response (pydantic object)
-        logger.debug(f"Gemini response object: {gemini_response}")
-        
-        try:
-            extracted_text = gemini_response.text or ""
-        except (ValueError, AttributeError):
-            # Response may be blocked by safety filters or have no valid parts
-            logger.warning("Failed to extract text from Gemini response (blocked or empty)")
-            extracted_text = ""
-
-        # Calculate total tokens correctly (usage_metadata is an object, not a dict)
-        usage_metadata = getattr(gemini_response, "usage_metadata", None)
-        total_tokens = 0
-        if usage_metadata is not None:
-            total_tokens = getattr(usage_metadata, "total_token_count", None) or (
-                getattr(usage_metadata, "input_token_count", 0)
-                + getattr(usage_metadata, "output_token_count", 0)
-            )
-
-        # Create standardized dict response for consistency
-        normalized_response = {
-            "choices": [
-                {
-                    "message": {
-                        "content": extracted_text
-                    }
-                }
-            ],
-            "model": model,
-            "usage": {
-                "total_tokens": total_tokens
-            }
-        }
-
-        return normalized_response, model
-
 
     @requires_initialization
     def get_usage_stats(self, provider: Optional[APIProvider] = None) -> Dict[str, Any]:
