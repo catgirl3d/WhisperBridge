@@ -63,6 +63,7 @@ dev = [
     "faker>=19.3.0",
     "setuptools-scm>=8.0",
     "pyinstaller>=6.0.0",
+    "freezegun>=1.2.0",
 ]
 build = ["build", "twine"]
 docs = ["sphinx", "sphinx-rtd-theme"]
