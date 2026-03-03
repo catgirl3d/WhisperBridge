@@ -8,16 +8,28 @@ including area selection, image capture, and processing.
 import threading
 import time
 from dataclasses import dataclass
-from typing import Optional
+from typing import Any, Optional, cast
 
 try:
-    from PIL import Image, ImageGrab
+    from PIL import Image
 
     PIL_AVAILABLE = True
 except ImportError:
     PIL_AVAILABLE = False
     Image = None
-    ImageGrab = None
+
+try:
+    from PySide6.QtCore import QRect, Qt
+    from PySide6.QtGui import QGuiApplication, QImage, QPainter
+
+    QT_AVAILABLE = True
+except ImportError:
+    QT_AVAILABLE = False
+    QRect = None
+    Qt = None
+    QGuiApplication = None
+    QImage = None
+    QPainter = None
 
 from loguru import logger
 
@@ -36,7 +48,7 @@ class SelectionResult:
 class CaptureResult:
     """Result of screen capture operation."""
 
-    image: Optional[Image.Image]
+    image: Optional["Image.Image"]
     rectangle: Optional[Rectangle]
     success: bool
     error_message: str = ""
@@ -47,8 +59,6 @@ class CaptureResult:
 class CaptureOptions:
     """Options for screen capture."""
 
-    include_cursor: bool = False
-    monitor_index: Optional[int] = None
     scale_factor: float = 1.0
 
 
@@ -68,13 +78,21 @@ class ScreenCaptureService:
 
         logger.info("ScreenCaptureService initialized")
 
+    @staticmethod
+    def _get_qt_gui_app():
+        """Return active QGuiApplication instance (isolated for testability)."""
+        if not QT_AVAILABLE:
+            return None
+        return QGuiApplication.instance()
+
     def capture_area(
         self, rectangle: Rectangle, options: Optional[CaptureOptions] = None
     ) -> CaptureResult:
         """Capture a specific screen area.
 
         Args:
-            rectangle: Area to capture
+            rectangle: Area to capture in Qt logical virtual-desktop coordinates.
+                Coordinates must be in the same space as ``QScreen.geometry()``.
             options: Capture options
 
         Returns:
@@ -112,7 +130,7 @@ class ScreenCaptureService:
         """Capture a selected screen area.
 
         Args:
-            rectangle: Area to capture
+            rectangle: Area to capture in Qt logical virtual-desktop coordinates
             options: Capture options
 
         Returns:
@@ -120,12 +138,13 @@ class ScreenCaptureService:
         """
         start_time = time.time()
         logger.info(f"Starting selected area capture: rectangle={rectangle}")
-        logger.debug(f"Capture options: include_cursor={options.include_cursor}, monitor_index={options.monitor_index}, scale_factor={options.scale_factor}")
+        logger.debug(f"Capture options: scale_factor={options.scale_factor}")
 
         try:
-            # Clamp rectangle to screen bounds
+            # Clamp rectangle using Qt screen geometries to preserve logical-space
+            # consistency with the Qt capture path on mixed-DPI/multi-monitor setups.
             logger.debug(f"Original rectangle: {rectangle}")
-            clamped_rect = ScreenUtils.clamp_rectangle_to_screen(rectangle)
+            clamped_rect = self._clamp_rectangle_to_qt_screens(rectangle)
             logger.debug(f"Clamped rectangle: {clamped_rect}")
 
             if clamped_rect.width <= 0 or clamped_rect.height <= 0:
@@ -159,10 +178,38 @@ class ScreenCaptureService:
             logger.debug(f"Capture error details: {type(e).__name__}: {str(e)}", exc_info=True)
             return CaptureResult(None, None, False, str(e))
 
+    def _clamp_rectangle_to_qt_screens(self, rect: Rectangle) -> Rectangle:
+        """Clamp a rectangle to Qt logical virtual-screen bounds.
+
+        Uses ``QScreen.geometry()`` from the current Qt runtime as the authoritative
+        coordinate source. Falls back to ``ScreenUtils`` only when Qt runtime data
+        is unavailable.
+        """
+        if not QT_AVAILABLE:
+            return ScreenUtils.clamp_rectangle_to_screen(rect)
+
+        qgui_app_cls = QGuiApplication
+        if qgui_app_cls is None or self._get_qt_gui_app() is None:
+            return ScreenUtils.clamp_rectangle_to_screen(rect)
+
+        screens = list(qgui_app_cls.screens())
+        if not screens:
+            return Rectangle(rect.x, rect.y, 0, 0)
+
+        geometries = [screen.geometry() for screen in screens]
+
+        min_x = min(geometry.x() for geometry in geometries)
+        min_y = min(geometry.y() for geometry in geometries)
+        max_x = max(geometry.x() + geometry.width() for geometry in geometries)
+        max_y = max(geometry.y() + geometry.height() for geometry in geometries)
+
+        qt_bounds = Rectangle(min_x, min_y, max_x - min_x, max_y - min_y)
+        return rect.clip_to_bounds(qt_bounds)
+
     def _capture_screen_area(
         self, rectangle: Rectangle, options: CaptureOptions
-    ) -> Optional[Image.Image]:
-        """Capture a screen area using PIL.
+    ) -> Optional["Image.Image"]:
+        """Capture a screen area using Qt multi-monitor aware APIs.
 
         Args:
             rectangle: Area to capture
@@ -173,29 +220,134 @@ class ScreenCaptureService:
         """
         logger.debug(f"Starting screen capture: rectangle={rectangle}, options={options}")
         try:
-            # Convert rectangle to PIL bbox format (left, top, right, bottom)
-            bbox = (rectangle.x, rectangle.y, rectangle.right, rectangle.bottom)
-            logger.debug(
-                f"Screen capture bbox: {bbox}, area: {rectangle.width}x{rectangle.height}"
-            )
-
-            # Capture screen
-            image = ImageGrab.grab(bbox=bbox, include_layered_windows=True)
-            logger.debug(f"ImageGrab result: {image}")
-
-            if image is None:
-                logger.error("PIL returned None image")
+            if not QT_AVAILABLE:
+                logger.error("Qt is required for robust multi-monitor capture")
                 return None
 
-            logger.info(f"Screen captured successfully: size={image.size}, mode={image.mode}, format={image.format}")
+            qgui_app_cls = QGuiApplication
+            qrect_cls = QRect
+            qimage_cls = QImage
+            qpainter_cls = QPainter
+            qt_ns = Qt
+            pil_image_module = Image
+
+            if (
+                qgui_app_cls is None
+                or qrect_cls is None
+                or qimage_cls is None
+                or qpainter_cls is None
+                or qt_ns is None
+                or pil_image_module is None
+            ):
+                logger.error("Qt/PIL runtime objects are unavailable for screen capture")
+                return None
+
+            if self._get_qt_gui_app() is None:
+                logger.error("QGuiApplication instance is not available")
+                return None
+
+            target = qrect_cls(rectangle.x, rectangle.y, rectangle.width, rectangle.height)
+            logger.debug(
+                "Qt capture target QRect: "
+                f"({target.x()}, {target.y()}, {target.width()}, {target.height()})"
+            )
+
+            screens = list(qgui_app_cls.screens())
+            if not screens:
+                logger.error("No screens available for capture")
+                return None
+
+            # Compose result from all intersecting screens to support virtual desktop
+            # coordinates (including negative offsets and mixed-DPI setups).
+            argb32_format = getattr(qimage_cls, "Format_ARGB32", None)
+            if argb32_format is None and hasattr(qimage_cls, "Format"):
+                argb32_format = qimage_cls.Format.Format_ARGB32
+            if argb32_format is None:
+                logger.error("QImage ARGB32 format is unavailable")
+                return None
+
+            transparent_color = getattr(qt_ns, "transparent", None)
+            if transparent_color is None and hasattr(qt_ns, "GlobalColor"):
+                transparent_color = qt_ns.GlobalColor.transparent
+            if transparent_color is None:
+                logger.error("Qt transparent color constant is unavailable")
+                return None
+
+            composed = qimage_cls(target.size(), argb32_format)
+            composed.fill(transparent_color)
+            painter = qpainter_cls(composed)
+
+            drawn = False
+            try:
+                for screen in screens:
+                    screen_geom = screen.geometry()
+                    intersection = screen_geom.intersected(target)
+                    if intersection.isEmpty():
+                        continue
+
+                    pixmap = screen.grabWindow(
+                        0,
+                        intersection.x() - screen_geom.x(),
+                        intersection.y() - screen_geom.y(),
+                        intersection.width(),
+                        intersection.height(),
+                    )
+                    if pixmap.isNull():
+                        continue
+
+                    dst_x = intersection.x() - target.x()
+                    dst_y = intersection.y() - target.y()
+
+                    # Draw into an explicit logical destination size.
+                    # This normalizes source pixmaps from mixed-DPI screens,
+                    # preventing oversized fragments from high-DPI monitors.
+                    painter.drawPixmap(
+                        dst_x,
+                        dst_y,
+                        intersection.width(),
+                        intersection.height(),
+                        pixmap,
+                    )
+                    drawn = True
+            finally:
+                painter.end()
+
+            if not drawn:
+                logger.error("Qt screen capture failed: no pixels were captured")
+                return None
+
+            width = composed.width()
+            height = composed.height()
+            ptr = composed.bits()
+            # PySide can return either sip.voidptr (with setsize) or memoryview.
+            # Handle both forms safely.
+            if hasattr(ptr, "setsize"):
+                cast(Any, ptr).setsize(composed.sizeInBytes())
+            raw = bytes(ptr)
+            image = pil_image_module.frombytes("RGBA", (width, height), raw, "raw", "BGRA")
+            image = image.convert("RGB")
+
+            logger.info(
+                f"Screen captured successfully (Qt): size={image.size}, mode={image.mode}"
+            )
 
             # Apply scaling if needed
-            if options.scale_factor != 1.0:
+            scale_factor = options.scale_factor
+            if scale_factor <= 0:
+                logger.warning(f"Invalid scale_factor={scale_factor}; using 1.0")
+                scale_factor = 1.0
+
+            if scale_factor != 1.0:
                 original_size = image.size
-                new_width = int(image.width * options.scale_factor)
-                new_height = int(image.height * options.scale_factor)
-                image = image.resize((new_width, new_height), Image.Resampling.LANCZOS)
-                logger.info(f"Image scaled: {original_size} -> {image.size}, factor={options.scale_factor}")
+                new_width = max(1, int(image.width * scale_factor))
+                new_height = max(1, int(image.height * scale_factor))
+
+                resampling = getattr(pil_image_module, "Resampling", None)
+                resample_filter = resampling.LANCZOS if resampling is not None else pil_image_module.LANCZOS
+                image = image.resize((new_width, new_height), resample_filter)
+                logger.info(
+                    f"Image scaled: {original_size} -> {image.size}, factor={scale_factor}"
+                )
 
             logger.debug(f"Final captured image: {image.size}, mode: {image.mode}")
             return image

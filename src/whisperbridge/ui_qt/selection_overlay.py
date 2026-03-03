@@ -1,5 +1,5 @@
 from PySide6.QtCore import QPoint, QRect, Qt, Signal
-from PySide6.QtGui import QColor, QFont, QPainter, QPen
+from PySide6.QtGui import QColor, QFont, QGuiApplication, QPainter, QPen
 from PySide6.QtWidgets import QApplication, QWidget
 
 from .base_window import BaseWindow
@@ -9,15 +9,48 @@ class SelectionOverlayQt(QWidget, BaseWindow):
     selectionCompleted = Signal(QRect)
     selectionCanceled = Signal()
 
+    SIZE_TEXT_MARGIN = 8
+
+    def _build_size_label_candidates(self, selection_rect: QRect, text_rect: QRect):
+        """Build candidate label rectangles around selection in priority order.
+
+        Priority order:
+        1) top-left, 2) top-right, 3) bottom-left, 4) bottom-right.
+        """
+        text_w = text_rect.width()
+        text_h = text_rect.height()
+
+        top_y = selection_rect.top() - text_h - self.SIZE_TEXT_MARGIN
+        bottom_y = selection_rect.bottom() + self.SIZE_TEXT_MARGIN + 1
+
+        left_x = selection_rect.left()
+        right_x = selection_rect.right() - text_w + 1
+
+        return [
+            QRect(left_x, top_y, text_w, text_h),
+            QRect(right_x, top_y, text_w, text_h),
+            QRect(left_x, bottom_y, text_w, text_h),
+            QRect(right_x, bottom_y, text_w, text_h),
+        ]
+
+    def _select_size_label_rect(self, selection_rect: QRect, text_rect: QRect):
+        """Pick first valid external label rect or return None."""
+        overlay_bounds = self.rect()
+        for candidate in self._build_size_label_candidates(selection_rect, text_rect):
+            if overlay_bounds.contains(candidate) and not candidate.intersects(selection_rect):
+                return candidate
+        return None
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.Tool | Qt.WindowStaysOnTopHint)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setAttribute(Qt.WA_ShowWithoutActivating)  # Don't steal focus from other apps
 
-        # Get virtual desktop geometry using the new PySide6 API
-        screen = QApplication.primaryScreen()
-        self.virtual_geometry = screen.availableGeometry()
+        # Cover the whole virtual desktop so selection works on all monitors
+        # (including monitors with negative coordinates in the virtual space).
+        screen = QGuiApplication.primaryScreen() or QApplication.primaryScreen()
+        self.virtual_geometry = screen.virtualGeometry() if screen else QRect(0, 0, 0, 0)
         self.setGeometry(self.virtual_geometry)
 
         self.selection_start = None
@@ -69,10 +102,10 @@ class SelectionOverlayQt(QWidget, BaseWindow):
                 painter.setFont(font)
                 painter.setPen(self.text_color)
 
-                # Position text at bottom-right of selection
-                text_rect = painter.boundingRect(rect, Qt.AlignCenter, size_text)
-                text_pos = QPoint(rect.right() - text_rect.width() - 5, rect.bottom() - 5)
-                painter.drawText(text_pos, size_text)
+                text_rect = painter.boundingRect(self.rect(), Qt.AlignLeft | Qt.AlignTop, size_text)
+                label_rect = self._select_size_label_rect(rect, text_rect)
+                if label_rect is not None:
+                    painter.drawText(label_rect, Qt.AlignLeft | Qt.AlignTop, size_text)
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:

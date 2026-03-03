@@ -361,10 +361,17 @@ class QtApp(QObject, SettingsObserver):
         worker.error.connect(on_error)
         thread.started.connect(worker.run)
         worker.finished.connect(thread.quit)
+        # Safety net: ensure thread also stops when worker reports error.
+        worker.error.connect(thread.quit)
         thread.finished.connect(thread.deleteLater)
         worker.finished.connect(worker.deleteLater)
+        worker.error.connect(worker.deleteLater)
         self._worker_threads.append((thread, worker))
-        thread.finished.connect(lambda: self._worker_threads.remove((thread, worker)))
+        thread.finished.connect(
+            lambda: self._worker_threads.remove((thread, worker))
+            if (thread, worker) in self._worker_threads
+            else None
+        )
         thread.start()
         logger.info(f"Started worker {worker.__class__.__name__} in a new thread.")
         return thread, worker

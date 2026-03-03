@@ -621,82 +621,67 @@ class TestQtIntegration:
 @pytest.mark.skipif(CaptureOcrTranslateWorker is None, reason="Requires Qt and project dependencies")
 class TestCaptureOcrTranslateWorker:
     """Tests for CaptureOcrTranslateWorker."""
-    
+
     @pytest.fixture
     def mock_services(self, mocker):
-        """Mock OCR and capture services."""
-        mock_ocr = mocker.patch('whisperbridge.services.ocr_service.get_ocr_service')
-        mock_capture = mocker.patch('whisperbridge.services.screen_capture_service.get_capture_service')
-        
+        """Mock OCR and OCR-translation coordinator services."""
+        mock_ocr = mocker.patch('whisperbridge.ui_qt.workers.get_ocr_service')
         ocr_instance = Mock()
         ocr_instance.ensure_ready.return_value = True
         mock_ocr.return_value = ocr_instance
-        
-        capture_instance = Mock()
-        capture_result = Mock()
-        capture_result.success = True
-        capture_result.image = Mock()
-        capture_instance.capture_area.return_value = capture_result
-        mock_capture.return_value = capture_instance
-        
-        yield ocr_instance, capture_instance
-    
-    def test_capture_ocr_worker_with_image(self, mock_services, mocker):
+
+        mock_coord = mocker.patch('whisperbridge.ui_qt.workers.get_ocr_translation_coordinator')
+        coord_instance = Mock()
+        coord_instance.process_image_with_translation.return_value = ("original", "translated", "")
+        mock_coord.return_value = coord_instance
+
+        yield ocr_instance, coord_instance
+
+    def test_capture_ocr_worker_with_image(self, mock_services):
         """Test worker processes pre-captured image."""
-        ocr_instance, _ = mock_services
-        
-        mock_coord = mocker.patch('whisperbridge.services.ocr_translation_service.get_ocr_translation_coordinator')
-        coord = Mock()
-        coord.process_image_with_translation.return_value = ("original", "translated", "")
-        mock_coord.return_value = coord
-        
+        ocr_instance, coord_instance = mock_services
+        image = Mock()
+
+        worker = CaptureOcrTranslateWorker(image=image)
+        worker.run()
+
+        ocr_instance.ensure_ready.assert_called_once_with(timeout=15.0)
+        coord_instance.process_image_with_translation.assert_called_once_with(image, preprocess=True)
+
+    def test_capture_ocr_worker_success_signals(self, qtbot, mock_services):
+        """Test worker emits finished payload for successful OCR path."""
+        _, _ = mock_services
+
         worker = CaptureOcrTranslateWorker(image=Mock())
+        finished_spy = QSignalSpy(worker.finished)
+        progress_spy = QSignalSpy(worker.progress)
         worker.run()
-        
-        # Note: Signals won't be emitted in non-Qt thread test
-        # Just verify that worker completed without exception
-        # The actual signal emission is tested in integration tests
-    
-    def test_capture_ocr_worker_with_region(self, mock_services, mocker):
-        """Test worker captures and processes region."""
-        _, capture_instance = mock_services
-        
-        mock_coord = mocker.patch('whisperbridge.services.ocr_translation_service.get_ocr_translation_coordinator')
-        coord = Mock()
-        coord.process_image_with_translation.return_value = ("original", "translated", "")
-        mock_coord.return_value = coord
-        
-        worker = CaptureOcrTranslateWorker(region=Mock())
-        worker.run()
-        
-        # Verify worker completed without exception
-    
+
+        assert progress_spy.count() >= 1
+        assert finished_spy.count() == 1
+        assert finished_spy.at(0)[2] == "ocr"
+
     def test_capture_ocr_worker_cancel(self, mock_services, mocker):
         """Test worker respects cancel request."""
+        _, coord_instance = mock_services
         worker = CaptureOcrTranslateWorker(image=Mock())
         worker.request_cancel()
-        
+
         worker.run()
-        
-        # Worker should return early without emitting signals
-        # This is tested by the fact that run() completes
-    
-    def test_capture_ocr_worker_no_input(self, mock_services):
-        """Test worker handles missing input gracefully."""
-        worker = CaptureOcrTranslateWorker()
-        
-        worker.run()
-        
-        # Worker should emit error signal
-        # In non-Qt thread test, we can't spy on signals easily
-        # Just verify it completes without exception
-    
+
+        coord_instance.process_image_with_translation.assert_not_called()
+
+    def test_capture_ocr_worker_requires_image(self):
+        """Worker constructor must reject missing image input."""
+        with pytest.raises(ValueError, match="image is required"):
+            CaptureOcrTranslateWorker(image=None)
+
     def test_ocr_service_timeout_handling(self, qtbot, mock_services):
         """Test worker handles OCR service timeout gracefully."""
         ocr_instance, _ = mock_services
         # Simulate OCR service timeout
         ocr_instance.ensure_ready.return_value = False
-        
+
         worker = CaptureOcrTranslateWorker(image=Mock())
         error_spy = QSignalSpy(worker.error)
         
@@ -708,23 +693,29 @@ class TestCaptureOcrTranslateWorker:
         # Just verify an error was emitted
         assert len(error_spy.at(0)[0]) > 0
     
-    def test_capture_service_failure(self, qtbot, mock_services):
-        """Test worker handles screen capture failure."""
-        _, capture_instance = mock_services
-        # Simulate capture failure
-        capture_result = Mock()
-        capture_result.success = False
-        capture_instance.capture_area.return_value = capture_result
-        
-        worker = CaptureOcrTranslateWorker(region=Mock())
+    def test_processing_error_is_propagated(self, qtbot, mock_services):
+        """Worker should emit error when coordinator processing fails."""
+        _, coord_instance = mock_services
+        coord_instance.process_image_with_translation.side_effect = Exception("processing exploded")
+
+        worker = CaptureOcrTranslateWorker(image=Mock())
         error_spy = QSignalSpy(worker.error)
-        
+
         worker.run()
-        
-        # Should emit error about capture failure
+
         assert error_spy.count() == 1
-        assert "Screen capture failed" in error_spy.at(0)[0]
-    
+        assert "processing exploded" in error_spy.at(0)[0]
+
+    def test_capture_service_is_not_called_when_image_provided(self, mock_services, mocker):
+        """Worker must process the exact pre-captured image passed by caller."""
+        _, coord_instance = mock_services
+
+        pre_captured_image = Mock()
+        worker = CaptureOcrTranslateWorker(image=pre_captured_image)
+        worker.run()
+
+        coord_instance.process_image_with_translation.assert_called_once_with(pre_captured_image, preprocess=True)
+
     def test_worker_cancellation_during_processing(self, qtbot, mock_services):
         """Test worker respects cancellation request during processing."""
         worker = CaptureOcrTranslateWorker(image=Mock())

@@ -5,7 +5,7 @@ Provides thread-safe workers for OCR/translation and settings saving operations.
 
 import asyncio
 import time
-from typing import Any, Dict, Coroutine
+from typing import Any, Coroutine
 
 from loguru import logger
 from PySide6.QtCore import QObject, Signal
@@ -16,14 +16,12 @@ from ..core.settings_manager import settings_manager
 from ..services.config_service import config_service
 from ..services.ocr_service import get_ocr_service
 from ..services.ocr_translation_service import get_ocr_translation_coordinator
-from ..services.screen_capture_service import get_capture_service
 from ..providers.deepl_adapter import DeepLClientAdapter
 from ..core.config import get_deepl_identifier
-from ..utils.screen_utils import Rectangle
 
 
 class CaptureOcrTranslateWorker(QObject):
-    """Worker for synchronous capture, OCR, and optional translation."""
+    """Worker for OCR + translation from a pre-captured image."""
 
     started = Signal()
     progress = Signal(str)
@@ -31,11 +29,11 @@ class CaptureOcrTranslateWorker(QObject):
     finished = Signal(str, str, str, str)  # original, translated, overlay_id, error_message
     error = Signal(str)
 
-    def __init__(self, region=None, image=None, capture_options=None):
+    def __init__(self, image):
         super().__init__()
-        self.region = region
+        if image is None:
+            raise ValueError("image is required")
         self.image = image
-        self.capture_options = capture_options or {}
         self._cancel_requested = False
 
     def request_cancel(self):
@@ -57,35 +55,13 @@ class CaptureOcrTranslateWorker(QObject):
                 self.error.emit("OCR service not ready or initialization timed out")
                 return
 
-            if self.image is not None:
-                logger.debug("Processing pre-captured image")
-                self.progress.emit("Starting OCR and translation")
-                coordinator = get_ocr_translation_coordinator()
-                original_text, translated_text, error_message = coordinator.process_image_with_translation(
-                    self.image, preprocess=True
-                )
-                overlay_id = "ocr"
-            elif self.region is not None:
-                logger.debug(f"Starting synchronous capture for region {self.region}")
-                self.progress.emit("Starting screen capture")
-                capture_service = get_capture_service()
-                capture_result = capture_service.capture_area(self.region)
-
-                if not capture_result.success or capture_result.image is None:
-                    logger.error("Capture failed")
-                    self.error.emit("Screen capture failed")
-                    return
-
-                logger.debug("Capture completed, starting OCR and translation")
-                self.progress.emit("Capture completed, starting OCR and translation")
-                coordinator = get_ocr_translation_coordinator()
-                original_text, translated_text, error_message = coordinator.process_image_with_translation(
-                    capture_result.image, preprocess=True
-                )
-                overlay_id = "ocr"
-            else:
-                self.error.emit("No image or region provided")
-                return
+            logger.debug("Processing pre-captured image")
+            self.progress.emit("Starting OCR and translation")
+            coordinator = get_ocr_translation_coordinator()
+            original_text, translated_text, error_message = coordinator.process_image_with_translation(
+                self.image, preprocess=True
+            )
+            overlay_id = "ocr"
 
             if self._cancel_requested:
                 return

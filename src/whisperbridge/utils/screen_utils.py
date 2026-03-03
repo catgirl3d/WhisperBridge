@@ -511,11 +511,27 @@ class ScreenUtils:
         return ScreenUtils.get_virtual_screen_bounds()
 
     @staticmethod
-    def convert_rect_to_pixels(rect) -> Tuple[int, int, int, int]:
+    def _get_screen_for_rect(rect):
+        """Resolve the QScreen containing the rectangle center.
+
+        Args:
+            rect: QRect-like object
+
+        Returns:
+            QScreen | None: Screen containing rectangle center
+        """
+        from PySide6.QtWidgets import QApplication
+
+        app = QApplication.instance()
+        return app.screenAt(rect.center()) if app else None
+
+    @staticmethod
+    def convert_rect_to_pixels(rect, screen=None) -> Tuple[int, int, int, int]:
         """Convert QRect logical coordinates to absolute pixels.
 
         Args:
             rect: QRect object with logical coordinates
+            screen: Optional QScreen override (useful for tests)
 
         Returns:
             Tuple[int, int, int, int]: pixel_x, pixel_y, pixel_width, pixel_height
@@ -526,14 +542,21 @@ class ScreenUtils:
         logical_width = rect.width()
         logical_height = rect.height()
 
-        # Get the screen for this rectangle (assume single screen for MVP)
-        from PySide6.QtWidgets import QApplication
-        screen = QApplication.instance().screenAt(rect.center())
+        # Resolve target screen when not provided by caller.
+        target_screen = screen or ScreenUtils._get_screen_for_rect(rect)
+
+        # Convert to physical pixels using coordinates local to the selected
+        # screen, then shift back to virtual desktop coordinates.
+        # This avoids scaling full virtual offsets on mixed-DPI setups.
+        screen = target_screen
         if screen:
             dpr = screen.devicePixelRatio()
-            # Convert to pixels
-            pixel_x = int(logical_x * dpr)
-            pixel_y = int(logical_y * dpr)
+            screen_geometry = screen.geometry()
+            local_x = logical_x - screen_geometry.x()
+            local_y = logical_y - screen_geometry.y()
+
+            pixel_x = screen_geometry.x() + int(local_x * dpr)
+            pixel_y = screen_geometry.y() + int(local_y * dpr)
             pixel_width = int(logical_width * dpr)
             pixel_height = int(logical_height * dpr)
             return pixel_x, pixel_y, pixel_width, pixel_height

@@ -20,12 +20,13 @@ from ..ui_qt.selection_overlay import SelectionOverlayQt
 from ..ui_qt.settings_dialog import SettingsDialog
 from ..ui_qt.tray import TrayManager
 from ..ui_qt.workers import CaptureOcrTranslateWorker
-from ..utils.screen_utils import ScreenUtils, Rectangle
+from ..utils.screen_utils import Rectangle
 from ..core.config import BUILD_OCR_ENABLED
 
 # Clipboard accessor (fallback)
 from .clipboard_service import get_clipboard_service
 from .notification_service import get_notification_service
+from .screen_capture_service import get_capture_service
 
 
 def main_thread_only(func):
@@ -656,25 +657,50 @@ class UIService:
 
     @main_thread_only
     def _on_selection_completed(self, rect):
-        """Handle selection completion."""
+        """Handle selection completion.
+
+        Contract:
+            ``rect`` is expected to be in Qt logical virtual-desktop coordinates
+            (the same coordinate space used by ``QScreen.geometry()`` and Qt
+            capture APIs).
+        """
         self.logger.info(f"Selection completed: {rect}")
         try:
-            # Convert logical coordinates to absolute pixels
-            x, y, width, height = ScreenUtils.convert_rect_to_pixels(rect)
-            self.logger.info(f"Converted to pixels: x={x}, y={y}, w={width}, h={height}")
+            # Keep logical coordinates end-to-end for Qt capture APIs.
+            # ScreenCaptureService works with QScreen logical geometries.
+            region = Rectangle(rect.x(), rect.y(), rect.width(), rect.height())
+            self.logger.info(
+                f"Using logical selection rectangle: x={region.x}, y={region.y}, w={region.width}, h={region.height}"
+            )
 
-            # Create region rectangle for capture
-            region = Rectangle(x, y, width, height)
+            # Capture image in the main thread (Qt GUI thread safety), then
+            # pass the pre-captured image into the background OCR worker.
+            capture_result = self._capture_region_image(region)
+            if capture_result is None or not capture_result.success or capture_result.image is None:
+                self.logger.error("Screen capture failed in main thread")
+                notification_service = get_notification_service()
+                notification_service.error("Screen capture failed", "WhisperBridge")
+                return
 
-            # Create and start worker for OCR + translation
-            self._start_ocr_worker(region)
+            # Create and start worker for OCR + translation using pre-captured image.
+            self._start_ocr_worker(image=capture_result.image)
 
             self.logger.debug("Selection completed processed by UIService")
         except Exception as e:
             self.logger.error(f"Error processing selection: {e}")
 
-    def _start_ocr_worker(self, region: Rectangle):
-        """Start OCR worker for the selected region."""
+    @main_thread_only
+    def _capture_region_image(self, region: Rectangle):
+        """Capture selected screen region in the main Qt thread."""
+        try:
+            capture_service = get_capture_service()
+            return capture_service.capture_area(region)
+        except Exception as e:
+            self.logger.error(f"Error capturing selected region in main thread: {e}", exc_info=True)
+            return None
+
+    def _start_ocr_worker(self, image):
+        """Start OCR worker for a pre-captured image."""
         try:
             from ..services.config_service import config_service
             settings = config_service.get_settings()
@@ -693,9 +719,15 @@ class UIService:
                 notification_service.error("OCR is disabled in settings.", "WhisperBridge")
                 return
 
-            self.logger.info(f"Starting OCR worker for region: {region}")
+            if image is None:
+                self.logger.error("OCR worker start blocked: no image provided")
+                notification_service = get_notification_service()
+                notification_service.error("No OCR image provided.", "WhisperBridge")
+                return
 
-            worker = CaptureOcrTranslateWorker(region=region)
+            self.logger.info("Starting OCR worker for pre-captured image")
+
+            worker = CaptureOcrTranslateWorker(image=image)
             self.app.create_and_run_worker(worker, self.app._handle_worker_finished, self.app._handle_worker_error)
 
             self.logger.info("OCR worker started successfully")
