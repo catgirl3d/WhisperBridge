@@ -17,7 +17,7 @@
 
 ## Швидкий старт
 
-**Системні вимоги:** Python 3.8+ (Windows/macOS/Linux)
+**Системні вимоги:** Python 3.10+ (Windows/macOS/Linux)
 
 ### Встановлення
 

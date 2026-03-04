@@ -8,6 +8,7 @@ including area selection, image capture, and processing.
 import threading
 import time
 from dataclasses import dataclass
+import math
 from typing import Any, Optional, cast
 
 try:
@@ -85,6 +86,27 @@ class ScreenCaptureService:
             return None
         return QGuiApplication.instance()
 
+    def _get_qt_virtual_bounds(self) -> Optional[Rectangle]:
+        """Return virtual desktop bounds from active Qt screens when available."""
+        if not QT_AVAILABLE:
+            return None
+
+        qt_app = self._get_qt_gui_app()
+        if qt_app is None:
+            return None
+
+        screens = list(qt_app.screens())
+        if not screens:
+            return None
+
+        geometries = [screen.geometry() for screen in screens]
+        min_x = min(geometry.x() for geometry in geometries)
+        min_y = min(geometry.y() for geometry in geometries)
+        max_x = max(geometry.x() + geometry.width() for geometry in geometries)
+        max_y = max(geometry.y() + geometry.height() for geometry in geometries)
+
+        return Rectangle(min_x, min_y, max_x - min_x, max_y - min_y)
+
     def capture_area(
         self, rectangle: Rectangle, options: Optional[CaptureOptions] = None
     ) -> CaptureResult:
@@ -123,6 +145,166 @@ class ScreenCaptureService:
             with self._lock:
                 self._capture_active = False
                 logger.debug("Capture lock released")
+
+    def capture_virtual_desktop(self, options: Optional[CaptureOptions] = None) -> CaptureResult:
+        """Capture the full virtual desktop in one shot.
+
+        Intended for freeze-frame workflows where selection should happen on a
+        static screenshot captured at hotkey press time.
+        """
+        try:
+            virtual_bounds = self._get_qt_virtual_bounds() or ScreenUtils.get_screen_capture_bounds()
+            if virtual_bounds.width <= 0 or virtual_bounds.height <= 0:
+                logger.error(f"Invalid virtual bounds for capture: {virtual_bounds}")
+                return CaptureResult(
+                    image=None,
+                    rectangle=None,
+                    success=False,
+                    error_message="Invalid virtual screen bounds",
+                )
+
+            logger.info(
+                "Capturing virtual desktop: "
+                f"x={virtual_bounds.x}, y={virtual_bounds.y}, "
+                f"w={virtual_bounds.width}, h={virtual_bounds.height}"
+            )
+            return self.capture_area(virtual_bounds, options)
+        except Exception as e:
+            logger.error(f"Virtual desktop capture failed: {e}")
+            logger.debug("Virtual desktop capture error details", exc_info=True)
+            return CaptureResult(None, None, False, str(e))
+
+    def crop_captured_image(
+        self,
+        captured_image: Optional["Image.Image"],
+        captured_rectangle: Optional[Rectangle],
+        target_rectangle: Rectangle,
+    ) -> CaptureResult:
+        """Crop a pre-captured image using logical virtual-desktop coordinates."""
+        start_time = time.time()
+
+        if captured_image is None or captured_rectangle is None:
+            return CaptureResult(
+                image=None,
+                rectangle=None,
+                success=False,
+                error_message="Missing captured image or source rectangle",
+            )
+
+        try:
+            clipped_target = target_rectangle.clip_to_bounds(captured_rectangle)
+            if clipped_target.width <= 0 or clipped_target.height <= 0:
+                return CaptureResult(
+                    image=None,
+                    rectangle=None,
+                    success=False,
+                    error_message="Invalid crop area",
+                )
+
+            crop_box = self._build_pixel_crop_box(
+                captured_image=captured_image,
+                captured_rectangle=captured_rectangle,
+                clipped_target=clipped_target,
+            )
+            if crop_box is None:
+                return CaptureResult(
+                    image=None,
+                    rectangle=None,
+                    success=False,
+                    error_message="Invalid crop area after DPI scaling",
+                )
+
+            crop_left, crop_top, crop_right, crop_bottom = crop_box
+
+            cropped_image = captured_image.crop((crop_left, crop_top, crop_right, crop_bottom))
+            return CaptureResult(
+                image=cropped_image,
+                rectangle=clipped_target,
+                success=True,
+                capture_time=time.time() - start_time,
+            )
+        except Exception as e:
+            logger.error(f"Failed to crop captured image: {e}")
+            logger.debug("Crop captured image error details", exc_info=True)
+            return CaptureResult(
+                image=None,
+                rectangle=None,
+                success=False,
+                error_message=str(e),
+                capture_time=time.time() - start_time,
+            )
+
+    @staticmethod
+    def _build_pixel_crop_box(
+        captured_image: "Image.Image",
+        captured_rectangle: Rectangle,
+        clipped_target: Rectangle,
+    ) -> Optional[tuple[int, int, int, int]]:
+        """Translate logical crop rectangle into image pixel coordinates.
+
+        Captured image dimensions can differ from logical capture bounds on mixed-DPI
+        systems, so we map coordinates by per-axis ratios.
+        """
+        logical_width = captured_rectangle.width
+        logical_height = captured_rectangle.height
+        if logical_width <= 0 or logical_height <= 0:
+            logger.error(
+                "Cannot crop captured image: invalid source logical bounds "
+                f"{captured_rectangle}"
+            )
+            return None
+
+        image_width, image_height = captured_image.size
+        if image_width <= 0 or image_height <= 0:
+            logger.error(
+                "Cannot crop captured image: invalid source image size "
+                f"{captured_image.size}"
+            )
+            return None
+
+        ratio_x = image_width / logical_width
+        ratio_y = image_height / logical_height
+        if not math.isfinite(ratio_x) or not math.isfinite(ratio_y) or ratio_x <= 0 or ratio_y <= 0:
+            logger.error(
+                "Cannot crop captured image: invalid logical→pixel ratios "
+                f"ratio_x={ratio_x}, ratio_y={ratio_y}"
+            )
+            return None
+
+        if abs(ratio_x - 1.0) > 0.01 or abs(ratio_y - 1.0) > 0.01:
+            logger.debug(
+                "Applying HiDPI crop ratios for frozen frame: "
+                f"ratio_x={ratio_x:.4f}, ratio_y={ratio_y:.4f}, "
+                f"logical_bounds={captured_rectangle}, image_size={captured_image.size}"
+            )
+
+        logical_left = clipped_target.x - captured_rectangle.x
+        logical_top = clipped_target.y - captured_rectangle.y
+        logical_right = logical_left + clipped_target.width
+        logical_bottom = logical_top + clipped_target.height
+
+        # Use floor for origin and ceil for far edge to avoid losing edge pixels
+        # on fractional DPR mappings (e.g. 1.25x / 1.5x / 1.75x).
+        pixel_left = int(math.floor(logical_left * ratio_x))
+        pixel_top = int(math.floor(logical_top * ratio_y))
+        pixel_right = int(math.ceil(logical_right * ratio_x))
+        pixel_bottom = int(math.ceil(logical_bottom * ratio_y))
+
+        pixel_left = max(0, min(image_width, pixel_left))
+        pixel_top = max(0, min(image_height, pixel_top))
+        pixel_right = max(0, min(image_width, pixel_right))
+        pixel_bottom = max(0, min(image_height, pixel_bottom))
+
+        if pixel_right <= pixel_left or pixel_bottom <= pixel_top:
+            logger.warning(
+                "Mapped frozen-frame crop is empty after scaling/clamp: "
+                f"box=({pixel_left}, {pixel_top}, {pixel_right}, {pixel_bottom}), "
+                f"logical_target={clipped_target}, source_logical={captured_rectangle}, "
+                f"source_image_size={captured_image.size}"
+            )
+            return None
+
+        return pixel_left, pixel_top, pixel_right, pixel_bottom
 
     def _capture_selected_area(
         self, rectangle: Rectangle, options: CaptureOptions
@@ -185,25 +367,9 @@ class ScreenCaptureService:
         coordinate source. Falls back to ``ScreenUtils`` only when Qt runtime data
         is unavailable.
         """
-        if not QT_AVAILABLE:
+        qt_bounds = self._get_qt_virtual_bounds()
+        if qt_bounds is None:
             return ScreenUtils.clamp_rectangle_to_screen(rect)
-
-        qgui_app_cls = QGuiApplication
-        if qgui_app_cls is None or self._get_qt_gui_app() is None:
-            return ScreenUtils.clamp_rectangle_to_screen(rect)
-
-        screens = list(qgui_app_cls.screens())
-        if not screens:
-            return Rectangle(rect.x, rect.y, 0, 0)
-
-        geometries = [screen.geometry() for screen in screens]
-
-        min_x = min(geometry.x() for geometry in geometries)
-        min_y = min(geometry.y() for geometry in geometries)
-        max_x = max(geometry.x() + geometry.width() for geometry in geometries)
-        max_y = max(geometry.y() + geometry.height() for geometry in geometries)
-
-        qt_bounds = Rectangle(min_x, min_y, max_x - min_x, max_y - min_y)
         return rect.clip_to_bounds(qt_bounds)
 
     def _capture_screen_area(
@@ -224,15 +390,15 @@ class ScreenCaptureService:
                 logger.error("Qt is required for robust multi-monitor capture")
                 return None
 
-            qgui_app_cls = QGuiApplication
             qrect_cls = QRect
             qimage_cls = QImage
             qpainter_cls = QPainter
             qt_ns = Qt
             pil_image_module = Image
+            qt_app = self._get_qt_gui_app()
 
             if (
-                qgui_app_cls is None
+                qt_app is None
                 or qrect_cls is None
                 or qimage_cls is None
                 or qpainter_cls is None
@@ -242,17 +408,13 @@ class ScreenCaptureService:
                 logger.error("Qt/PIL runtime objects are unavailable for screen capture")
                 return None
 
-            if self._get_qt_gui_app() is None:
-                logger.error("QGuiApplication instance is not available")
-                return None
-
             target = qrect_cls(rectangle.x, rectangle.y, rectangle.width, rectangle.height)
             logger.debug(
                 "Qt capture target QRect: "
                 f"({target.x()}, {target.y()}, {target.width()}, {target.height()})"
             )
 
-            screens = list(qgui_app_cls.screens())
+            screens = list(qt_app.screens())
             if not screens:
                 logger.error("No screens available for capture")
                 return None

@@ -98,3 +98,59 @@ def test_start_ocr_worker_requires_image(mocker):
 
     create_worker_mock.assert_not_called()
     notifier.error.assert_called_once_with("No OCR image provided.", "WhisperBridge")
+
+
+def test_activate_ocr_starts_selection_with_frozen_frame_when_capture_succeeds(mocker):
+    """OCR activation should pass freeze-frame image/rect into selection overlay start()."""
+    ui = _build_ui_service(mocker)
+    ui.selection_overlay = Mock()
+    ui.overlay_windows["ocr"] = Mock()
+
+    mocker.patch("whisperbridge.services.ui_service.BUILD_OCR_ENABLED", True)
+
+    settings = Mock(ocr_enabled=True)
+    config_service_mock = mocker.patch("whisperbridge.services.config_service.config_service")
+    config_service_mock.get_settings.return_value = settings
+
+    frozen_image = Mock()
+    frozen_rect = Mock(x=-1920, y=0, width=3840, height=1080)
+    frozen_result = Mock(success=True, image=frozen_image, rectangle=frozen_rect)
+    mocker.patch.object(ui, "_capture_virtual_desktop_image", return_value=frozen_result)
+
+    ui.activate_ocr()
+
+    ui.selection_overlay.start.assert_called_once_with(
+        frozen_image=frozen_image,
+        frozen_rect=frozen_rect,
+    )
+
+
+def test_on_selection_completed_uses_frozen_crop_before_live_capture(mocker):
+    """Selection completion should prefer frozen-frame crop and skip live recapture."""
+    ui = _build_ui_service(mocker)
+
+    frozen_image = Mock()
+    frozen_rect = Mock()
+    ui._frozen_capture_image = frozen_image
+    ui._frozen_capture_rect = frozen_rect
+
+    live_capture_mock = mocker.patch.object(ui, "_capture_region_image")
+    fake_image = Mock()
+    start_worker_mock = mocker.patch.object(ui, "_start_ocr_worker")
+
+    capture_service = Mock()
+    capture_service.crop_captured_image.return_value = Mock(
+        success=True,
+        image=fake_image,
+        error_message="",
+    )
+    mocker.patch("whisperbridge.services.ui_service.get_capture_service", return_value=capture_service)
+
+    rect = _FakeRect(10, 20, 120, 50)
+    ui._on_selection_completed(rect)
+
+    live_capture_mock.assert_not_called()
+    capture_service.crop_captured_image.assert_called_once()
+    start_worker_mock.assert_called_once_with(image=fake_image)
+    assert ui._frozen_capture_image is None
+    assert ui._frozen_capture_rect is None

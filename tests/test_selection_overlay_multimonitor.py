@@ -1,6 +1,6 @@
 """Tests for multi-monitor geometry behavior in selection overlay."""
 
-from PySide6.QtCore import QRect
+from PySide6.QtCore import QPoint, QRect
 
 from whisperbridge.ui_qt.selection_overlay import SelectionOverlayQt
 
@@ -119,3 +119,49 @@ def test_selection_size_label_falls_back_to_bottom_right(qapp):
     assert label_rect is not None
     assert label_rect.x() == selection.right() - text_rect.width() + 1
     assert label_rect.y() == selection.bottom() + overlay.SIZE_TEXT_MARGIN + 1
+
+
+def test_selection_overlay_start_uses_frozen_rect_geometry(qapp):
+    """Freeze-frame start should align overlay geometry with frozen capture bounds."""
+    overlay = SelectionOverlayQt()
+
+    class _FrozenRect:
+        x = -1920
+        y = 0
+        width = 3840
+        height = 1080
+
+    overlay.start(frozen_image=None, frozen_rect=_FrozenRect())
+
+    assert overlay.virtual_geometry == QRect(-1920, 0, 3840, 1080)
+    assert overlay.geometry() == QRect(-1920, 0, 3840, 1080)
+
+
+def test_selection_overlay_dismiss_clears_transient_state(qapp):
+    """Dismiss should clear selection state and frozen pixmap buffer."""
+    overlay = SelectionOverlayQt()
+    overlay.selection_start = QPoint(10, 20)
+    overlay.selection_end = QPoint(50, 80)
+    overlay.is_selecting = True
+    overlay._frozen_background_pixmap = object()
+
+    overlay.dismiss()
+
+    assert overlay.selection_start is None
+    assert overlay.selection_end is None
+    assert overlay.is_selecting is False
+    assert overlay._frozen_background_pixmap is None
+
+
+def test_qimage_rgba8888_format_fallback_to_enum_container(mocker):
+    """Format resolver should support enum-container style PySide API."""
+
+    class _FakeQImage:
+        Format_RGBA8888 = None
+
+        class Format:
+            Format_RGBA8888 = 777
+
+    mocker.patch("whisperbridge.ui_qt.selection_overlay.QImage", _FakeQImage)
+
+    assert SelectionOverlayQt._get_qimage_rgba8888_format() == 777

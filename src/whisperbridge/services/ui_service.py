@@ -63,6 +63,8 @@ class UIService:
       - handle_copy_translate(clipboard_text, translated_text, auto_copy=False)
     """
 
+    MAX_FROZEN_CAPTURE_MEGAPIXELS = 32.0
+
     def __init__(
         self,
         main_window: Optional[MainWindow] = None,
@@ -86,6 +88,8 @@ class UIService:
         # Logger fallback
         self.logger = logger or _default_logger
         self.app = app
+        self._frozen_capture_image = None
+        self._frozen_capture_rect: Optional[Rectangle] = None
 
         # Initialize UI components
         self._initialize_ui_components()
@@ -444,7 +448,25 @@ class UIService:
                 if self.selection_overlay is None:
                     self.logger.error("Failed to create selection_overlay")
                     return
-            self.selection_overlay.start()
+
+            frozen_capture = self._capture_virtual_desktop_image()
+            if frozen_capture is not None and frozen_capture.success and frozen_capture.image is not None and frozen_capture.rectangle is not None:
+                if not self._is_frozen_capture_within_limit(frozen_capture.image):
+                    self._clear_frozen_capture()
+                    self.selection_overlay.start()
+                    self.logger.debug("Selection overlay started in live mode (frozen frame too large)")
+                    return
+
+                self._frozen_capture_image = frozen_capture.image
+                self._frozen_capture_rect = frozen_capture.rectangle
+                self.selection_overlay.start(
+                    frozen_image=self._frozen_capture_image,
+                    frozen_rect=self._frozen_capture_rect,
+                )
+            else:
+                self._clear_frozen_capture()
+                self.selection_overlay.start()
+
             self.logger.debug("Selection overlay started")
         except Exception as e:
             self.logger.error(f"UIService.activate_ocr error: {e}", exc_info=True)
@@ -649,6 +671,7 @@ class UIService:
     def _on_selection_canceled(self):
         """Handle selection cancellation."""
         self.logger.info("Selection canceled")
+        self._clear_frozen_capture()
         try:
             notification_service = get_notification_service()
             notification_service.info("Canceled", "WhisperBridge")
@@ -673,9 +696,7 @@ class UIService:
                 f"Using logical selection rectangle: x={region.x}, y={region.y}, w={region.width}, h={region.height}"
             )
 
-            # Capture image in the main thread (Qt GUI thread safety), then
-            # pass the pre-captured image into the background OCR worker.
-            capture_result = self._capture_region_image(region)
+            capture_result = self._capture_from_frozen_or_live(region)
             if capture_result is None or not capture_result.success or capture_result.image is None:
                 self.logger.error("Screen capture failed in main thread")
                 notification_service = get_notification_service()
@@ -688,6 +709,92 @@ class UIService:
             self.logger.debug("Selection completed processed by UIService")
         except Exception as e:
             self.logger.error(f"Error processing selection: {e}")
+        finally:
+            self._clear_frozen_capture()
+
+    @main_thread_only
+    def _clear_frozen_capture(self):
+        """Drop freeze-frame buffers after OCR selection completes/cancels."""
+        self._frozen_capture_image = None
+        self._frozen_capture_rect = None
+
+    @main_thread_only
+    def _capture_virtual_desktop_image(self):
+        """Capture full virtual desktop used as freeze-frame selection background."""
+        try:
+            capture_service = get_capture_service()
+            result = capture_service.capture_virtual_desktop()
+            if not result.success:
+                self.logger.warning(
+                    "Freeze-frame capture failed, falling back to live capture: "
+                    f"{result.error_message}"
+                )
+            return result
+        except Exception as e:
+            self.logger.warning(f"Freeze-frame capture unavailable, fallback to live capture: {e}")
+            return None
+
+    @main_thread_only
+    def _capture_from_frozen_or_live(self, region: Rectangle):
+        """Capture OCR region from frozen frame if available, otherwise live screen."""
+        try:
+            if self._frozen_capture_image is not None and self._frozen_capture_rect is not None:
+                capture_service = get_capture_service()
+                frozen_crop = capture_service.crop_captured_image(
+                    captured_image=self._frozen_capture_image,
+                    captured_rectangle=self._frozen_capture_rect,
+                    target_rectangle=region,
+                )
+                if frozen_crop.success and frozen_crop.image is not None:
+                    return frozen_crop
+
+                self.logger.warning(
+                    "Failed to crop frozen frame, falling back to live capture: "
+                    f"{frozen_crop.error_message}"
+                )
+            return self._capture_region_image(region)
+        except Exception as e:
+            self.logger.error(f"Error in frozen/live capture flow: {e}", exc_info=True)
+            return self._capture_region_image(region)
+
+    @staticmethod
+    def _get_image_megapixels(image) -> Optional[float]:
+        """Return image size in megapixels when dimensions are available."""
+        if image is None:
+            return None
+
+        size = getattr(image, "size", None)
+        width = None
+        height = None
+
+        if isinstance(size, tuple) and len(size) == 2:
+            width, height = size
+        else:
+            width = getattr(image, "width", None)
+            height = getattr(image, "height", None)
+
+        if not isinstance(width, int) or not isinstance(height, int):
+            return None
+        if width <= 0 or height <= 0:
+            return None
+
+        return (width * height) / 1_000_000.0
+
+    def _is_frozen_capture_within_limit(self, image) -> bool:
+        """Check whether frozen capture can be safely kept in memory."""
+        megapixels = self._get_image_megapixels(image)
+        if megapixels is None:
+            return True
+
+        if megapixels > self.MAX_FROZEN_CAPTURE_MEGAPIXELS:
+            self.logger.warning(
+                "Frozen capture is too large for freeze-frame mode: "
+                f"{megapixels:.2f}MP > {self.MAX_FROZEN_CAPTURE_MEGAPIXELS:.2f}MP. "
+                "Falling back to live capture."
+            )
+            return False
+
+        return True
 
     @main_thread_only
     def _capture_region_image(self, region: Rectangle):

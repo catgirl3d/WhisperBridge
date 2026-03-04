@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+from unittest.mock import Mock
 from PIL import Image
 from PySide6.QtCore import QRect
 
@@ -316,3 +317,71 @@ def test_qt_capture_fails_when_qt_gui_app_is_unavailable(capture_service, mocker
     clamp_fallback.assert_called_once_with(region)
     assert result.success is False
     assert result.error_message == "Failed to capture area"
+
+
+def test_capture_virtual_desktop_uses_qt_virtual_bounds(capture_service, mocker):
+    """Virtual desktop capture should use Qt-derived virtual bounds when available."""
+    virtual_bounds = Rectangle(-1920, 0, 3840, 1080)
+    mocker.patch.object(capture_service, "_get_qt_virtual_bounds", return_value=virtual_bounds)
+
+    capture_area_mock = mocker.patch.object(capture_service, "capture_area")
+    capture_area_mock.return_value = Mock(success=True, image=Mock(), rectangle=virtual_bounds)
+
+    result = capture_service.capture_virtual_desktop()
+
+    capture_area_mock.assert_called_once_with(virtual_bounds, None)
+    assert result.success is True
+
+
+def test_crop_captured_image_returns_clipped_region(capture_service):
+    """Cropping pre-captured image should clip selection to frozen image bounds."""
+    source_image = Image.new("RGB", (300, 200), color="white")
+    source_rect = Rectangle(x=100, y=50, width=300, height=200)
+    target_rect = Rectangle(x=50, y=40, width=100, height=100)
+
+    result = capture_service.crop_captured_image(
+        captured_image=source_image,
+        captured_rectangle=source_rect,
+        target_rectangle=target_rect,
+    )
+
+    assert result.success is True
+    assert result.rectangle == Rectangle(x=100, y=50, width=50, height=90)
+    assert result.image is not None
+    assert result.image.size == (50, 90)
+
+
+def test_crop_captured_image_scales_logical_to_pixel_coords(capture_service):
+    """Cropping should map logical coordinates to pixel coordinates on HiDPI buffers."""
+    # Image is 2x bigger than logical rectangle on both axes.
+    source_image = Image.new("RGB", (600, 400), color="white")
+    source_rect = Rectangle(x=100, y=50, width=300, height=200)
+    target_rect = Rectangle(x=150, y=80, width=50, height=20)
+
+    result = capture_service.crop_captured_image(
+        captured_image=source_image,
+        captured_rectangle=source_rect,
+        target_rectangle=target_rect,
+    )
+
+    assert result.success is True
+    assert result.rectangle == target_rect
+    assert result.image is not None
+    assert result.image.size == (100, 40)
+
+
+def test_crop_captured_image_preserves_minimum_pixel_area_with_floor_ceil_mapping(capture_service):
+    """Cropping should keep at least 1px area for tiny logical regions after mapping."""
+    source_image = Image.new("RGB", (1, 1), color="white")
+    source_rect = Rectangle(x=0, y=0, width=10, height=10)
+    target_rect = Rectangle(x=0, y=0, width=1, height=1)
+
+    result = capture_service.crop_captured_image(
+        captured_image=source_image,
+        captured_rectangle=source_rect,
+        target_rectangle=target_rect,
+    )
+
+    assert result.success is True
+    assert result.image is not None
+    assert result.image.size == (1, 1)

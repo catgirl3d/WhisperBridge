@@ -18,7 +18,7 @@ Desktop application for instant on-screen text translation. Use it as a powerful
 
 ## Quick Start
 
-**Requirements:** Python 3.8+ (Windows/macOS/Linux)
+**Requirements:** Python 3.10+ (Windows/macOS/Linux)
 
 ### Setup
 
