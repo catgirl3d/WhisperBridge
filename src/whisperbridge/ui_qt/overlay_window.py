@@ -932,10 +932,17 @@ class OverlayWindow(StyledOverlayWindow):
 
     def _on_translate_clicked(self):
         """Translate or Style the text from the original_text field based on mode."""
+        if self._translation_start_time is not None:
+            self._cancel_active_request()
+            return
+
         # Check if button is logically disabled (fake disabled state to preserve cursor events)
         if hasattr(self, "translate_btn") and self.translate_btn and self.translate_btn.property("logically_disabled"):
-            logger.debug("Translate button clicked but is logically disabled")
-            return
+            ready, _msg = self._is_api_ready()
+            if not ready:
+                logger.debug("Translate button clicked but is logically disabled")
+                return
+            self._restore_enabled_translate_visuals()
             
         text = self.original_text.toPlainText().strip()
         if not text:
@@ -958,7 +965,6 @@ class OverlayWindow(StyledOverlayWindow):
         is_style = hasattr(self, "mode_combo") and (self.mode_combo.currentText().strip().lower() == "style")
 
         if self.translate_btn:
-            self.translate_btn.setEnabled(False)
             prev_text = self.translate_btn.text()
             # Start loading animation
             base_text = "Styling" if is_style else "Translating"
@@ -1052,9 +1058,9 @@ class OverlayWindow(StyledOverlayWindow):
 
     def _on_translation_error(self, error_message: str):
         """Handle error from background translation."""
+        status_text = "Failed"
         try:
             # Parse error message for status label
-            status_text = "Failed"
             err_lower = error_message.lower()
             
             if "quota" in err_lower:
@@ -1063,6 +1069,8 @@ class OverlayWindow(StyledOverlayWindow):
                 status_text = "Rate limit exceeded"
             elif "timeout" in err_lower:
                 status_text = "Request timed out"
+            elif "cancel" in err_lower:
+                status_text = "Cancelled"
             elif "connection" in err_lower or "network" in err_lower:
                 status_text = "Network error"
             elif "server error" in err_lower or "500" in err_lower:
@@ -1077,13 +1085,14 @@ class OverlayWindow(StyledOverlayWindow):
             
             logger.error(f"Translation failed: {error_message}")
         finally:
+            final_status_text = status_text if "status_text" in locals() else "Failed"
             # Update status with error indication
             if self._translation_start_time is not None:
                 elapsed = time.time() - self._translation_start_time
-                self.status_label.setText(f"{status_text} ({elapsed:.1f}s)")
+                self.status_label.setText(f"{final_status_text} ({elapsed:.1f}s)")
                 self._translation_start_time = None
             else:
-                self.status_label.setText(status_text)
+                self.status_label.setText(final_status_text)
             
             # UX: emphasize error state in red (same styling priority as key-missing)
             try:
@@ -1108,6 +1117,56 @@ class OverlayWindow(StyledOverlayWindow):
                 self._update_api_state_and_ui()
             except Exception:
                 pass
+
+    def _cancel_active_request(self):
+        """Cancel active translation/style request and restore UI state."""
+        worker = getattr(self, "_translation_worker", None)
+        thread = getattr(self, "_translation_thread", None)
+
+        if worker is None:
+            worker = getattr(self, "_style_worker", None)
+            thread = getattr(self, "_style_thread", None)
+
+        if worker is not None:
+            for signal, handler in (
+                (worker.finished, self._on_translation_finished),
+                (worker.error, self._on_translation_error),
+            ):
+                try:
+                    signal.disconnect(handler)
+                except (RuntimeError, TypeError):
+                    pass
+
+            if hasattr(worker, "request_cancel"):
+                try:
+                    worker.request_cancel()
+                except Exception as e:
+                    logger.debug(f"Failed to request worker cancellation: {e}")
+
+        if thread is not None:
+            try:
+                if thread.isRunning():
+                    thread.quit()
+            except Exception as e:
+                logger.debug(f"Failed to quit worker thread: {e}")
+
+        self._translation_start_time = None
+        self.status_label.setText("Cancelled")
+        try:
+            self.ui_builder.apply_status_style(self.status_label, 'error')
+        except Exception:
+            pass
+
+        settings = self._cached_settings
+        compact = getattr(settings, "compact_view", False)
+        prev_text = getattr(self, "_translation_prev_text", "Translate")
+        self._stop_loading_animation()
+        if self.translate_btn:
+            self.translate_btn.setEnabled(True)
+            if not compact:
+                self.translate_btn.setText(prev_text)
+        if hasattr(self, "_translation_prev_text"):
+            delattr(self, "_translation_prev_text")
 
     def _start_loading_animation(self, base_text: str, compact: bool):
         """Start the loading animation with spinning icon and animated dots."""

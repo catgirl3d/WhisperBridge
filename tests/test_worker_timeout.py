@@ -185,6 +185,35 @@ class TestQtIntegration:
         timers_after = len(overlay.findChildren(QTimer))
         assert timers_after <= timers_before
 
+    def test_second_click_cancels_active_request(self, qtbot, overlay, mocker):
+        """Second click should cancel the active request and restore button state."""
+        mocker.patch.object(overlay, "_is_api_ready", return_value=(True, ""))
+
+        mock_service = Mock()
+
+        async def slow_translate(*_args, **_kwargs):
+            await asyncio.sleep(10)
+            return Mock(success=True, translated_text="late")
+
+        mock_service.translate_text_async = AsyncMock(side_effect=slow_translate)
+        mocker.patch(
+            'whisperbridge.services.translation_service.get_translation_service',
+            return_value=mock_service,
+        )
+
+        overlay.original_text.setPlainText("hello")
+        overlay._on_translate_clicked()
+
+        assert overlay._translation_start_time is not None
+        assert overlay.translate_btn.isEnabled() is True
+
+        overlay._on_translate_clicked()
+        qtbot.wait(50)
+
+        assert overlay._translation_start_time is None
+        assert overlay.translate_btn.isEnabled() is True
+        assert "cancel" in overlay.status_label.text().lower()
+
     @pytest.mark.parametrize("api_timeout,expected_watchdog", [
         (10, 60),   # api_timeout=10 -> watchdog=max(20,60)=60
         (30, 60),   # api_timeout=30 -> watchdog=max(60,60)=60

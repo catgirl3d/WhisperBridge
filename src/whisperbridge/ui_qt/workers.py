@@ -5,7 +5,7 @@ Provides thread-safe workers for OCR/translation and settings saving operations.
 
 import asyncio
 import time
-from typing import Any, Coroutine
+from typing import Any, Coroutine, Optional
 
 from loguru import logger
 from PySide6.QtCore import QObject, Signal
@@ -141,8 +141,41 @@ class BaseAsyncWorker(QObject):
     finished = Signal(bool, str)  # success, result_or_error
     error = Signal(str)
 
+    def __init__(self):
+        super().__init__()
+        self._cancel_requested = False
+        self._active_loop: Optional[asyncio.AbstractEventLoop] = None
+        self._active_task: Optional[asyncio.Task[Any]] = None
+
+    def request_cancel(self):
+        """Request cancellation of the active async task."""
+        self._cancel_requested = True
+
+        loop = self._active_loop
+        task = self._active_task
+        if loop is None or task is None:
+            return
+
+        try:
+            if not task.done():
+                loop.call_soon_threadsafe(task.cancel)
+        except Exception as e:
+            logger.debug(f"Failed to request task cancellation: {e}")
+
     def _run_async_task(self, coro: Coroutine[Any, Any, Any], worker_name: str):
         """Run an async coroutine in a new event loop with timeout and cleanup."""
+        if self._cancel_requested:
+            try:
+                close_coro = getattr(coro, "close", None)
+                if callable(close_coro):
+                    close_coro()
+            except Exception:
+                pass
+            msg = "Request cancelled"
+            self.error.emit(msg)
+            self.finished.emit(False, msg)
+            return None
+
         # Get timeout from settings (default to 60 seconds)
         timeout = config_service.get_setting("api_timeout") or 60
         # Validate timeout is positive
@@ -153,6 +186,7 @@ class BaseAsyncWorker(QObject):
 
         # Create and use a new event loop in this thread to avoid conflicting with Qt's loop
         loop = asyncio.new_event_loop()
+        self._active_loop = loop
         try:
             asyncio.set_event_loop(loop)
 
@@ -160,11 +194,18 @@ class BaseAsyncWorker(QObject):
             async def with_timeout():
                 return await asyncio.wait_for(coro, timeout=timeout)
 
-            resp = loop.run_until_complete(with_timeout())
+            self._active_task = loop.create_task(with_timeout())
+            resp = loop.run_until_complete(self._active_task)
 
             elapsed = time.time() - start_time
             logger.info(f"{worker_name} completed successfully in {elapsed:.2f}s")
             return resp
+        except asyncio.CancelledError:
+            logger.info(f"{worker_name} cancelled by user")
+            msg = "Request cancelled"
+            self.error.emit(msg)
+            self.finished.emit(False, msg)
+            return None
         except asyncio.TimeoutError:
             logger.error(f"{worker_name} timed out after {timeout}s")
             msg = f"Request timed out after {timeout} seconds"
@@ -205,6 +246,8 @@ class BaseAsyncWorker(QObject):
                 finally:
                     # Detach loop from thread
                     asyncio.set_event_loop(None)
+                    self._active_task = None
+                    self._active_loop = None
 
 
 class TranslationWorker(BaseAsyncWorker):
