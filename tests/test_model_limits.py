@@ -73,18 +73,15 @@ class TestGetModelMaxTokens:
         """TC-ML-004: Model lookup should be case-insensitive and strip whitespace."""
         assert get_model_max_completion_tokens(model) == 128000
 
-    def test_prefix_matching_longest_wins(self):
+    def test_gpt5_mini_variant_returns_expected_limit(self):
         """
-        TC-ML-005: Ambiguous prefix matching.
-        
-        Given registry: {"gpt-5": 128000, "gpt-5-mini": 128000}
-        Model "gpt-5-mini-turbo" should match "gpt-5-mini" (longest prefix)
+        TC-ML-005: A GPT-5 mini variant should resolve to the expected limit.
+
+        This is a representative prefix-match case for a GPT-5 mini variant.
+        The stricter longest-prefix proof lives in TC-ML-005b below.
         """
-        # Both gpt-5 and gpt-5-mini have same limit (128000), so this tests the matching logic
         result = get_model_max_completion_tokens("gpt-5-mini-turbo-test")
-        
-        # Should match "gpt-5-mini" prefix (longest), NOT "gpt-5"
-        # Since both have same limit, we verify it returns 128000
+
         assert result == 128000
 
     def test_prefix_matching_longest_wins_different_limits(self, mocker):
@@ -141,7 +138,7 @@ class TestCalculateDynamicTokens:
     """Tests for dynamic completion token calculation."""
 
     def test_calculate_dynamic_tokens_basic(self):
-        """TC-ML-009: Standard case: input tokens within reasonable range."""
+        """TC-ML-009: Standard case for a model with a 10% safety margin."""
         result = calculate_dynamic_completion_tokens(
             model="gpt-4o-mini",
             min_output_tokens=2048,
@@ -152,7 +149,7 @@ class TestCalculateDynamicTokens:
         assert 14000 <= result <= 15000
 
     def test_calculate_dynamic_tokens_min_floor(self):
-        """TC-ML-010: min_output_tokens should be enforced even with large input."""
+        """TC-ML-010: min_output_tokens should always be enforced."""
         result = calculate_dynamic_completion_tokens(
             model="gpt-4o-mini",
             min_output_tokens=2048,
@@ -162,8 +159,8 @@ class TestCalculateDynamicTokens:
         # Should guarantee at least min_output_tokens
         assert result >= 2048
 
-    def test_calculate_dynamic_tokens_zero_input(self):
-        """TC-ML-011: Zero input should give maximum available output."""
+    def test_calculate_dynamic_tokens_returns_near_max_output_with_default_margin(self):
+        """TC-ML-011: Default safety margin should keep output near the model cap."""
         result = calculate_dynamic_completion_tokens(
             model="gpt-5",
             min_output_tokens=2048,
@@ -199,10 +196,10 @@ class TestCalculateDynamicTokens:
                 output_safety_margin=invalid_margin
             )
 
-    def test_input_token_subtraction_behavior(self):
+    def test_dynamic_tokens_apply_margin_to_output_limit_only(self):
         """
-        TC-ML-014: Verify that calculate_dynamic_completion_tokens applies safety margin
-        to model's hard output limit without subtracting input tokens.
+        TC-ML-014: Verify that calculate_dynamic_completion_tokens applies only the
+        safety margin to the model's hard output limit.
         """
         result = calculate_dynamic_completion_tokens(
             model="gpt-5",  # 128K output limit
@@ -223,9 +220,8 @@ class TestCalculateDynamicTokens:
                 min_output_tokens=invalid_min
             )
 
-    def test_calculate_dynamic_tokens_capped_at_max(self):
-        """TC-ML-016: Result should never exceed model's hard limit."""
-        # Current implementation raises ValueError if min_output_tokens > max_model_output
+    def test_calculate_dynamic_tokens_rejects_min_output_above_model_cap(self):
+        """TC-ML-016: min_output_tokens above the model cap should raise ValueError."""
         with pytest.raises(ValueError, match="min_output_tokens.*cannot exceed model's max output limit"):
             calculate_dynamic_completion_tokens(
                 model="gpt-4o-mini",  # 16384 limit
@@ -233,8 +229,8 @@ class TestCalculateDynamicTokens:
                 output_safety_margin=0.0
             )
 
-    def test_calculate_dynamic_tokens_huge_input(self):
-        """TC-ML-017: Extremely large input should still return valid output tokens."""
+    def test_calculate_dynamic_tokens_for_high_cap_model(self):
+        """TC-ML-017: High-cap models should still return valid output tokens."""
         result = calculate_dynamic_completion_tokens(
             model="gemini-3-flash",
             min_output_tokens=2048
@@ -336,11 +332,11 @@ class TestCalculateDynamicTokensValidation:
 class TestRemovedModels:
     """Tests for models that were removed from DEFAULT_GPT_MODELS list."""
 
-    @pytest.mark.parametrize("removed_model,expected_behavior", [
-        ("gpt-4.1-mini", "should_match_gpt4_prefix"),
-        ("gpt-4.1-nano", "should_match_gpt4_prefix"),
+    @pytest.mark.parametrize("removed_model", [
+        "gpt-4.1-mini",
+        "gpt-4.1-nano",
     ])
-    def test_removed_models_get_correct_limits(self, removed_model, expected_behavior):
+    def test_removed_models_get_correct_limits(self, removed_model):
         """
         TC-ML-021: Removed models should get correct token limits.
         

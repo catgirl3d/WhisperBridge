@@ -34,10 +34,8 @@ class TestAPIManagerTokenIntegration:
         This verifies that the vision request path builds LLM params and forwards
         max_completion_tokens to the provider request.
         """
-        mock_adapter = mocker.patch('whisperbridge.core.api_manager.providers.OpenAIChatClientAdapter')
         # Setup mock client
         mock_client = mocker.Mock()
-        mock_adapter.return_value = mock_client
         
         # Mock the chat.completions.create method
         mock_response = mocker.Mock()
@@ -72,27 +70,23 @@ class TestAPIManagerTokenIntegration:
         
         call_args = mock_client.chat.completions.create.call_args
         assert call_args is not None
-        max_tokens = call_args.kwargs.get('max_completion_tokens')
-        assert max_tokens is not None
-        assert isinstance(max_tokens, int)
+        expected_max_tokens = calculate_dynamic_completion_tokens("gpt-4o")
+        assert call_args.kwargs.get('temperature') == 0.0
+        assert call_args.kwargs.get('max_completion_tokens') == expected_max_tokens
 
-    def test_gemini_vision_cyrillic_prompt_estimation(self):
+    def test_gemini_dynamic_tokens_reserve_output_budget(self):
         """
-        Test that a large Cyrillic prompt stays within the Gemini output limit.
+        Test that Gemini dynamic token calculation reserves a sensible output budget.
 
-        This verifies that dynamic token calculation still reserves a sensible
-        output budget for Cyrillic-heavy input.
+        This covers the current implementation, which depends on model limits and
+        safety margin rather than prompt content.
         """
-        # Calculate dynamic tokens for Gemini 3
         max_output = calculate_dynamic_completion_tokens(
             model="gemini-3-flash",
             min_output_tokens=2048
         )
         
-        # Should not exceed model limit
-        assert max_output <= 65536
-        # Should reserve reasonable output
-        assert max_output >= 2048
+        assert max_output == int(65536 * 0.9)
 
     @pytest.mark.parametrize("model,expected_max", [
         ("gpt-4o-mini", 16384),
@@ -121,10 +115,8 @@ class TestTranslationRequestTokenIntegration:
 
     def test_translation_request_with_dynamic_tokens(self, api_manager, mock_config_service, mocker):
         """Test that translation requests use dynamic token calculation."""
-        mock_adapter = mocker.patch('whisperbridge.core.api_manager.providers.OpenAIChatClientAdapter')
         # Setup mock client
         mock_client = mocker.Mock()
-        mock_adapter.return_value = mock_client
         
         # Mock the chat.completions.create method
         mock_response = mocker.Mock()
@@ -152,20 +144,15 @@ class TestTranslationRequestTokenIntegration:
         # Verify adapter was called with max_completion_tokens
         assert mock_client.chat.completions.create.called
         call_args = mock_client.chat.completions.create.call_args
-        
-        # Check that max_completion_tokens was passed
-        max_tokens = call_args.kwargs.get('max_completion_tokens')
-        assert max_tokens is not None
-        assert isinstance(max_tokens, int)
-        assert max_tokens <= 16384  # gpt-4o-mini limit
-        assert max_tokens >= 2048  # min_output_tokens
 
-    def test_translation_with_large_cyrillic_text(self, api_manager, mock_config_service, mocker):
-        """Test translation with large Cyrillic text doesn't overflow."""
-        mock_adapter = mocker.patch('whisperbridge.core.api_manager.providers.OpenAIChatClientAdapter')
+        expected_max_tokens = calculate_dynamic_completion_tokens("gpt-4o-mini")
+        assert call_args.kwargs.get('temperature') == 1.0
+        assert call_args.kwargs.get('max_completion_tokens') == expected_max_tokens
+
+    def test_translation_request_with_large_text_uses_model_output_cap(self, api_manager, mock_config_service, mocker):
+        """Test that a large translation request still uses the model-based output cap."""
         # Setup mock client
         mock_client = mocker.Mock()
-        mock_adapter.return_value = mock_client
         
         # Mock the chat.completions.create method
         mock_response = mocker.Mock()
@@ -193,12 +180,8 @@ class TestTranslationRequestTokenIntegration:
         
         # Verify max_completion_tokens is within model limits
         call_args = mock_client.chat.completions.create.call_args
-        max_tokens = call_args.kwargs.get('max_completion_tokens')
-        
-        # GPT-5 has 128K output limit
-        assert max_tokens <= 128000
-        # Should reserve minimum output
-        assert max_tokens >= 2048
+        expected_max_tokens = calculate_dynamic_completion_tokens("gpt-5")
+        assert call_args.kwargs.get('max_completion_tokens') == expected_max_tokens
 
 
 class TestAPIManagerHelperMethods:
@@ -486,12 +469,12 @@ class TestOpenAIAdapterGPTFamilyBehavior:
                 f"Model '{model}' should NOT have GPT-5 optimizations"
             )
 
-    def test_vision_request_with_removed_models(self, mocker):
+    def test_adapter_direct_vision_branch_handles_gpt41_models(self, mocker):
         """
-        Test that vision requests with GPT-4.1 models still work correctly.
+        Test that the adapter's direct vision branch handles GPT-4.1 models.
 
-        Tests that _create_vision handles gpt-4.1-mini and gpt-4.1-nano
-        correctly with dynamic token calculation.
+        This covers the adapter-only ``_create_vision`` path, which calculates
+        max_completion_tokens internally.
         """
         mock_openai = mocker.patch('whisperbridge.providers.openai_adapter.openai.OpenAI')
         from whisperbridge.providers.openai_adapter import OpenAIChatClientAdapter

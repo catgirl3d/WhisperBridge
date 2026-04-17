@@ -16,6 +16,7 @@ from whisperbridge.core.api_manager.cache import ModelCache
 from whisperbridge.core.api_manager.models import ModelManager
 from whisperbridge.core.api_manager.providers import APIProvider
 from whisperbridge.core.api_manager.types import ModelSource
+from whisperbridge.providers.openai_adapter import DEFAULT_GPT_MODELS
 
 
 @pytest.fixture
@@ -46,25 +47,26 @@ class TestGetAvailableModels:
     """Tests for get_available_models method."""
 
     def test_get_available_models_from_cache(self, model_manager, mock_cache, mock_provider_registry, mocker):
-        """Test getting models from cache."""
+        """Test cached OpenAI models are re-filtered and re-ranked before being returned."""
         # Arrange
-        models = ["gpt-5-mini", "gpt-4o"]
+        models = ["gpt-4o", "whisper-1", "gpt-5.4-mini"]
         timestamp = 1234567890.0
-        
+
         # Ensure provider is seen as configured
         mock_provider_registry.is_provider_available.return_value = True
-        
+
         # Patch the get method of the cache object
         mocker.patch.object(mock_cache, "get", return_value=(models, timestamp))
-        
-        # Ensure apply_filters doesn't filter out our test models
-        mocker.patch.object(model_manager, "apply_filters", side_effect=lambda p, m: m)
+        mocker.patch(
+            "whisperbridge.core.api_manager.models.get_openai_model_excludes",
+            return_value=["whisper"]
+        )
 
         # Act
         result_models, source = model_manager.get_available_models(APIProvider.OPENAI)
 
         # Assert
-        assert result_models == models
+        assert result_models == ["gpt-5.4-mini", "gpt-4o"]
         assert source == ModelSource.CACHE.value
         mock_cache.get.assert_called_once_with("openai")
 
@@ -72,6 +74,7 @@ class TestGetAvailableModels:
         """Test fetching OpenAI models from API applies central filtering and ranking."""
         # Arrange
         mocker.patch.object(mock_cache, "get", return_value=None)
+        mocker.patch.object(mock_cache, "cache_models_and_persist")
         mocker.patch(
             "whisperbridge.core.api_manager.models.get_openai_model_excludes",
             return_value=[]
@@ -98,11 +101,15 @@ class TestGetAvailableModels:
         # Assert
         assert result_models == ["gpt-5.4-mini", "gpt-5-mini", "gpt-4o"]
         assert source == ModelSource.API.value
+        mock_cache.cache_models_and_persist.assert_called_once_with(
+            "openai", ["gpt-5.4-mini", "gpt-5-mini", "gpt-4o"]
+        )
 
-    def test_get_available_models_with_temp_key(self, model_manager, mock_provider_registry, mocker):
-        """Test using temporary API key without caching."""
+    def test_get_available_models_with_temp_key(self, model_manager, mock_cache, mock_provider_registry, mocker):
+        """Test temp-key OpenAI fetch uses a temporary client and skips cache writes."""
         # Arrange
         mock_client = mocker.Mock()
+        mocker.patch.object(mock_cache, "cache_models_and_persist")
 
         # Mock models.list() response
         mock_model = mocker.Mock()
@@ -128,10 +135,12 @@ class TestGetAvailableModels:
         assert result_models == ["gpt-5-nano"]
         assert source == ModelSource.API_TEMP_KEY.value
         mock_openai_adapter.assert_called_once()
+        mock_cache.cache_models_and_persist.assert_not_called()
 
-    def test_get_available_models_with_temp_key_applies_openai_filters_and_ranking(self, model_manager, mock_provider_registry, mocker):
+    def test_get_available_models_with_temp_key_applies_openai_filters_and_ranking(self, model_manager, mock_cache, mock_provider_registry, mocker):
         """Test temp-key OpenAI fetch uses the same filtering and ranking rules as normal API fetch."""
         mock_client = mocker.Mock()
+        mocker.patch.object(mock_cache, "cache_models_and_persist")
         mocker.patch(
             "whisperbridge.core.api_manager.models.get_openai_model_excludes",
             return_value=["whisper"]
@@ -158,12 +167,13 @@ class TestGetAvailableModels:
         assert result_models == ["gpt-5.4-mini", "gpt-4o"]
         assert source == ModelSource.API_TEMP_KEY.value
         mock_openai_adapter.assert_called_once()
+        mock_cache.cache_models_and_persist.assert_not_called()
 
     def test_get_available_models_unconfigured_provider(self, model_manager, mock_cache, mock_provider_registry, mocker):
-        """Test behavior when provider is not configured."""
+        """Test unconfigured providers ignore cache and return UNCONFIGURED."""
         # Arrange
         mock_provider_registry.is_provider_available.return_value = False
-        mocker.patch.object(mock_cache, "get", return_value=None)
+        mocker.patch.object(mock_cache, "get", return_value=(["stale-model"], 1234567890.0))
 
         # Act
         result_models, source = model_manager.get_available_models(APIProvider.GOOGLE)
@@ -171,6 +181,7 @@ class TestGetAvailableModels:
         # Assert
         assert result_models == []
         assert source == ModelSource.UNCONFIGURED.value
+        mock_cache.get.assert_not_called()
 
 
 class TestApplyFilters:
@@ -398,8 +409,7 @@ class TestGetDefaultModels:
         result = model_manager.get_default_models()
 
         # Assert
-        assert isinstance(result, list)
-        assert len(result) > 0
+        assert result == DEFAULT_GPT_MODELS
 
 
 class TestGetFallbackModels:
@@ -414,10 +424,9 @@ class TestGetFallbackModels:
         models, source = model_manager.get_fallback_models(APIProvider.OPENAI)
 
         # Assert
-        assert isinstance(models, list)
-        assert len(models) > 0
+        assert models == DEFAULT_GPT_MODELS
         assert source == ModelSource.FALLBACK.value
-        mock_cache.cache_models_and_persist.assert_called_once()
+        mock_cache.cache_models_and_persist.assert_called_once_with("openai", DEFAULT_GPT_MODELS)
 
     def test_get_fallback_models_google(self, model_manager, mock_cache, mocker):
         """Test fallback models for Google."""
@@ -428,10 +437,11 @@ class TestGetFallbackModels:
         models, source = model_manager.get_fallback_models(APIProvider.GOOGLE)
 
         # Assert
-        assert "gemini-2.5-flash" in models
-        assert "gemini-1.5-flash" in models
+        assert models == ["gemini-2.5-flash", "gemini-1.5-flash"]
         assert source == ModelSource.FALLBACK.value
-        mock_cache.cache_models_and_persist.assert_called_once()
+        mock_cache.cache_models_and_persist.assert_called_once_with(
+            "google", ["gemini-2.5-flash", "gemini-1.5-flash"]
+        )
 
     def test_get_fallback_models_deepl(self, model_manager, mock_cache, mocker):
         """Test fallback model for DeepL."""

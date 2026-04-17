@@ -4,6 +4,8 @@ Unit tests for OpenAIChatClientAdapter.
 
 import pytest
 from types import SimpleNamespace
+
+from whisperbridge.core.model_limits import DEFAULT_MIN_OUTPUT_TOKENS, calculate_dynamic_completion_tokens
 from whisperbridge.providers.openai_adapter import OpenAIChatClientAdapter
 
 
@@ -175,7 +177,7 @@ class TestOpenAITextRequests:
 
 
 class TestOpenAIVisionRequests:
-    """Tests for vision-related features and the defensive image validation check."""
+    """Tests for the adapter-level vision branch and image validation."""
 
     def test_vision_success(self, mocker, fake_openai_client, mock_completion_response):
         """Test vision request with a valid image part."""
@@ -203,6 +205,12 @@ class TestOpenAIVisionRequests:
         kwargs = mock_create.call_args.kwargs
         # Verify is_vision was NOT passed to SDK (it's popped)
         assert "is_vision" not in kwargs
+        assert kwargs["temperature"] == 1.0
+        assert kwargs["max_completion_tokens"] == calculate_dynamic_completion_tokens(
+            model="gpt-4o",
+            min_output_tokens=DEFAULT_MIN_OUTPUT_TOKENS,
+            output_safety_margin=0.1,
+        )
 
     def test_vision_fails_without_image(self, fake_openai_client):
         """Test that vision request raises ValueError if no image is provided."""
@@ -294,7 +302,11 @@ class TestOpenAIVisionRequests:
             is_vision=True
         )
 
-        assert mock_calc.called
+        mock_calc.assert_called_once_with(
+            model="gpt-4o",
+            min_output_tokens=DEFAULT_MIN_OUTPUT_TOKENS,
+            output_safety_margin=0.1,
+        )
         kwargs = mock_create.call_args.kwargs
         assert kwargs["max_completion_tokens"] == 1234
 
@@ -342,7 +354,7 @@ class TestOpenAIVisionRequests:
             fake_openai_client._client.chat.completions, "create", return_value=mock_completion_response
         )
 
-        # Vision requests default to temperature=0.0, but we can override
+        # The wrapper path defaults to 1.0 via _create(), but explicit overrides are forwarded.
         fake_openai_client.chat.completions.create(
             model="gpt-4o",
             messages=messages,
@@ -379,3 +391,26 @@ class TestOpenAIModels:
         assert "gpt-3.5-turbo" in ids
         assert "whisper-1" not in ids
         assert "dall-e-3" not in ids
+
+    def test_list_models_includes_chatgpt_prefix_models(self, mocker, fake_openai_client):
+        """Test that adapter-level model listing keeps chatgpt-* models."""
+        mock_models = SimpleNamespace(data=[
+            SimpleNamespace(id="chatgpt-4o-latest"),
+            SimpleNamespace(id="gpt-5-mini"),
+            SimpleNamespace(id="omni-moderation-latest"),
+        ])
+        mocker.patch.object(fake_openai_client._client.models, "list", return_value=mock_models)
+        mocker.patch("whisperbridge.providers.openai_adapter.get_openai_model_excludes", return_value=[])
+
+        res = fake_openai_client.models.list()
+
+        ids = [m.id for m in res.data]
+        assert ids == ["chatgpt-4o-latest", "gpt-5-mini"]
+
+    def test_list_models_returns_empty_on_sdk_error(self, mocker, fake_openai_client):
+        """Test that model listing returns an empty result on SDK errors."""
+        mocker.patch.object(fake_openai_client._client.models, "list", side_effect=Exception("API Error"))
+
+        res = fake_openai_client.models.list()
+
+        assert res.data == []
