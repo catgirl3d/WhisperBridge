@@ -69,18 +69,24 @@ class TestGetAvailableModels:
         mock_cache.get.assert_called_once_with("openai")
 
     def test_get_available_models_from_api(self, model_manager, mock_cache, mock_provider_registry, mocker):
-        """Test fetching models from API when cache is empty."""
+        """Test fetching OpenAI models from API applies central filtering and ranking."""
         # Arrange
         mocker.patch.object(mock_cache, "get", return_value=None)
+        mocker.patch(
+            "whisperbridge.core.api_manager.models.get_openai_model_excludes",
+            return_value=[]
+        )
         mock_client = mocker.Mock()
 
         # Mock models.list() response
         mock_model1 = mocker.Mock()
-        mock_model1.id = "gpt-5-mini"
+        mock_model1.id = "gpt-4o"
         mock_model2 = mocker.Mock()
-        mock_model2.id = "gpt-4o"
+        mock_model2.id = "gpt-5-mini"
+        mock_model3 = mocker.Mock()
+        mock_model3.id = "gpt-5.4-mini"
         mock_models_response = mocker.Mock()
-        mock_models_response.data = [mock_model1, mock_model2]
+        mock_models_response.data = [mock_model1, mock_model2, mock_model3]
 
         mock_client.models.list.return_value = mock_models_response
         mock_provider_registry.is_provider_available.return_value = True
@@ -90,8 +96,7 @@ class TestGetAvailableModels:
         result_models, source = model_manager.get_available_models(APIProvider.OPENAI)
 
         # Assert
-        assert "gpt-5-mini" in result_models
-        assert "gpt-4o" in result_models
+        assert result_models == ["gpt-5.4-mini", "gpt-5-mini", "gpt-4o"]
         assert source == ModelSource.API.value
 
     def test_get_available_models_with_temp_key(self, model_manager, mock_provider_registry, mocker):
@@ -121,6 +126,36 @@ class TestGetAvailableModels:
 
         # Assert
         assert result_models == ["gpt-5-nano"]
+        assert source == ModelSource.API_TEMP_KEY.value
+        mock_openai_adapter.assert_called_once()
+
+    def test_get_available_models_with_temp_key_applies_openai_filters_and_ranking(self, model_manager, mock_provider_registry, mocker):
+        """Test temp-key OpenAI fetch uses the same filtering and ranking rules as normal API fetch."""
+        mock_client = mocker.Mock()
+        mocker.patch(
+            "whisperbridge.core.api_manager.models.get_openai_model_excludes",
+            return_value=["whisper"]
+        )
+
+        mock_models_response = mocker.Mock()
+        mock_models_response.data = [
+            mocker.Mock(id="gpt-4o"),
+            mocker.Mock(id="whisper-1"),
+            mocker.Mock(id="gpt-5.4-mini"),
+        ]
+        mock_client.models.list.return_value = mock_models_response
+
+        mock_openai_adapter = mocker.patch(
+            "whisperbridge.core.api_manager.models.OpenAIChatClientAdapter",
+            return_value=mock_client
+        )
+
+        result_models, source = model_manager.get_available_models(
+            APIProvider.OPENAI,
+            temp_api_key="sk-temp123"
+        )
+
+        assert result_models == ["gpt-5.4-mini", "gpt-4o"]
         assert source == ModelSource.API_TEMP_KEY.value
         mock_openai_adapter.assert_called_once()
 
@@ -255,7 +290,7 @@ class TestApplyFilters:
         ]
 
     def test_openai_model_ranking(self, model_manager, mocker):
-        """Test that OpenAI models are ranked correctly (gpt-5 nano/mini/std -> other -> gpt-4 -> latest)."""
+        """Test that OpenAI models are ranked by GPT-5 version, then size, then other groups."""
         # Arrange
         mocker.patch(
             "whisperbridge.core.api_manager.models.get_openai_model_excludes",
@@ -264,9 +299,12 @@ class TestApplyFilters:
         models = [
             "gpt-4o",
             "gpt-5-mini",
-            "gpt-5-nano",
+            "gpt-5.4-nano",
             "gpt-4o-latest",
             "gpt-5",
+            "gpt-5.4-mini",
+            "gpt-5.4",
+            "gpt-5.2",
             "o1-mini"
         ]
 
@@ -275,12 +313,37 @@ class TestApplyFilters:
 
         # Assert
         assert result == [
-            "gpt-5-nano",
+            "gpt-5.4-nano",
+            "gpt-5.4-mini",
+            "gpt-5.4",
+            "gpt-5.2",
             "gpt-5-mini",
             "gpt-5",
             "o1-mini",
             "gpt-4o",
             "gpt-4o-latest"
+        ]
+
+    def test_openai_model_ranking_keeps_latest_aliases_last(self, model_manager, mocker):
+        """Test that GPT-5 latest aliases stay at the end regardless of their numeric version."""
+        mocker.patch(
+            "whisperbridge.core.api_manager.models.get_openai_model_excludes",
+            return_value=[]
+        )
+        models = [
+            "gpt-5-chat-latest",
+            "gpt-5.4-mini",
+            "gpt-5.2",
+            "gpt-4o",
+        ]
+
+        result = model_manager.apply_filters(APIProvider.OPENAI, models)
+
+        assert result == [
+            "gpt-5.4-mini",
+            "gpt-5.2",
+            "gpt-4o",
+            "gpt-5-chat-latest",
         ]
 
     def test_openai_model_ranking_with_chatgpt4(self, model_manager, mocker):

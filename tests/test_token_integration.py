@@ -1,9 +1,4 @@
-"""
-Integration tests for token management with API Manager.
-
-Based on test_implementation_plan.md
-Coverage Goal: ≥80% coverage of affected code paths in api_manager.py
-"""
+"""Integration-style tests for token management across API manager paths."""
 
 import pytest
 
@@ -30,13 +25,14 @@ def api_manager(mock_config_service, mocker):
 
 
 class TestAPIManagerTokenIntegration:
-    """Category 1: API Manager Integration (4 tests)"""
+    """API manager token integration tests."""
 
     def test_api_manager_vision_uses_dynamic_tokens(self, api_manager, mock_config_service, mocker):
         """
-        TC-INT-001: APIManager.send_vision_request should use calculate_dynamic_completion_tokens.
-        
-        This test verifies that the vision request properly calculates dynamic tokens.
+        Test that APIManager.make_vision_request passes dynamic token limits.
+
+        This verifies that the vision request path builds LLM params and forwards
+        max_completion_tokens to the provider request.
         """
         mock_adapter = mocker.patch('whisperbridge.core.api_manager.providers.OpenAIChatClientAdapter')
         # Setup mock client
@@ -74,16 +70,18 @@ class TestAPIManagerTokenIntegration:
         # Verify adapter was called
         assert mock_client.chat.completions.create.called
         
-        # The vision request doesn't use max_completion_tokens for OpenAI
-        # (it's handled differently in the adapter), but we verify the call was made
         call_args = mock_client.chat.completions.create.call_args
         assert call_args is not None
+        max_tokens = call_args.kwargs.get('max_completion_tokens')
+        assert max_tokens is not None
+        assert isinstance(max_tokens, int)
 
     def test_gemini_vision_cyrillic_prompt_estimation(self):
         """
-        TC-INT-002: Large Cyrillic prompt should not overflow Gemini output limit.
-        
-        Tests that dynamic calculation works correctly for Cyrillic text.
+        Test that a large Cyrillic prompt stays within the Gemini output limit.
+
+        This verifies that dynamic token calculation still reserves a sensible
+        output budget for Cyrillic-heavy input.
         """
         # Calculate dynamic tokens for Gemini 3
         max_output = calculate_dynamic_completion_tokens(
@@ -103,9 +101,9 @@ class TestAPIManagerTokenIntegration:
     ])
     def test_model_switching_token_limits(self, model, expected_max):
         """
-        TC-INT-003: Switching models should correctly update token limits.
-        
-        Tests that different models have appropriate token limits.
+        Test that switching models updates token limits correctly.
+
+        This verifies that each model family uses its own max token budget.
         """
         # Calculate tokens for same input
         tokens = calculate_dynamic_completion_tokens(
@@ -207,6 +205,7 @@ class TestAPIManagerHelperMethods:
     """Targeted tests for APIManager helper methods."""
 
     def test_resolve_provider_uses_config_and_client(self, api_manager, mock_config_service, mocker):
+        """Test that provider resolution uses configured provider when a client exists."""
         api_manager._providers._clients[APIProvider.OPENAI] = mocker.Mock()
         mock_config_service.get_setting.side_effect = lambda key: {
             "api_provider": "openai",
@@ -215,6 +214,7 @@ class TestAPIManagerHelperMethods:
         assert api_manager._resolve_provider() == APIProvider.OPENAI
 
     def test_resolve_provider_raises_on_invalid_provider(self, api_manager, mock_config_service):
+        """Test that provider resolution fails for an unknown provider value."""
         mock_config_service.get_setting.side_effect = lambda key: {
             "api_provider": "not-a-provider",
         }.get(key)
@@ -223,6 +223,7 @@ class TestAPIManagerHelperMethods:
             api_manager._resolve_provider()
 
     def test_resolve_provider_raises_when_client_missing(self, api_manager, mock_config_service):
+        """Test that provider resolution fails when provider is configured but client is missing."""
         # Ensure client is missing
         api_manager._providers.clear()
         mock_config_service.get_setting.side_effect = lambda key: {
@@ -233,14 +234,17 @@ class TestAPIManagerHelperMethods:
             api_manager._resolve_provider()
 
     def test_resolve_model_deepl_fallback(self, api_manager, mocker):
+        """Test that DeepL model resolution falls back to the configured pseudo-model."""
         model = api_manager._resolve_model(None, APIProvider.DEEPL, missing_message="missing")
         assert model == get_deepl_identifier()
 
     def test_resolve_model_llm_missing_raises(self, api_manager):
+        """Test that LLM model resolution raises when model selection is empty."""
         with pytest.raises(ValueError):
             api_manager._resolve_model("", APIProvider.OPENAI, missing_message="missing")
 
     def test_build_deepl_params_filters_none(self, api_manager):
+        """Test that DeepL request params omit provider kwargs with None values."""
         params = api_manager._request_builder.build_deepl_params(
             model="deepl-model",
             messages=[{"role": "user", "content": "Hello"}],
@@ -253,6 +257,7 @@ class TestAPIManagerHelperMethods:
         assert "source_lang" not in params
 
     def test_build_llm_params_uses_config_temperature(self, api_manager, mock_config_service):
+        """Test that LLM request params read temperature from configuration when not overridden."""
         mock_config_service.get_setting.side_effect = lambda key: {
             "llm_temperature_translation": "1.5",
         }.get(key)
@@ -270,6 +275,7 @@ class TestAPIManagerHelperMethods:
         assert isinstance(params["max_completion_tokens"], int)
 
     def test_build_llm_params_uses_override_temperature(self, api_manager, mock_config_service):
+        """Test that an explicit temperature override bypasses configuration lookup."""
         params = api_manager._request_builder.build_llm_params(
             model="gpt-4o-mini",
             messages=[{"role": "user", "content": "Hi"}],
@@ -326,13 +332,13 @@ class TestModelLimitsIntegration:
             assert result == expected_limit, f"Model {model} should have limit {expected_limit}, got {result}"
 
 
-class TestOpenAIAdapterRemovedModels:
-    """Tests for OpenAI adapter behavior with removed models."""
+class TestOpenAIAdapterGPTFamilyBehavior:
+    """Tests for GPT-family behavior in the OpenAI adapter."""
 
     def test_gpt41_models_do_not_get_gpt5_optimizations(self, mocker):
         """
-        TC-INT-004: Removed GPT-4.1 models should NOT receive GPT-5 optimizations.
-        
+        Test that GPT-4.1 models do not receive GPT-5 optimizations.
+
         Regression test to ensure that gpt-4.1-mini and gpt-4.1-nano don't
         accidentally get GPT-5 specific parameters (reasoning_effort, verbosity).
         """
@@ -360,18 +366,20 @@ class TestOpenAIAdapterRemovedModels:
         assert mock_client.chat.completions.create.called
         call_args = mock_client.chat.completions.create.call_args
         
-        # Should NOT have extra_body with GPT-5 optimizations
-        extra_body = call_args.kwargs.get('extra_body')
-        assert extra_body is None, (
-            "gpt-4.1-mini should NOT receive GPT-5 optimizations (extra_body)"
+        # Should NOT have GPT-5 top-level optimizations
+        assert 'reasoning_effort' not in call_args.kwargs, (
+            "gpt-4.1-mini should NOT receive GPT-5 reasoning_effort"
+        )
+        assert 'verbosity' not in call_args.kwargs, (
+            "gpt-4.1-mini should NOT receive GPT-5 verbosity"
         )
 
     def test_gpt5_models_do_get_gpt5_optimizations(self, mocker):
         """
-        TC-INT-005: GPT-5 models SHOULD receive GPT-5 optimizations.
-        
+        Test that GPT-5 models receive GPT-5 optimizations.
+
         This is a positive control test to verify that GPT-5 models
-        correctly receive the extra_body parameters.
+        correctly receive the documented Chat Completions parameters.
         """
         mock_openai = mocker.patch('whisperbridge.providers.openai_adapter.openai.OpenAI')
         from whisperbridge.providers.openai_adapter import OpenAIChatClientAdapter
@@ -397,27 +405,46 @@ class TestOpenAIAdapterRemovedModels:
         assert mock_client.chat.completions.create.called
         call_args = mock_client.chat.completions.create.call_args
         
-        # Should have extra_body with GPT-5 optimizations
-        extra_body = call_args.kwargs.get('extra_body')
-        assert extra_body is not None, (
-            "gpt-5-mini SHOULD receive GPT-5 optimizations (extra_body)"
-        )
-        assert extra_body.get('reasoning_effort') == 'minimal'
-        assert extra_body.get('verbosity') == 'low'
+        # Should have top-level GPT-5 optimizations
+        assert call_args.kwargs.get('reasoning_effort') == 'minimal'
+        assert call_args.kwargs.get('verbosity') == 'low'
 
-    @pytest.mark.parametrize("model,should_have_optimizations", [
-        ("gpt-5-mini", True),
-        ("gpt-5-nano", True),
-        ("gpt-5", True),
-        ("gpt-4.1-mini", False),
-        ("gpt-4.1-nano", False),
-        ("gpt-4o-mini", False),
-        ("gpt-4o", False),
+    def test_gpt54_models_use_supported_reasoning_effort(self, mocker):
+        """Test that GPT-5.4 models use reasoning_effort='none'."""
+        mock_openai = mocker.patch('whisperbridge.providers.openai_adapter.openai.OpenAI')
+        from whisperbridge.providers.openai_adapter import OpenAIChatClientAdapter
+
+        mock_client = mocker.Mock()
+        mock_openai.return_value = mock_client
+
+        mock_response = mocker.Mock()
+        mock_response.choices = [mocker.Mock(message=mocker.Mock(content="Test response"))]
+        mock_client.chat.completions.create.return_value = mock_response
+
+        adapter = OpenAIChatClientAdapter(api_key="test-key")
+        messages = [{"role": "user", "content": "Test message"}]
+
+        adapter._create(model="gpt-5.4", messages=messages)
+
+        call_args = mock_client.chat.completions.create.call_args
+        assert call_args.kwargs.get('reasoning_effort') == 'none'
+        assert call_args.kwargs.get('verbosity') == 'low'
+
+    @pytest.mark.parametrize("model,expected_reasoning_effort", [
+        ("gpt-5-mini", 'minimal'),
+        ("gpt-5-nano", 'minimal'),
+        ("gpt-5", 'minimal'),
+        ("gpt-5.4", 'none'),
+        ("gpt-5.4-mini", 'none'),
+        ("gpt-4.1-mini", None),
+        ("gpt-4.1-nano", None),
+        ("gpt-4o-mini", None),
+        ("gpt-4o", None),
     ])
-    def test_gpt5_optimizations_applied_correctly(self, mocker, model, should_have_optimizations):
+    def test_gpt5_optimizations_applied_correctly(self, mocker, model, expected_reasoning_effort):
         """
-        TC-INT-006: GPT-5 optimizations should only be applied to GPT-5 models.
-        
+        Test that GPT-5 optimizations are applied only to GPT-5 models.
+
         Parametrized test to verify that the startswith("gpt-5") check
         correctly identifies which models get optimizations.
         """
@@ -445,24 +472,24 @@ class TestOpenAIAdapterRemovedModels:
         assert mock_client.chat.completions.create.called
         call_args = mock_client.chat.completions.create.call_args
         
-        # Check for extra_body
-        extra_body = call_args.kwargs.get('extra_body')
-        
-        if should_have_optimizations:
-            assert extra_body is not None, (
+        if expected_reasoning_effort is not None:
+            assert 'reasoning_effort' in call_args.kwargs, (
                 f"Model '{model}' SHOULD have GPT-5 optimizations"
             )
-            assert extra_body.get('reasoning_effort') == 'minimal'
-            assert extra_body.get('verbosity') == 'low'
+            assert call_args.kwargs.get('reasoning_effort') == expected_reasoning_effort
+            assert call_args.kwargs.get('verbosity') == 'low'
         else:
-            assert extra_body is None, (
+            assert 'reasoning_effort' not in call_args.kwargs, (
+                f"Model '{model}' should NOT have GPT-5 reasoning_effort"
+            )
+            assert 'verbosity' not in call_args.kwargs, (
                 f"Model '{model}' should NOT have GPT-5 optimizations"
             )
 
     def test_vision_request_with_removed_models(self, mocker):
         """
-        TC-INT-007: Vision requests with removed models should work correctly.
-        
+        Test that vision requests with GPT-4.1 models still work correctly.
+
         Tests that _create_vision handles gpt-4.1-mini and gpt-4.1-nano
         correctly with dynamic token calculation.
         """

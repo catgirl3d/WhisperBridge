@@ -18,7 +18,7 @@ from whisperbridge.core.model_limits import (
 
 
 class TestGetModelMaxTokens:
-    """Category 1: Model Limit Lookups (8 tests)"""
+    """Tests for model limit lookup behavior."""
 
     @pytest.mark.parametrize("model,expected_limit", [
         ("gpt-4o-mini", 16384),
@@ -138,7 +138,7 @@ class TestGetModelMaxTokens:
 
 
 class TestCalculateDynamicTokens:
-    """Category 2: Dynamic Completion Token Calculation (12 tests)"""
+    """Tests for dynamic completion token calculation."""
 
     def test_calculate_dynamic_tokens_basic(self):
         """TC-ML-009: Standard case: input tokens within reasonable range."""

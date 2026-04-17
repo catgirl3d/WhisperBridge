@@ -5,6 +5,8 @@ This module provides the ModelManager class for listing and filtering
 available models from API providers.
 """
 
+import re
+
 from typing import Any, Dict, List, Optional, Tuple
 
 from loguru import logger
@@ -91,6 +93,15 @@ class ModelManager:
         return any(lowered.startswith(term) or term in lowered for term in exclude_terms)
 
     def _sort_openai_models(self, model_ids: List[str]) -> List[str]:
+        def _extract_version_parts(model_id: str) -> tuple[int, int, int]:
+            match = re.match(r"^(?:chatgpt-)?gpt-(\d+(?:\.\d+)*)", model_id)
+            if not match:
+                return (0, 0, 0)
+
+            parts = [int(part) for part in match.group(1).split(".")]
+            parts.extend([0] * (3 - len(parts)))
+            return tuple(parts[:3])
+
         def _rank_openai(mid: str) -> tuple:
             lm = mid.lower()
             # 1. Models with "-latest" should be at the absolute end
@@ -99,9 +110,13 @@ class ModelManager:
             # 2. GPT-4 models (including chatgpt-4) should be second to last
             is_gpt4 = 1 if ("gpt-4" in lm or "chatgpt-4" in lm) else 0
 
-            # 3. GPT-5 models have internal hierarchy: nano -> mini -> standard
+            # 3. GPT-5 models are sorted by numeric version first (5.4 > 5.2 > 5.1 > 5),
+            # then by size within the same version: nano -> mini -> standard.
             gpt5_rank = 3
+            gpt5_version_key = (0, 0, 0)
             if lm.startswith("gpt-5"):
+                version_parts = _extract_version_parts(lm)
+                gpt5_version_key = tuple(-part for part in version_parts)
                 if "nano" in lm:
                     gpt5_rank = 0
                 elif "mini" in lm:
@@ -123,7 +138,7 @@ class ModelManager:
             else:
                 priority = 1
 
-            return (priority, gpt5_rank, mid)
+            return (priority, gpt5_version_key, gpt5_rank, mid)
 
         return sorted(model_ids, key=_rank_openai)
 
@@ -231,7 +246,7 @@ class ModelManager:
         try:
             if provider == APIProvider.OPENAI:
                 models_response = client.models.list()
-                models = [model.id for model in models_response.data]
+                models = self.apply_filters(provider, [model.id for model in models_response.data])
                 logger.debug(f"Filtered OpenAI chat completion models: {models}")
 
             elif provider == APIProvider.GOOGLE:

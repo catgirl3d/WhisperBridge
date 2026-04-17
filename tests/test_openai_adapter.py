@@ -75,6 +75,24 @@ class TestOpenAITextRequests:
         assert kwargs["reasoning_effort"] == expected_reasoning_effort
         assert kwargs["verbosity"] == "low"
 
+    def test_gpt5_optimizations_do_not_override_explicit_kwargs(self, mocker, fake_openai_client, mock_completion_response):
+        """Test that caller-provided GPT-5 params win over adapter defaults."""
+        messages = [{"role": "user", "content": "Hi"}]
+        mock_create = mocker.patch.object(
+            fake_openai_client._client.chat.completions, "create", return_value=mock_completion_response
+        )
+
+        fake_openai_client.chat.completions.create(
+            model="gpt-5.4-mini",
+            messages=messages,
+            reasoning_effort="high",
+            verbosity="medium",
+        )
+
+        kwargs = mock_create.call_args.kwargs
+        assert kwargs["reasoning_effort"] == "high"
+        assert kwargs["verbosity"] == "medium"
+
     def test_text_system_and_history(self, mocker, fake_openai_client, mock_completion_response):
         """Test complex message history handling."""
         messages = [
@@ -157,7 +175,7 @@ class TestOpenAITextRequests:
 
 
 class TestOpenAIVisionRequests:
-    """Tests for vision-related features and the new defensive check."""
+    """Tests for vision-related features and the defensive image validation check."""
 
     def test_vision_success(self, mocker, fake_openai_client, mock_completion_response):
         """Test vision request with a valid image part."""
@@ -340,7 +358,7 @@ class TestOpenAIModels:
     """Tests for model listing and filtering."""
 
     def test_list_models(self, mocker, fake_openai_client):
-        """Test that models are correctly filtered and sorted."""
+        """Test that adapter-level model listing filters unsupported models."""
         mock_models = SimpleNamespace(data=[
             SimpleNamespace(id="gpt-4"),
             SimpleNamespace(id="gpt-5-mini"),
@@ -356,8 +374,7 @@ class TestOpenAIModels:
         res = fake_openai_client.models.list()
         
         ids = [m.id for m in res.data]
-        # Sort order: gpt-5, then gpt-4, then others
-        assert ids[0] == "gpt-5-mini"
+        assert ids == ["gpt-4", "gpt-5-mini", "gpt-3.5-turbo"]
         assert "gpt-4" in ids
         assert "gpt-3.5-turbo" in ids
         assert "whisper-1" not in ids

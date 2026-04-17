@@ -17,8 +17,13 @@ def model_supports_temperature(model: str) -> bool:
     """
     Check if the model supports custom temperature values.
 
-    Reasoning models (o1, o3, GPT-5 reasoning) only support temperature=1.0.
-    Other models support temperature in range [0.0, 2.0].
+    This helper currently treats o1/o3 models and all gpt-5* models as
+    temperature-locked and forces temperature=1.0 for them. Other models are
+    treated as supporting temperature in range [0.0, 2.0].
+
+    Note: OpenAI docs indicate GPT-5.4 may support custom temperature when
+    reasoning_effort="none". That nuance is tracked by the TODO below and is
+    not yet represented in this helper.
 
     Args:
         model: Model name (e.g., "gpt-5-nano", "o1-preview", "gpt-4o-mini")
@@ -28,7 +33,7 @@ def model_supports_temperature(model: str) -> bool:
     """
     model_lower = model.lower()
 
-    # Models that only support temperature=1.0 (reasoning models)
+    # Models that this helper currently treats as temperature-locked.
     restricted_prefixes = [
         "o1-",      # o1-preview, o1-mini
         "o3-",      # o3-mini, o3-preview (future models)
