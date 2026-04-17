@@ -51,22 +51,29 @@ class TestOpenAITextRequests:
         assert kwargs["messages"] == messages
         assert kwargs["temperature"] == 0.7
 
-    def test_gpt5_optimizations(self, mocker, fake_openai_client, mock_completion_response):
-        """Test that gpt-5 models get extra_body optimizations."""
+    @pytest.mark.parametrize(
+        ("model", "expected_reasoning_effort"),
+        [
+            ("gpt-5-mini", "minimal"),
+            ("gpt-5.4", "none"),
+        ],
+    )
+    def test_gpt5_optimizations(self, mocker, fake_openai_client, mock_completion_response, model, expected_reasoning_effort):
+        """Test that GPT-5 models get model-specific top-level optimizations."""
         messages = [{"role": "user", "content": "Hi"}]
         mock_create = mocker.patch.object(
             fake_openai_client._client.chat.completions, "create", return_value=mock_completion_response
         )
 
         fake_openai_client.chat.completions.create(
-            model="gpt-5-mini",
+            model=model,
             messages=messages
         )
 
         assert mock_create.called
         kwargs = mock_create.call_args.kwargs
-        assert "extra_body" in kwargs
-        assert kwargs["extra_body"]["reasoning_effort"] == "minimal"
+        assert kwargs["reasoning_effort"] == expected_reasoning_effort
+        assert kwargs["verbosity"] == "low"
 
     def test_text_system_and_history(self, mocker, fake_openai_client, mock_completion_response):
         """Test complex message history handling."""

@@ -32,6 +32,9 @@ def model_supports_temperature(model: str) -> bool:
     restricted_prefixes = [
         "o1-",      # o1-preview, o1-mini
         "o3-",      # o3-mini, o3-preview (future models)
+        # TODO: Revisit GPT-5 temperature handling. OpenAI docs allow custom
+        # temperature for GPT-5.4 when reasoning_effort="none", so not every
+        # gpt-5* model should be treated as temperature-locked.
         "gpt-5",    # GPT-5 models with reasoning_effort parameter
     ]
 

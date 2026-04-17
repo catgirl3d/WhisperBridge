@@ -21,6 +21,22 @@ __all__ = ["OpenAIChatClientAdapter", "DEFAULT_GPT_MODELS"]
 DEFAULT_GPT_MODELS = ["gpt-5-mini", "gpt-5-nano"]
 
 
+def _get_gpt5_chat_params(model: str) -> Optional[Dict[str, str]]:
+    """Return model-specific GPT-5 Chat Completions parameters.
+
+    OpenAI documents ``reasoning_effort`` and ``verbosity`` as top-level Chat
+    Completions parameters for GPT-5. GPT-5.4 moved away from the older
+    ``minimal`` effort value and accepts ``none|low|medium|high|xhigh``.
+    Earlier GPT-5 variants still use ``minimal``.
+    """
+    model_lower = model.lower()
+    if not model_lower.startswith("gpt-5"):
+        return None
+
+    reasoning_effort = "none" if model_lower.startswith("gpt-5.4") else "minimal"
+    return {"reasoning_effort": reasoning_effort, "verbosity": "low"}
+
+
 class OpenAIChatClientAdapter:
     """
     Adapter for OpenAI Chat API with OpenAI-compatible interface.
@@ -61,7 +77,7 @@ class OpenAIChatClientAdapter:
             messages: List of message dictionaries with role and content.
             temperature: Sampling temperature.
             max_completion_tokens: Maximum tokens to generate.
-            **kwargs: Additional parameters (e.g., extra_body for GPT-5, is_vision flag).
+            **kwargs: Additional parameters (e.g., GPT-5 options, is_vision flag).
 
         Returns:
             OpenAI API response object.
@@ -71,11 +87,14 @@ class OpenAIChatClientAdapter:
         if is_vision:
             return self._create_vision(model, messages, temperature)
 
-        # Apply GPT-5 optimizations if model starts with "gpt-5"
-        if model.startswith(("gpt-5")):
-            extra_body = {"reasoning_effort": "minimal", "verbosity": "low"}
-            kwargs["extra_body"] = extra_body
-            logger.debug(f"Using OpenAI GPT-5 optimizations: {', '.join(f'{k}={v}' for k, v in extra_body.items())}")
+        # Apply GPT-5 optimizations with model-specific top-level parameters.
+        gpt5_chat_params = _get_gpt5_chat_params(model)
+        if gpt5_chat_params:
+            for key, value in gpt5_chat_params.items():
+                kwargs.setdefault(key, value)
+            logger.debug(
+                f"Using OpenAI GPT-5 optimizations: {', '.join(f'{k}={v}' for k, v in gpt5_chat_params.items())}"
+            )
 
         # Prepare API parameters
         api_params = {
