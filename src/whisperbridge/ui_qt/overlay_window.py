@@ -311,6 +311,69 @@ class OverlayWindow(StyledOverlayWindow):
             except Exception:
                 pass
 
+    def _is_style_mode_selected(self) -> bool:
+        """Return whether the current request should use Style mode."""
+        return bool(hasattr(self, "mode_combo") and (self.mode_combo.currentText().strip().lower() == "style"))
+
+    def _begin_request_ui_state(self, *, is_style: bool):
+        """Initialize request state and loading UI before starting a worker."""
+        self._translation_start_time = time.time()
+        self._translation_error_handled = False
+        self.status_label.setText("Request sent")
+        self.ui_builder.apply_status_style(self.status_label, 'default')
+
+        settings = self._cached_settings
+        compact = getattr(settings, "compact_view", False)
+
+        if self.translate_btn:
+            prev_text = self.translate_btn.text()
+            base_text = "Styling" if is_style else "Translating"
+            self._start_loading_animation(base_text, compact)
+        else:
+            prev_text = "Style" if is_style else "Translate"
+
+        self._translation_prev_text = prev_text
+        return settings
+
+    def _resolve_style_name(self, settings) -> str:
+        """Resolve the current style preset name with the same fallback order as the UI."""
+        style_name = ""
+        try:
+            style_name = self.style_combo.currentText().strip()
+        except Exception:
+            pass
+
+        if style_name:
+            return style_name
+
+        try:
+            styles = getattr(settings, "text_styles", []) or []
+            if styles:
+                first_style = styles[0]
+                return (first_style.get("name") or "Improve") if isinstance(first_style, dict) else str(first_style)
+        except Exception:
+            pass
+
+        return "Improve"
+
+    def _start_style_request(self, text: str, settings) -> None:
+        """Start a style worker for the current request."""
+        style_name = self._resolve_style_name(settings)
+        logger.debug(f"Style mode selected. Style='{style_name}'")
+        self._style_worker, self._style_thread = self._setup_worker(StyleWorker, text, style_name)
+
+    def _start_translation_request(self, text: str) -> None:
+        """Start a translation worker using the current UI language selections."""
+        ui_source_lang = self.source_combo.currentData()
+        ui_target_lang = self.target_combo.currentData()
+        logger.debug(f"Translate mode selected with UI languages: source='{ui_source_lang}', target='{ui_target_lang}'")
+        self._translation_worker, self._translation_thread = self._setup_worker(
+            TranslationWorker,
+            text,
+            ui_source_lang,
+            ui_target_lang,
+        )
+
     def _on_mode_changed(self, index: int):
         """Handle mode combo box changes (Translate vs Style)."""
         try:
@@ -1050,51 +1113,14 @@ class OverlayWindow(StyledOverlayWindow):
             self._update_api_state_and_ui()
             return
 
-        # Record start time and update status
-        self._translation_start_time = time.time()
-        self._translation_error_handled = False
-        self.status_label.setText("Request sent")
-        self.ui_builder.apply_status_style(self.status_label, 'default')
-
-        settings = self._cached_settings
-        compact = getattr(settings, "compact_view", False)
-        is_style = hasattr(self, "mode_combo") and (self.mode_combo.currentText().strip().lower() == "style")
-
-        if self.translate_btn:
-            prev_text = self.translate_btn.text()
-            # Start loading animation
-            base_text = "Styling" if is_style else "Translating"
-            self._start_loading_animation(base_text, compact)
-        else:
-            prev_text = "Translate" if not is_style else "Style"
+        is_style = self._is_style_mode_selected()
+        settings = self._begin_request_ui_state(is_style=is_style)
 
         if is_style:
-            # Resolve selected style name
-            style_name = ""
-            try:
-                style_name = self.style_combo.currentText().strip()
-            except Exception:
-                pass
-            if not style_name:
-                # fallback to first configured style if available
-                try:
-                    styles = getattr(settings, "text_styles", []) or []
-                    if styles:
-                        style_name = (styles[0].get("name") or "Improve") if isinstance(styles[0], dict) else str(styles[0])
-                except Exception:
-                    style_name = "Improve"
-
-            logger.debug(f"Style mode selected. Style='{style_name}'")
-            self._translation_prev_text = prev_text
-            self._style_worker, self._style_thread = self._setup_worker(StyleWorker, text, style_name)
+            self._start_style_request(text, settings)
             return
 
-        # Translate mode
-        ui_source_lang = self.source_combo.currentData()
-        ui_target_lang = self.target_combo.currentData()
-        logger.debug(f"Translate mode selected with UI languages: source='{ui_source_lang}', target='{ui_target_lang}'")
-        self._translation_prev_text = prev_text
-        self._translation_worker, self._translation_thread = self._setup_worker(TranslationWorker, text, ui_source_lang, ui_target_lang)
+        self._start_translation_request(text)
 
     def _on_translation_finished(self, success: bool, result: str):
         """Handle completion of background translation."""

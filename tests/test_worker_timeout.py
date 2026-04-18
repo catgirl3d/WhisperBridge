@@ -214,6 +214,62 @@ class TestQtIntegration:
         assert overlay.translate_btn.isEnabled() is True
         assert "cancel" in overlay.status_label.text().lower()
 
+    def test_translate_click_starts_translation_worker_with_selected_languages(self, overlay, mocker):
+        """Translate mode should pass the current source and target languages to TranslationWorker."""
+        mocker.patch.object(overlay, "_is_api_ready", return_value=(True, ""))
+        mock_start_loading = mocker.patch.object(overlay, "_start_loading_animation")
+        mock_setup_worker = mocker.patch.object(overlay, "_setup_worker", return_value=(Mock(), Mock()))
+
+        overlay._cached_settings = Mock(compact_view=False, text_styles=[])
+        overlay.original_text.setPlainText("hello")
+        overlay.ui_builder.set_combo_data(overlay.source_combo, "en")
+        overlay.ui_builder.set_combo_data(overlay.target_combo, "ru")
+
+        overlay._on_translate_clicked()
+
+        assert overlay._translation_start_time is not None
+        assert overlay._translation_prev_text == "  Translate"
+        assert overlay.status_label.text() == "Request sent"
+        mock_start_loading.assert_called_once_with("Translating", False)
+        mock_setup_worker.assert_called_once_with(TranslationWorker, "hello", "en", "ru")
+
+    def test_translate_click_starts_style_worker_with_selected_style(self, overlay, mocker):
+        """Style mode should pass the currently selected style name to StyleWorker."""
+        mocker.patch.object(overlay, "_is_api_ready", return_value=(True, ""))
+        mock_start_loading = mocker.patch.object(overlay, "_start_loading_animation")
+        mock_setup_worker = mocker.patch.object(overlay, "_setup_worker", return_value=(Mock(), Mock()))
+
+        overlay._cached_settings = Mock(compact_view=False, text_styles=[])
+        overlay.original_text.setPlainText("hello")
+        overlay.style_combo.clear()
+        overlay.style_combo.addItem("Formal")
+        overlay.style_combo.setCurrentIndex(0)
+        style_index = overlay._find_index_by_text(overlay.mode_combo, "Style")
+        overlay.mode_combo.setCurrentIndex(style_index)
+
+        overlay._on_translate_clicked()
+
+        assert overlay._translation_start_time is not None
+        assert overlay._translation_prev_text == "  Style"
+        mock_start_loading.assert_called_once_with("Styling", False)
+        mock_setup_worker.assert_called_once_with(StyleWorker, "hello", "Formal")
+
+    def test_translate_click_uses_first_configured_style_when_combo_is_empty(self, overlay, mocker):
+        """Style mode should fall back to the first configured style when the combo has no current text."""
+        mocker.patch.object(overlay, "_is_api_ready", return_value=(True, ""))
+        mocker.patch.object(overlay, "_start_loading_animation")
+        mock_setup_worker = mocker.patch.object(overlay, "_setup_worker", return_value=(Mock(), Mock()))
+
+        overlay._cached_settings = Mock(compact_view=False, text_styles=[{"name": "Improve tone"}])
+        overlay.original_text.setPlainText("hello")
+        overlay.style_combo.clear()
+        style_index = overlay._find_index_by_text(overlay.mode_combo, "Style")
+        overlay.mode_combo.setCurrentIndex(style_index)
+
+        overlay._on_translate_clicked()
+
+        mock_setup_worker.assert_called_once_with(StyleWorker, "hello", "Improve tone")
+
     @pytest.mark.parametrize("api_timeout,expected_watchdog", [
         (10, 60),   # api_timeout=10 -> watchdog=max(20,60)=60
         (30, 60),   # api_timeout=30 -> watchdog=max(60,60)=60
