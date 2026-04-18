@@ -339,6 +339,62 @@ class TestQtIntegration:
         assert finished_spy.at(0)[0] is False
         assert "timed out" in error_spy.at(0)[0]
 
+    def test_known_error_status_persists_after_finished_signal(self, overlay, mock_qmessagebox):
+        """Known API errors should keep their status after the duplicate finished(False, ...) signal."""
+        overlay._is_api_ready = Mock(return_value=(True, ""))
+        overlay._translation_start_time = time.time() - 0.1
+        error_message = "quota exceeded: billing limit reached"
+
+        overlay._on_translation_error(error_message)
+        status_after_error = overlay.status_label.text()
+
+        overlay._on_translation_finished(False, error_message)
+
+        assert "quota exceeded" in status_after_error.lower()
+        assert overlay.status_label.text() == status_after_error
+        mock_qmessagebox.assert_not_called()
+
+    def test_finished_without_error_signal_sets_known_error_status(self, overlay, mock_qmessagebox):
+        """Finished(False, ...) should still show a known status even if error signal was not delivered."""
+        overlay._is_api_ready = Mock(return_value=(True, ""))
+        overlay._translation_start_time = time.time() - 0.1
+
+        overlay._on_translation_finished(False, "quota exceeded: billing limit reached")
+
+        assert "quota exceeded" in overlay.status_label.text().lower()
+        mock_qmessagebox.assert_not_called()
+
+    def test_unknown_error_popup_is_shown_once_across_error_and_finished(self, overlay, mock_qmessagebox):
+        """Unknown errors should surface one popup even when both signals are emitted."""
+        overlay._is_api_ready = Mock(return_value=(True, ""))
+        overlay._translation_start_time = time.time() - 0.1
+        error_message = "unexpected translator explosion"
+
+        overlay._on_translation_error(error_message)
+        status_after_error = overlay.status_label.text()
+
+        overlay._on_translation_finished(False, error_message)
+
+        assert "failed" in overlay.status_label.text().lower()
+        assert overlay.status_label.text() == status_after_error
+        mock_qmessagebox.assert_called_once_with(
+            overlay,
+            "Translation failed",
+            f"Translation error: {error_message}",
+        )
+
+    def test_successful_finished_updates_translation_and_completion_status(self, overlay, mock_qmessagebox):
+        """Successful completion should populate translated text and show completion timing."""
+        overlay._translation_start_time = time.time() - 0.1
+        overlay._translation_prev_text = "Translate"
+
+        overlay._on_translation_finished(True, "Hola")
+
+        assert overlay.translated_text.toPlainText() == "Hola"
+        assert overlay.status_label.text().startswith("Completed in ")
+        assert overlay._translation_start_time is None
+        mock_qmessagebox.assert_not_called()
+
     # --- Race Condition Scenarios ---
 
     def test_concurrent_cleanup_calls(self, qtbot, overlay):

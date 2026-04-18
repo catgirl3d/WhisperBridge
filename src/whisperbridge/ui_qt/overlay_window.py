@@ -67,6 +67,7 @@ class OverlayWindow(StyledOverlayWindow):
         super().__init__(title="Translator")
         self._translator_settings_dialog = None
         self._translation_start_time = None
+        self._translation_error_handled = False
 
         # Animation state for loading spinner + dots
         self._loading_timer: Optional[QTimer] = None
@@ -200,6 +201,115 @@ class OverlayWindow(StyledOverlayWindow):
         self.close_btn.installEventFilter(self)
         # Install event filter on original_text to capture Ctrl+Enter for translation
         self.original_text.installEventFilter(self)
+
+    def _classify_request_error(self, error_message: str) -> tuple[str, bool]:
+        """Map backend error text to a short UI status and whether it is a known API issue."""
+        err_lower = (error_message or "").lower()
+
+        if "quota" in err_lower:
+            return "Quota exceeded", True
+        if "rate limit" in err_lower or "429" in err_lower:
+            return "Rate limit exceeded", True
+        if "timeout" in err_lower:
+            return "Request timed out", True
+        if "cancel" in err_lower:
+            return "Cancelled", True
+        if "connection" in err_lower or "network" in err_lower:
+            return "Network error", True
+        if "server error" in err_lower or "500" in err_lower:
+            return "Server error", True
+        if "503" in err_lower:
+            return "Service unavailable", True
+
+        return "Failed", False
+
+    def _apply_request_error_status(self, error_message: str, *, show_popup_for_unknown: bool) -> None:
+        """Apply a stable error status without letting the generic finish path overwrite it."""
+        status_text, is_known_error = self._classify_request_error(error_message)
+
+        if show_popup_for_unknown and not is_known_error:
+            from PySide6.QtWidgets import QMessageBox
+
+            QMessageBox.warning(self, "Translation failed", f"Translation error: {error_message}")
+
+        logger.error(f"Translation failed: {error_message}")
+
+        if self._translation_start_time is not None:
+            elapsed = time.time() - self._translation_start_time
+            self.status_label.setText(f"{status_text} ({elapsed:.1f}s)")
+        else:
+            self.status_label.setText(status_text)
+
+        try:
+            self.ui_builder.apply_status_style(self.status_label, 'error')
+        except Exception:
+            pass
+
+    def _apply_successful_translation_result(self, result: str) -> None:
+        """Render a successful translation/style result into the UI."""
+        if not result.strip():
+            self.status_label.setText("Model returned empty response")
+            self.ui_builder.apply_status_style(self.status_label, 'error')
+            self.translated_text.setPlainText("")
+            logger.warning("Model returned empty translation response")
+            return
+
+        self.translated_text.setPlainText(result)
+        self.ui_builder.apply_status_style(self.status_label, 'default')
+        logger.info("Translation completed and inserted into translated_text")
+
+        try:
+            settings = self._cached_settings
+            auto_copy_main_window = getattr(settings, "auto_copy_translated_main_window", False)
+            if auto_copy_main_window:
+                clipboard = QApplication.clipboard()
+                clipboard.setText(result)
+                logger.info("Translated text automatically copied to clipboard (main window)")
+                self._show_button_feedback(self.copy_translated_btn)
+        except Exception as e:
+            logger.debug(f"Failed to auto-copy translated text: {e}")
+
+    def _apply_success_completion_status(self) -> None:
+        """Replace the in-flight status with the standard completion message."""
+        if self._translation_start_time is not None:
+            elapsed = time.time() - self._translation_start_time
+            if "safety" not in (self.status_label.text() or "").lower():
+                self.status_label.setText(f"Completed in {elapsed:.1f}s")
+            return
+
+        if "safety" not in (self.status_label.text() or "").lower():
+            self.status_label.setText("")
+
+    def _restore_request_controls(self) -> None:
+        """Stop request affordances and restore the translate/style button text."""
+        settings = getattr(self, "_cached_settings", None)
+        compact = getattr(settings, "compact_view", False)
+        prev_text = getattr(self, "_translation_prev_text", "Translate")
+
+        self._stop_loading_animation()
+        if self.translate_btn:
+            self.translate_btn.setEnabled(True)
+            if not compact:
+                self.translate_btn.setText(prev_text)
+
+        if hasattr(self, "_translation_prev_text"):
+            delattr(self, "_translation_prev_text")
+
+    def _finalize_translation_request(self, *, success: bool, refresh_api_state: bool, clear_error_marker: bool = True) -> None:
+        """Run request cleanup after either the error or finished signal path."""
+        if success:
+            self._apply_success_completion_status()
+
+        self._translation_start_time = None
+        if clear_error_marker:
+            self._translation_error_handled = False
+        self._restore_request_controls()
+
+        if refresh_api_state:
+            try:
+                self._update_api_state_and_ui()
+            except Exception:
+                pass
 
     def _on_mode_changed(self, index: int):
         """Handle mode combo box changes (Translate vs Style)."""
@@ -644,22 +754,7 @@ class OverlayWindow(StyledOverlayWindow):
 
         # Update status based on error or success
         if error_message:
-            # Re-use the existing error parsing logic for consistent messages
-            status_text = "Failed"
-            err_lower = error_message.lower()
-            if "quota" in err_lower:
-                status_text = "Quota exceeded"
-            elif "rate limit" in err_lower or "429" in err_lower:
-                status_text = "Rate limit exceeded"
-            elif "timeout" in err_lower:
-                status_text = "Request timed out"
-            elif "connection" in err_lower or "network" in err_lower:
-                status_text = "Network error"
-            elif "server error" in err_lower or "500" in err_lower:
-                status_text = "Server error"
-            elif "503" in err_lower:
-                status_text = "Service unavailable"
-            
+            status_text, _is_known_error = self._classify_request_error(error_message)
             self.status_label.setText(status_text)
             self.ui_builder.apply_status_style(self.status_label, 'error')
         elif original_text:
@@ -957,6 +1052,7 @@ class OverlayWindow(StyledOverlayWindow):
 
         # Record start time and update status
         self._translation_start_time = time.time()
+        self._translation_error_handled = False
         self.status_label.setText("Request sent")
         self.ui_builder.apply_status_style(self.status_label, 'default')
 
@@ -1004,119 +1100,21 @@ class OverlayWindow(StyledOverlayWindow):
         """Handle completion of background translation."""
         try:
             if success:
-                # Check if the result is empty
-                if not result.strip():
-                    self.status_label.setText("Model returned empty response")
-                    self.ui_builder.apply_status_style(self.status_label, 'error')
-                    self.translated_text.setPlainText("")
-                    logger.warning("Model returned empty translation response")
-                else:
-                    self.translated_text.setPlainText(result)
-                    self.ui_builder.apply_status_style(self.status_label, 'default')
-                    logger.info("Translation completed and inserted into translated_text")
-
-                    # Auto-copy translated text to clipboard if enabled for main window
-                    try:
-                        settings = self._cached_settings
-                        auto_copy_main_window = getattr(settings, "auto_copy_translated_main_window", False)
-                        if auto_copy_main_window:
-                            from PySide6.QtWidgets import QApplication
-                            clipboard = QApplication.clipboard()
-                            clipboard.setText(result)
-                            logger.info("Translated text automatically copied to clipboard (main window)")
-                            self._show_button_feedback(self.copy_translated_btn)
-                    except Exception as e:
-                        logger.debug(f"Failed to auto-copy translated text: {e}")
+                self._apply_successful_translation_result(result)
+            elif self._translation_error_handled:
+                logger.debug("Skipping duplicate translation error handling in finished slot")
             else:
-                from PySide6.QtWidgets import QMessageBox
-                QMessageBox.warning(self, "Translation failed", f"Translation error: {result}")
-                logger.error(f"Translation failed: {result}")
+                self._apply_request_error_status(result, show_popup_for_unknown=True)
         finally:
-            # Update status with completion time (only if not blocked by safety)
-            if self._translation_start_time is not None:
-                elapsed = time.time() - self._translation_start_time
-                # Only show completion time if we didn't already set safety block message
-                if "safety" not in (self.status_label.text() or "").lower():
-                    self.status_label.setText(f"Completed in {elapsed:.1f}s")
-                self._translation_start_time = None
-            else:
-                # Only clear if not showing safety message
-                if "safety" not in (self.status_label.text() or "").lower():
-                    self.status_label.setText("")
-
-            settings = self._cached_settings
-            compact = getattr(settings, "compact_view", False)
-            prev_text = getattr(self, "_translation_prev_text", "Translate")
-            # Stop loading animation and restore button
-            self._stop_loading_animation()
-            if self.translate_btn:
-                self.translate_btn.setEnabled(True)
-                if not compact:
-                    self.translate_btn.setText(prev_text)
-            if hasattr(self, "_translation_prev_text"):
-                delattr(self, "_translation_prev_text")
+            self._finalize_translation_request(success=success, refresh_api_state=False)
 
     def _on_translation_error(self, error_message: str):
         """Handle error from background translation."""
-        status_text = "Failed"
+        self._translation_error_handled = True
         try:
-            # Parse error message for status label
-            err_lower = error_message.lower()
-            
-            if "quota" in err_lower:
-                status_text = "Quota exceeded"
-            elif "rate limit" in err_lower or "429" in err_lower:
-                status_text = "Rate limit exceeded"
-            elif "timeout" in err_lower:
-                status_text = "Request timed out"
-            elif "cancel" in err_lower:
-                status_text = "Cancelled"
-            elif "connection" in err_lower or "network" in err_lower:
-                status_text = "Network error"
-            elif "server error" in err_lower or "500" in err_lower:
-                status_text = "Server error"
-            elif "503" in err_lower:
-                status_text = "Service unavailable"
-
-            # Only show popup for unknown errors; suppress for known API issues
-            if status_text == "Failed":
-                from PySide6.QtWidgets import QMessageBox
-                QMessageBox.warning(self, "Translation failed", f"Translation error: {error_message}")
-            
-            logger.error(f"Translation failed: {error_message}")
+            self._apply_request_error_status(error_message, show_popup_for_unknown=True)
         finally:
-            final_status_text = status_text if "status_text" in locals() else "Failed"
-            # Update status with error indication
-            if self._translation_start_time is not None:
-                elapsed = time.time() - self._translation_start_time
-                self.status_label.setText(f"{final_status_text} ({elapsed:.1f}s)")
-                self._translation_start_time = None
-            else:
-                self.status_label.setText(final_status_text)
-            
-            # UX: emphasize error state in red (same styling priority as key-missing)
-            try:
-                self.ui_builder.apply_status_style(self.status_label, 'error')
-            except Exception:
-                pass
-
-            settings = self._cached_settings
-            compact = getattr(settings, "compact_view", False)
-            prev_text = getattr(self, "_translation_prev_text", "Translate")
-            # Stop loading animation and restore button
-            self._stop_loading_animation()
-            if self.translate_btn:
-                self.translate_btn.setEnabled(True)
-                if not compact:
-                    self.translate_btn.setText(prev_text)
-            if hasattr(self, "_translation_prev_text"):
-                delattr(self, "_translation_prev_text")
-
-            # Re-evaluate API readiness in case the key was changed mid-flight; also reapplies disabled visuals if needed
-            try:
-                self._update_api_state_and_ui()
-            except Exception:
-                pass
+            self._finalize_translation_request(success=False, refresh_api_state=True, clear_error_marker=False)
 
     def _cancel_active_request(self):
         """Cancel active translation/style request and restore UI state."""
