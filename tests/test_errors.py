@@ -11,6 +11,8 @@ This module tests error classification functionality including:
 - Network diagnostics logging
 """
 
+import sys
+
 import pytest
 
 from whisperbridge.core.api_manager.errors import (
@@ -168,19 +170,64 @@ class TestRequiresInitializationDecorator:
 class TestNetworkDiagnostics:
     """Tests for log_network_diagnostics function."""
 
-    def test_log_network_diagnostics_logs_once(self, mocker, loguru_caplog):
-        """Test that diagnostics are logged only once."""
+    def test_log_network_diagnostics_includes_runtime_context(self, mocker, loguru_caplog):
+        """Test that diagnostics log contains the runtime context needed for debugging."""
         # Arrange
+        fake_certifi = mocker.Mock()
+        fake_certifi.where.return_value = "/fake/cacert.pem"
+        fake_certifi.__file__ = "/fake/certifi.py"
+
+        module_map = {
+            "openai": mocker.Mock(__file__="/pkg/openai.py", __version__="1.0.0"),
+            "httpx": mocker.Mock(__file__="/pkg/httpx.py", __version__="2.0.0"),
+            "httpcore": mocker.Mock(__file__="/pkg/httpcore.py", __version__="3.0.0"),
+            "h11": mocker.Mock(__file__="/pkg/h11.py", __version__="4.0.0"),
+            "pydantic_core": mocker.Mock(__file__="/pkg/pydantic_core.py", __version__="5.0.0"),
+        }
+
         mocker.patch("sys.frozen", False, create=True)
         mocker.patch("platform.platform", return_value="Windows-11")
         mocker.patch("sys.executable", "/path/to/python.exe")
+        mocker.patch("sys.version", "3.12.0")
+        mocker.patch.dict(sys.modules, {"certifi": fake_certifi})
+        mocker.patch.dict(
+            "os.environ",
+            {
+                "SSL_CERT_FILE": "/env/ssl.pem",
+                "REQUESTS_CA_BUNDLE": "/env/requests.pem",
+            },
+            clear=False,
+        )
+        mocker.patch(
+            "whisperbridge.core.api_manager.errors.importlib.import_module",
+            side_effect=lambda name: module_map[name],
+        )
 
-        # Act - call twice
-        log_network_diagnostics(url="https://api.example.com")
-        log_network_diagnostics(url="https://api.example.com")
+        # Act
+        log_network_diagnostics(
+            url="https://api.example.com",
+            error=RuntimeError("boom"),
+        )
 
-        # Assert - check that debug log was called (at least once)
-        assert any("Network diagnostics" in record.message for record in loguru_caplog.records)
+        # Assert
+        network_logs = [
+            record.message for record in loguru_caplog.records
+            if "Network diagnostics:" in record.message
+        ]
+        assert len(network_logs) == 1
+
+        message = network_logs[0]
+        assert "'frozen': False" in message
+        assert "'python': '3.12.0'" in message
+        assert "'platform': 'Windows-11'" in message
+        assert "'executable': '/path/to/python.exe'" in message
+        assert "'SSL_CERT_FILE': '/env/ssl.pem'" in message
+        assert "'REQUESTS_CA_BUNDLE': '/env/requests.pem'" in message
+        assert "'url': 'https://api.example.com'" in message
+        assert "'error': 'boom'" in message
+        assert "'certifi.where': '/fake/cacert.pem'" in message
+        assert "'openai': {'file': '/pkg/openai.py', 'version': '1.0.0'}" in message
+        assert "'pydantic_core': {'file': '/pkg/pydantic_core.py', 'version': '5.0.0'}" in message
 
 
 class TestAPIErrorDataclass:
