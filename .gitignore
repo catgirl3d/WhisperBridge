@@ -170,3 +170,9 @@ logs/
 # Application data
 .cache/
 data/
+.kilo/*
+.mcp-brain/*
+.history/*
+.agent/*
+.kilo/setup-script
+RELEASE.md
