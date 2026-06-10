@@ -193,8 +193,11 @@ class SettingsManager:
                 if not BUILD_OCR_ENABLED:
                     update_data["ocr_enabled"] = False
 
-                # Merge saved settings into the environment-initialized model
-                self._settings = temp_settings.model_copy(update=update_data)
+                # Merge saved settings into the environment-initialized model using
+                # full model validation so persisted values cannot bypass Settings validators.
+                merged_data = temp_settings.model_dump()
+                merged_data.update(update_data)
+                self._settings = Settings.model_validate(merged_data)
                 logger.info("Settings loaded successfully")
                 return self._settings
 
@@ -296,6 +299,12 @@ class SettingsManager:
                     logger.info(f"Successfully saved secure setting: {key}=****")
                     return True
 
+                current_settings = self._settings if self._settings is not None else self.load_settings()
+                validated_data = current_settings.model_dump()
+                validated_data[key] = value
+                validated_settings = Settings.model_validate(validated_data)
+                canonical_value = getattr(validated_settings, key)
+
                 # Load existing data
                 if settings_file.exists():
                     with open(settings_file, "r", encoding="utf-8") as f:
@@ -308,20 +317,16 @@ class SettingsManager:
                     data.pop(api_key_field, None)
 
                 # Update the single value
-                data[key] = value
+                data[key] = canonical_value
 
                 # Write the updated data back
                 with open(settings_file, "w", encoding="utf-8") as f:
                     json.dump(data, f, indent=2, ensure_ascii=False)
 
                 # Update in-memory settings if they exist
-                if self._settings:
-                    # Create a new validated model instance before assigning
-                    new_data = self._settings.model_dump()
-                    new_data[key] = value
-                    self._settings = Settings(**new_data)
+                self._settings = validated_settings
 
-                logger.info(f"Successfully saved single setting: {key}={value}")
+                logger.info(f"Successfully saved single setting: {key}={canonical_value}")
                 return True
 
             except Exception as e:

@@ -25,7 +25,7 @@ from PySide6.QtWidgets import (
 
 from ..services.config_service import config_service, SettingsObserver
 from ..utils.language_utils import detect_language, get_language_name
-from ..core.config import validate_api_key_format, SUPPORTED_PROVIDERS
+from ..core.config import SUPPORTED_PROVIDERS, TRANSLATOR_FONT_SIZE_DEFAULT, validate_api_key_format
 from .styled_overlay_base import StyledOverlayWindow
 from .workers import TranslationWorker, StyleWorker
 from .overlay_ui_builder import OverlayUIBuilder, TranslatorSettingsDialog
@@ -41,6 +41,9 @@ class _OverlaySettingsObserver(SettingsObserver):
             if key in ("api_provider", "openai_api_key", "google_api_key", "deepl_api_key", "api_timeout"):
                 if hasattr(self._owner, "_update_api_state_and_ui"):
                     self._owner._update_api_state_and_ui()
+            elif key == "translator_font_size":
+                if hasattr(self._owner, "_apply_translator_font_size"):
+                    self._owner._apply_translator_font_size(new_value)
             elif key == "text_styles":
                 # Refresh style combo when user modifies text styles in settings
                 if hasattr(self._owner, "ui_builder") and hasattr(self._owner.ui_builder, "refresh_styles"):
@@ -155,6 +158,8 @@ class OverlayWindow(StyledOverlayWindow):
         layout.setStretch(layout.indexOf(self.original_panel), 1)
         layout.setStretch(layout.indexOf(self.translated_panel), 1)
 
+        self._apply_translator_font_size()
+
         self.add_settings_button(self._open_translator_settings)
 
         self._connect_signals()
@@ -177,6 +182,33 @@ class OverlayWindow(StyledOverlayWindow):
         logger.debug("OverlayWindow initialized")
 
 
+
+    def _apply_translator_font_size(self, font_size: Optional[int] = None) -> None:
+        """Apply the configured font size to both translator text fields."""
+        try:
+            resolved_font_size = font_size
+            if resolved_font_size is None:
+                resolved_font_size = config_service.get_setting("translator_font_size")
+
+            if resolved_font_size is None:
+                resolved_font_size = TRANSLATOR_FONT_SIZE_DEFAULT
+
+            for text_widget in (self.original_text, self.translated_text):
+                if not text_widget:
+                    continue
+
+                if hasattr(text_widget, "apply_font_point_size"):
+                    text_widget.apply_font_point_size(resolved_font_size)
+                    continue
+
+                font = text_widget.font()
+                if font.pointSize() == resolved_font_size:
+                    continue
+
+                font.setPointSize(resolved_font_size)
+                text_widget.setFont(font)
+        except Exception as e:
+            logger.debug(f"Failed to apply translator font size: {e}")
 
     def _connect_signals(self):
         """Connect all UI signals to their slots."""
@@ -752,6 +784,7 @@ class OverlayWindow(StyledOverlayWindow):
 
         # Cache settings for use in other methods
         self._cached_settings = settings
+        self._apply_translator_font_size(getattr(settings, "translator_font_size", None))
 
         for element in self.hideable_elements:
             element.setVisible(not compact)
@@ -951,8 +984,12 @@ class OverlayWindow(StyledOverlayWindow):
         data = self.target_combo.currentData()
         updates = {"ui_target_mode": "explicit", "ui_target_language": data}
         try:
-            config_service.update_settings(updates)
-            logger.info(f"UI target updated: mode=explicit, lang={data}")
+            previous_target = getattr(config_service.get_settings(), "ui_target_language", data)
+            if config_service.update_settings(updates):
+                logger.info(f"UI target updated: mode=explicit, lang={data}")
+            else:
+                self.ui_builder.set_combo_data(self.target_combo, previous_target)
+                logger.error(f"Failed to persist target selection: {data}")
         except Exception as e:
             logger.error(f"Failed to persist target selection: {e}")
 
@@ -983,7 +1020,10 @@ class OverlayWindow(StyledOverlayWindow):
             "ui_target_language": new_target,
         }
         try:
-            config_service.update_settings(updates)
+            if not config_service.update_settings(updates):
+                self.ui_builder.set_combo_data(self.source_combo, src_data)
+                self.ui_builder.set_combo_data(self.target_combo, tgt_data)
+                logger.error("Failed to persist swap")
         except Exception as e:
             logger.error(f"Failed to persist swap: {e}")
 

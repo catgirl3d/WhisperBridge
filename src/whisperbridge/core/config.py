@@ -40,6 +40,30 @@ except Exception:
 # Supported API Providers (centralized constant)
 SUPPORTED_PROVIDERS: List[str] = ["openai", "google", "deepl"]
 
+TRANSLATOR_FONT_SIZE_DEFAULT = 9
+TRANSLATOR_FONT_SIZE_MIN = 8
+TRANSLATOR_FONT_SIZE_MAX = 32
+
+
+def normalize_translator_font_size(value: Any) -> int:
+    """Return a safe translator font size clamped to the supported range."""
+    if isinstance(value, bool):
+        return TRANSLATOR_FONT_SIZE_DEFAULT
+
+    if isinstance(value, int):
+        font_size = value
+    elif isinstance(value, float):
+        font_size = int(value)
+    elif isinstance(value, str) and value.strip():
+        try:
+            font_size = int(value.strip())
+        except ValueError:
+            return TRANSLATOR_FONT_SIZE_DEFAULT
+    else:
+        return TRANSLATOR_FONT_SIZE_DEFAULT
+
+    return max(TRANSLATOR_FONT_SIZE_MIN, min(TRANSLATOR_FONT_SIZE_MAX, font_size))
+
 GOOGLE_MODEL_EXCLUDE_DEFAULT: List[str] = [
     "embedding",
     "robotics",
@@ -180,6 +204,10 @@ class Settings(BaseSettings):
     # Translator UI Settings
     compact_view: bool = Field(default=False, description="Compact view for translator window (hides labels and buttons)")
     overlay_side_buttons_autohide: bool = Field(default=False, description="Auto-hide right-side buttons in compact mode (show on hover)")
+    translator_font_size: int = Field(
+        default=TRANSLATOR_FONT_SIZE_DEFAULT,
+        description="Font size for both translator text fields in the overlay window.",
+    )
 
     # General Settings
     show_notifications: bool = Field(default=True, description="Show notifications")
@@ -237,6 +265,12 @@ class Settings(BaseSettings):
         if v not in ["auto"] and len(v) != 2:
             raise ValueError(f"Invalid language code: {v}")
         return v
+
+    @field_validator("translator_font_size", mode="before")
+    @classmethod
+    def validate_translator_font_size(cls, value: Any) -> int:
+        """Clamp translator font size at the model boundary."""
+        return normalize_translator_font_size(value)
 
     @field_validator("theme")
     @classmethod

@@ -135,6 +135,128 @@ class TestQtIntegration:
                 thread.quit()
                 thread.wait(500)
 
+    def test_overlay_applies_translator_font_size_from_settings(self, qtbot, mocker):
+        """Overlay should apply the configured font size to both translator text fields."""
+        mock_settings = Mock(
+            compact_view=False,
+            overlay_side_buttons_autohide=False,
+            translator_font_size=18,
+            auto_swap_en_ru=True,
+            text_styles=[],
+        )
+
+        def get_setting(key):
+            if key == "translator_font_size":
+                return 18
+            if key == "api_provider":
+                return "openai"
+            if key == "openai_api_key":
+                return ""
+            return None
+
+        mocker.patch('whisperbridge.ui_qt.overlay_window.config_service.get_setting', side_effect=get_setting)
+        mocker.patch('whisperbridge.ui_qt.overlay_window.config_service.get_settings', return_value=mock_settings)
+
+        window = OverlayWindow()
+        qtbot.addWidget(window)
+        window._update_layout()
+
+        assert window.original_text.font().pointSize() == 18
+        assert window.translated_text.font().pointSize() == 18
+        assert window.original_text.document().defaultFont().pointSize() == 18
+        assert window.translated_text.document().defaultFont().pointSize() == 18
+
+    def test_overlay_observer_applies_live_translator_font_size_change(self, qtbot, mocker):
+        """Overlay should update both text fields when translator_font_size changes."""
+        mock_settings = Mock(
+            compact_view=False,
+            overlay_side_buttons_autohide=False,
+            translator_font_size=14,
+            auto_swap_en_ru=True,
+            stylist_cache_enabled=False,
+            translation_cache_enabled=False,
+            auto_copy_translated_main_window=False,
+            text_styles=[],
+        )
+
+        def get_setting(key):
+            if key == "translator_font_size":
+                return 14
+            if key == "api_provider":
+                return "openai"
+            if key == "openai_api_key":
+                return ""
+            return None
+
+        mocker.patch('whisperbridge.ui_qt.overlay_window.config_service.get_setting', side_effect=get_setting)
+        mocker.patch('whisperbridge.ui_qt.overlay_window.config_service.get_settings', return_value=mock_settings)
+
+        window = OverlayWindow()
+        qtbot.addWidget(window)
+        window._update_layout()
+
+        assert window.original_text.font().pointSize() == 14
+        assert window.translated_text.font().pointSize() == 14
+
+        window._settings_observer.on_settings_changed("translator_font_size", 14, 19)
+
+        assert window.original_text.font().pointSize() == 19
+        assert window.translated_text.font().pointSize() == 19
+
+    def test_overlay_dialog_spinbox_applies_font_size_live(self, qtbot, mocker):
+        """Translator settings dialog should update overlay text fields immediately."""
+        mock_settings = Mock(
+            compact_view=False,
+            overlay_side_buttons_autohide=False,
+            translator_font_size=14,
+            auto_swap_en_ru=True,
+            overlay_window_geometry=None,
+            stylist_cache_enabled=False,
+            translation_cache_enabled=False,
+            auto_copy_translated_main_window=False,
+            text_styles=[],
+        )
+
+        current_font_size = {"value": 14}
+        window = None
+
+        def get_setting(key):
+            if key == "translator_font_size":
+                return current_font_size["value"]
+            if key == "api_provider":
+                return "openai"
+            if key == "openai_api_key":
+                return ""
+            return None
+
+        def set_setting(key, value):
+            if key == "translator_font_size":
+                old_value = current_font_size["value"]
+                current_font_size["value"] = value
+                mock_settings.translator_font_size = value
+                if window is not None:
+                    window._settings_observer.on_settings_changed(key, old_value, value)
+            return True
+
+        mocker.patch('whisperbridge.ui_qt.overlay_window.config_service.get_setting', side_effect=get_setting)
+        mocker.patch('whisperbridge.ui_qt.overlay_window.config_service.get_settings', return_value=mock_settings)
+        mocker.patch('whisperbridge.ui_qt.overlay_ui_builder.config_service.get_settings', return_value=mock_settings)
+        mocker.patch('whisperbridge.ui_qt.overlay_ui_builder.config_service.set_setting', side_effect=set_setting)
+
+        window = OverlayWindow()
+        qtbot.addWidget(window)
+        window._open_translator_settings()
+        qtbot.wait(10)
+
+        dialog = window._translator_settings_dialog
+        dialog.translator_font_size_spinbox.setValue(20)
+        qtbot.wait(10)
+
+        assert window.original_text.font().pointSize() == 20
+        assert window.translated_text.font().pointSize() == 20
+        assert window.original_text.document().defaultFont().pointSize() == 20
+        assert window.translated_text.document().defaultFont().pointSize() == 20
+
     # --- Watchdog Timer Tests ---
 
     def test_watchdog_starts_with_correct_timeout(self, qtbot, overlay, mock_config_service):

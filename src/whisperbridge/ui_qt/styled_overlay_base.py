@@ -208,8 +208,10 @@ class StyledOverlayWindow(QWidget, BaseWindow):
 
             if current_geometry != geometry_data:
                 # Use update_settings to change a single field (validates and saves safely)
-                config_service.update_settings({"overlay_window_geometry": geometry_data})
-                logger.debug(f"Overlay window geometry captured and saved: {geometry_data}")
+                if config_service.update_settings({"overlay_window_geometry": geometry_data}):
+                    logger.debug(f"Overlay window geometry captured and saved: {geometry_data}")
+                else:
+                    logger.error(f"Failed to persist overlay window geometry: {geometry_data}")
             else:
                 logger.debug("Overlay window geometry unchanged; skipping save.")
         except Exception as e:

@@ -96,8 +96,10 @@ class MainWindow(QMainWindow, BaseWindow):
 
             if current_geometry != geometry_data:
                 # Use update_settings to change a single field (validates and saves safely)
-                config_service.update_settings({"window_geometry": geometry_data})
-                logger.debug(f"Window geometry captured and saved: {geometry_data}")
+                if config_service.update_settings({"window_geometry": geometry_data}):
+                    logger.debug(f"Window geometry captured and saved: {geometry_data}")
+                else:
+                    logger.error(f"Failed to persist window geometry: {geometry_data}")
             else:
                 logger.debug("Window geometry unchanged; skipping save.")
         except Exception as e:

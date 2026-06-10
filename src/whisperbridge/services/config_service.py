@@ -207,23 +207,24 @@ class ConfigService(QObject):
                 success = self._settings_manager.save_single_setting(key, value)
 
                 if success:
-                    # Update in-memory cache and notify observers
-                    # Update the main settings object as well
-                    if self._settings:
-                        setattr(self._settings, key, value)
+                    validated_settings = self._settings_manager.get_settings()
+                    validated_value = getattr(validated_settings, key, value)
+                    self._settings = validated_settings
 
-                    self._set_cached_value(key, value)
-                    self._notify_observers("changed", key, old_value, value)
+                    self._set_cached_value(key, validated_value)
+
+                    if old_value != validated_value:
+                        self._notify_observers("changed", key, old_value, validated_value)
 
                     # If log level changed, reconfigure logging
-                    if key == "log_level":
+                    if key == "log_level" and old_value != validated_value:
                         try:
                             from ..core.logger import setup_logging
 
                             setup_logging(self)
-                            logger.info(f"Applied new log level: {value}")
+                            logger.info(f"Applied new log level: {validated_value}")
                         except Exception as e:
-                            logger.error(f"Failed to apply new log level '{value}': {e}")
+                            logger.error(f"Failed to apply new log level '{validated_value}': {e}")
 
                 return success
 
@@ -235,11 +236,11 @@ class ConfigService(QObject):
         """Update multiple settings at once."""
         with self._lock:
             try:
-                # This is less efficient as it writes the file for each setting,
-                # but it reuses the existing single-setting save logic.
-                for key, value in updates.items():
-                    self.set_setting(key, value)
-                return True
+                current_settings = self.get_settings()
+                merged_data = current_settings.model_dump()
+                merged_data.update(updates)
+                new_settings = Settings.model_validate(merged_data)
+                return self.save_settings(new_settings)
             except Exception as e:
                 logger.error(f"Failed to update settings: {e}")
                 return False

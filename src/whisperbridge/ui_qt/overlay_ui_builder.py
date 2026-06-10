@@ -33,6 +33,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QPushButton,
+    QSpinBox,
     QToolButton,
     QSizePolicy,
     QSpacerItem,
@@ -40,15 +41,35 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
+from ..core.config import (
+    TRANSLATOR_FONT_SIZE_DEFAULT,
+    TRANSLATOR_FONT_SIZE_MAX,
+    TRANSLATOR_FONT_SIZE_MIN,
+)
 from ..services.config_service import config_service
 from ..utils.language_utils import get_supported_languages
 from .overlay_ui_components import OverlayUIComponents
+from .widgets.placeholder_text_edit import PlaceholderTextEdit
 from .widget_factory import apply_custom_dropdown_style as _apply_custom_dropdown_style
 from .widget_factory import create_widget as _create_widget
 from .widget_factory import make_icon_from_spec as _wf_make_icon_from_spec
 
 # Base path for assets
 _ASSETS_BASE = Path(__file__).parent.parent / "assets"
+
+
+def _resolve_translator_font_size_setting(settings) -> int:
+    """Return a safe integer font size for dialog initialization/rollback."""
+    value = getattr(settings, "translator_font_size", TRANSLATOR_FONT_SIZE_DEFAULT)
+    if isinstance(value, bool) or not isinstance(value, int):
+        return TRANSLATOR_FONT_SIZE_DEFAULT
+    return value
+
+
+def _resolve_bool_setting(settings, key: str, default: bool = False) -> bool:
+    """Return a strict boolean from settings, falling back for missing/mock values."""
+    value = getattr(settings, key, default)
+    return value if isinstance(value, bool) else default
 
 
 class TranslatorSettingsDialog(QDialog):
@@ -70,6 +91,18 @@ class TranslatorSettingsDialog(QDialog):
             'text': "Hide right-side buttons (show on hover)",
             'tooltip': "If enabled, the narrow buttons on the right appear only on hover",
             'object_name': "autohide_buttons_checkbox"
+        },
+        'translator_font_size_label': {
+            'text': "Text size:",
+            'object_name': "translator_font_size_label"
+        },
+        'translator_font_size_spinbox': {
+            'object_name': "translator_font_size_spinbox",
+            'tooltip': "Set the font size for both translator text fields",
+            'width': 64,
+            'minimum': TRANSLATOR_FONT_SIZE_MIN,
+            'maximum': TRANSLATOR_FONT_SIZE_MAX,
+            'single_step': 1,
         },
         'stylist_cache_checkbox': {
             'text': "Enable Text Stylist caching",
@@ -115,16 +148,33 @@ class TranslatorSettingsDialog(QDialog):
         display_layout = QVBoxLayout(display_group)
 
         self.compact_view_checkbox, _ = _create_widget(config_maps, "translator", "compact_view_checkbox", QCheckBox)
-        self.compact_view_checkbox.setChecked(getattr(settings, "compact_view", False))
+        self.compact_view_checkbox.setChecked(_resolve_bool_setting(settings, "compact_view"))
         self.compact_view_checkbox.stateChanged.connect(self._on_compact_view_changed)
         display_layout.addWidget(self.compact_view_checkbox)
 
         self.autohide_buttons_checkbox, _ = _create_widget(
             config_maps, "translator", "autohide_buttons_checkbox", QCheckBox
         )
-        self.autohide_buttons_checkbox.setChecked(getattr(settings, "overlay_side_buttons_autohide", False))
+        self.autohide_buttons_checkbox.setChecked(_resolve_bool_setting(settings, "overlay_side_buttons_autohide"))
         self.autohide_buttons_checkbox.stateChanged.connect(self._on_autohide_buttons_changed)
         display_layout.addWidget(self.autohide_buttons_checkbox)
+
+        self.translator_font_size_label, _ = _create_widget(
+            config_maps, "translator", "translator_font_size_label", QLabel
+        )
+        self.translator_font_size_spinbox, font_size_config = _create_widget(
+            config_maps, "translator", "translator_font_size_spinbox", QSpinBox
+        )
+        self.translator_font_size_spinbox.setRange(font_size_config["minimum"], font_size_config["maximum"])
+        self.translator_font_size_spinbox.setSingleStep(font_size_config["single_step"])
+        self.translator_font_size_spinbox.setValue(_resolve_translator_font_size_setting(settings))
+        self.translator_font_size_spinbox.valueChanged.connect(self._on_translator_font_size_changed)
+
+        font_size_row = QHBoxLayout()
+        font_size_row.addWidget(self.translator_font_size_label)
+        font_size_row.addWidget(self.translator_font_size_spinbox)
+        font_size_row.addStretch()
+        display_layout.addLayout(font_size_row)
 
         layout.addWidget(display_group)
 
@@ -135,14 +185,14 @@ class TranslatorSettingsDialog(QDialog):
         self.stylist_cache_checkbox, _ = _create_widget(
             config_maps, "translator", "stylist_cache_checkbox", QCheckBox
         )
-        self.stylist_cache_checkbox.setChecked(getattr(settings, "stylist_cache_enabled", False))
+        self.stylist_cache_checkbox.setChecked(_resolve_bool_setting(settings, "stylist_cache_enabled"))
         self.stylist_cache_checkbox.stateChanged.connect(self._on_stylist_cache_changed)
         performance_layout.addWidget(self.stylist_cache_checkbox)
 
         self.translation_cache_checkbox, _ = _create_widget(
             config_maps, "translator", "translation_cache_checkbox", QCheckBox
         )
-        self.translation_cache_checkbox.setChecked(getattr(settings, "translation_cache_enabled", False))
+        self.translation_cache_checkbox.setChecked(_resolve_bool_setting(settings, "translation_cache_enabled"))
         self.translation_cache_checkbox.stateChanged.connect(self._on_translation_cache_changed)
         performance_layout.addWidget(self.translation_cache_checkbox)
 
@@ -155,7 +205,9 @@ class TranslatorSettingsDialog(QDialog):
         self.auto_copy_translated_checkbox, _ = _create_widget(
             config_maps, "translator", "auto_copy_translated_checkbox", QCheckBox
         )
-        self.auto_copy_translated_checkbox.setChecked(getattr(settings, "auto_copy_translated_main_window", False))
+        self.auto_copy_translated_checkbox.setChecked(
+            _resolve_bool_setting(settings, "auto_copy_translated_main_window")
+        )
         self.auto_copy_translated_checkbox.stateChanged.connect(self._on_auto_copy_translated_changed)
         clipboard_layout.addWidget(self.auto_copy_translated_checkbox)
 
@@ -170,9 +222,15 @@ class TranslatorSettingsDialog(QDialog):
     def _on_compact_view_changed(self, state):
         """Persist compact view setting."""
         try:
-            enabled = bool(state)
-            config_service.set_setting("compact_view", enabled)
-            logger.info(f"Compact view setting updated: {enabled}")
+            enabled = self._persist_checkbox_setting(
+                checkbox=self.compact_view_checkbox,
+                setting_key="compact_view",
+                state=state,
+                success_message="Compact view setting updated",
+            )
+            if enabled is None:
+                return
+
             parent = self.parent()
             if parent and hasattr(parent, "_update_layout"):
                 getattr(parent, "_update_layout")()
@@ -182,41 +240,88 @@ class TranslatorSettingsDialog(QDialog):
     def _on_autohide_buttons_changed(self, state):
         """Persist side-buttons auto-hide setting and apply policy immediately."""
         try:
-            enabled = bool(state)
-            config_service.set_setting("overlay_side_buttons_autohide", enabled)
-            logger.info(f"Side buttons auto-hide updated: {enabled}")
+            enabled = self._persist_checkbox_setting(
+                checkbox=self.autohide_buttons_checkbox,
+                setting_key="overlay_side_buttons_autohide",
+                state=state,
+                success_message="Side buttons auto-hide updated",
+            )
+            if enabled is None:
+                return
+
             parent = self.parent()
             if parent and hasattr(parent, "_update_layout"):
                 getattr(parent, "_update_layout")()
         except Exception as e:
             logger.error(f"Failed to save side buttons auto-hide setting: {e}")
 
+    def _on_translator_font_size_changed(self, value):
+        """Persist translator text font size setting."""
+        try:
+            previous_font_size = _resolve_translator_font_size_setting(config_service.get_settings())
+            font_size = int(value)
+            success = config_service.set_setting("translator_font_size", font_size)
+            if not success:
+                self.translator_font_size_spinbox.blockSignals(True)
+                self.translator_font_size_spinbox.setValue(previous_font_size)
+                self.translator_font_size_spinbox.blockSignals(False)
+                logger.error(f"Failed to persist translator font size setting: {font_size}")
+                return
+
+            logger.info(f"Translator font size updated: {font_size}")
+        except Exception as e:
+            logger.error(f"Failed to save translator font size setting: {e}")
+
     def _on_stylist_cache_changed(self, state):
         """Persist Text Stylist cache setting."""
         try:
-            enabled = bool(state)
-            config_service.set_setting("stylist_cache_enabled", enabled)
-            logger.info(f"Text Stylist cache setting updated: {enabled}")
+            self._persist_checkbox_setting(
+                checkbox=self.stylist_cache_checkbox,
+                setting_key="stylist_cache_enabled",
+                state=state,
+                success_message="Text Stylist cache setting updated",
+            )
         except Exception as e:
             logger.error(f"Failed to save Text Stylist cache setting: {e}")
 
     def _on_translation_cache_changed(self, state):
         """Persist translation cache setting."""
         try:
-            enabled = bool(state)
-            config_service.set_setting("translation_cache_enabled", enabled)
-            logger.info(f"Translation cache setting updated: {enabled}")
+            self._persist_checkbox_setting(
+                checkbox=self.translation_cache_checkbox,
+                setting_key="translation_cache_enabled",
+                state=state,
+                success_message="Translation cache setting updated",
+            )
         except Exception as e:
             logger.error(f"Failed to save translation cache setting: {e}")
 
     def _on_auto_copy_translated_changed(self, state):
         """Persist auto-copy translated text setting."""
         try:
-            enabled = bool(state)
-            config_service.set_setting("auto_copy_translated_main_window", enabled)
-            logger.info(f"Auto-copy translated text setting updated: {enabled}")
+            self._persist_checkbox_setting(
+                checkbox=self.auto_copy_translated_checkbox,
+                setting_key="auto_copy_translated_main_window",
+                state=state,
+                success_message="Auto-copy translated text setting updated",
+            )
         except Exception as e:
             logger.error(f"Failed to save auto-copy translated text setting: {e}")
+
+    def _persist_checkbox_setting(self, checkbox: QCheckBox, setting_key: str, state, success_message: str) -> Optional[bool]:
+        """Persist a checkbox-backed setting and roll back the UI if saving fails."""
+        previous_value = _resolve_bool_setting(config_service.get_settings(), setting_key)
+        enabled = bool(state)
+        success = config_service.set_setting(setting_key, enabled)
+        if not success:
+            checkbox.blockSignals(True)
+            checkbox.setChecked(previous_value)
+            checkbox.blockSignals(False)
+            logger.error(f"Failed to persist {setting_key}: {enabled}")
+            return None
+
+        logger.info(f"{success_message}: {enabled}")
+        return enabled
 
 
 class PanelWidget(QFrame):
@@ -580,7 +685,7 @@ class OverlayUIBuilder:
 
     def _create_text_edit(self, placeholder):
         """Create a QTextEdit widget."""
-        text_edit = QTextEdit()
+        text_edit = PlaceholderTextEdit()
         text_edit.setReadOnly(False)
         text_edit.setAcceptRichText(False)
         text_edit.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)

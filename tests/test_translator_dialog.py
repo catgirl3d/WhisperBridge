@@ -1,7 +1,7 @@
 """Tests for TranslatorSettingsDialog factory integration."""
 
 import pytest
-from PySide6.QtWidgets import QApplication, QCheckBox, QPushButton, QGroupBox, QWidget
+from PySide6.QtWidgets import QApplication, QCheckBox, QPushButton, QGroupBox, QSpinBox, QWidget
 from PySide6.QtCore import Qt
 from unittest.mock import Mock
 
@@ -14,6 +14,7 @@ def test_translator_dialog_factory_integration(qapp, mocker):
     mock_settings = Mock()
     mock_settings.compact_view = False
     mock_settings.overlay_side_buttons_autohide = False
+    mock_settings.translator_font_size = 14
     mock_settings.stylist_cache_enabled = False
     mock_settings.translation_cache_enabled = False
     mock_settings.auto_copy_translated_main_window = False
@@ -31,6 +32,10 @@ def test_translator_dialog_factory_integration(qapp, mocker):
     assert dialog.autohide_buttons_checkbox is not None
     assert isinstance(dialog.autohide_buttons_checkbox, QCheckBox)
     assert dialog.autohide_buttons_checkbox.objectName() == "autohide_buttons_checkbox"
+
+    assert dialog.translator_font_size_spinbox is not None
+    assert isinstance(dialog.translator_font_size_spinbox, QSpinBox)
+    assert dialog.translator_font_size_spinbox.objectName() == "translator_font_size_spinbox"
 
     # Check that Performance widgets were created via factory
     assert dialog.stylist_cache_checkbox is not None
@@ -70,6 +75,7 @@ def test_translator_dialog_initialization_from_config(qapp, mocker):
     mock_settings = Mock()
     mock_settings.compact_view = True
     mock_settings.overlay_side_buttons_autohide = False
+    mock_settings.translator_font_size = 18
     mock_settings.stylist_cache_enabled = True
     mock_settings.translation_cache_enabled = False
     mock_settings.auto_copy_translated_main_window = True
@@ -81,6 +87,7 @@ def test_translator_dialog_initialization_from_config(qapp, mocker):
     
     assert dialog.compact_view_checkbox.isChecked()
     assert not dialog.autohide_buttons_checkbox.isChecked()
+    assert dialog.translator_font_size_spinbox.value() == 18
     assert dialog.stylist_cache_checkbox.isChecked()
     assert not dialog.translation_cache_checkbox.isChecked()
     assert dialog.auto_copy_translated_checkbox.isChecked()
@@ -101,6 +108,7 @@ def test_translator_dialog_initialization_with_defaults(qapp, mocker):
     # All should be False by default due to getattr(..., False)
     assert not dialog.compact_view_checkbox.isChecked()
     assert not dialog.autohide_buttons_checkbox.isChecked()
+    assert dialog.translator_font_size_spinbox.value() == 9
     assert not dialog.stylist_cache_checkbox.isChecked()
     assert not dialog.translation_cache_checkbox.isChecked()
     assert not dialog.auto_copy_translated_checkbox.isChecked()
@@ -153,6 +161,149 @@ def test_autohide_buttons_changed_callback(qapp, mocker):
     dialog.autohide_buttons_checkbox.setChecked(True)
     
     mock_set_setting.assert_called_with("overlay_side_buttons_autohide", True)
+    dialog.close()
+
+
+def test_compact_view_rolls_back_when_save_fails(qapp, mocker):
+    """Failed compact_view persistence should restore the previous checkbox state."""
+    mock_settings = Mock()
+    mock_settings.compact_view = False
+    mock_settings.overlay_side_buttons_autohide = False
+    mock_settings.stylist_cache_enabled = False
+    mock_settings.translation_cache_enabled = False
+    mock_settings.auto_copy_translated_main_window = False
+
+    mocker.patch('whisperbridge.ui_qt.overlay_ui_builder.config_service.get_settings',
+                 return_value=mock_settings)
+    mock_set_setting = mocker.patch(
+        'whisperbridge.ui_qt.overlay_ui_builder.config_service.set_setting',
+        return_value=False,
+    )
+    mock_log_info = mocker.patch('whisperbridge.ui_qt.overlay_ui_builder.logger.info')
+
+    mock_parent = Mock(spec=['_update_layout'])
+    mock_parent._update_layout = mocker.Mock()
+
+    dialog = TranslatorSettingsDialog(parent=None)
+    dialog.parent = lambda: mock_parent
+    dialog.compact_view_checkbox.setChecked(True)
+
+    mock_set_setting.assert_called_with("compact_view", True)
+    assert not dialog.compact_view_checkbox.isChecked()
+    mock_parent._update_layout.assert_not_called()
+    mock_log_info.assert_not_called()
+    dialog.close()
+
+
+def test_autohide_buttons_roll_back_when_save_fails(qapp, mocker):
+    """Failed autohide persistence should restore the previous checkbox state."""
+    mock_settings = Mock()
+    mock_settings.compact_view = False
+    mock_settings.overlay_side_buttons_autohide = False
+    mock_settings.stylist_cache_enabled = False
+    mock_settings.translation_cache_enabled = False
+    mock_settings.auto_copy_translated_main_window = False
+
+    mocker.patch('whisperbridge.ui_qt.overlay_ui_builder.config_service.get_settings',
+                 return_value=mock_settings)
+    mock_set_setting = mocker.patch(
+        'whisperbridge.ui_qt.overlay_ui_builder.config_service.set_setting',
+        return_value=False,
+    )
+    mock_log_info = mocker.patch('whisperbridge.ui_qt.overlay_ui_builder.logger.info')
+
+    mock_parent = Mock(spec=['_update_layout'])
+    mock_parent._update_layout = mocker.Mock()
+
+    dialog = TranslatorSettingsDialog(parent=None)
+    dialog.parent = lambda: mock_parent
+    dialog.autohide_buttons_checkbox.setChecked(True)
+
+    mock_set_setting.assert_called_with("overlay_side_buttons_autohide", True)
+    assert not dialog.autohide_buttons_checkbox.isChecked()
+    mock_parent._update_layout.assert_not_called()
+    mock_log_info.assert_not_called()
+    dialog.close()
+
+
+def test_translator_font_size_changed_callback(qapp, mocker):
+    """Test saving translator_font_size when spinbox value changes."""
+    mock_settings = Mock()
+    mock_settings.compact_view = False
+    mock_settings.overlay_side_buttons_autohide = False
+    mock_settings.translator_font_size = 14
+    mock_settings.stylist_cache_enabled = False
+    mock_settings.translation_cache_enabled = False
+    mock_settings.auto_copy_translated_main_window = False
+
+    mocker.patch('whisperbridge.ui_qt.overlay_ui_builder.config_service.get_settings',
+                 return_value=mock_settings)
+    mocker.patch('whisperbridge.ui_qt.overlay_ui_builder.config_service.get_setting', return_value=14)
+    mock_set_setting = mocker.patch('whisperbridge.ui_qt.overlay_ui_builder.config_service.set_setting')
+
+    dialog = TranslatorSettingsDialog()
+    dialog.translator_font_size_spinbox.setValue(18)
+
+    mock_set_setting.assert_called_with("translator_font_size", 18)
+    dialog.close()
+
+
+def test_translator_font_size_does_not_call_parent_directly(qapp, mocker):
+    """Successful save should rely on config observers, not direct parent mutation."""
+    mock_settings = Mock()
+    mock_settings.compact_view = False
+    mock_settings.overlay_side_buttons_autohide = False
+    mock_settings.translator_font_size = 14
+    mock_settings.stylist_cache_enabled = False
+    mock_settings.translation_cache_enabled = False
+    mock_settings.auto_copy_translated_main_window = False
+
+    mocker.patch('whisperbridge.ui_qt.overlay_ui_builder.config_service.get_settings',
+                 return_value=mock_settings)
+    mocker.patch('whisperbridge.ui_qt.overlay_ui_builder.config_service.get_setting', return_value=14)
+    mocker.patch('whisperbridge.ui_qt.overlay_ui_builder.config_service.set_setting')
+
+    mock_parent = Mock(spec=['_apply_translator_font_size'])
+    mock_parent._apply_translator_font_size = mocker.Mock()
+
+    dialog = TranslatorSettingsDialog(parent=None)
+    dialog.parent = lambda: mock_parent
+    dialog.translator_font_size_spinbox.setValue(19)
+
+    mock_parent._apply_translator_font_size.assert_not_called()
+    dialog.close()
+
+
+def test_translator_font_size_rolls_back_when_save_fails(qapp, mocker):
+    """Failed font-size persistence should restore the last saved value and skip live apply."""
+    mock_settings = Mock()
+    mock_settings.compact_view = False
+    mock_settings.overlay_side_buttons_autohide = False
+    mock_settings.translator_font_size = 14
+    mock_settings.stylist_cache_enabled = False
+    mock_settings.translation_cache_enabled = False
+    mock_settings.auto_copy_translated_main_window = False
+
+    mocker.patch('whisperbridge.ui_qt.overlay_ui_builder.config_service.get_settings',
+                 return_value=mock_settings)
+    mocker.patch('whisperbridge.ui_qt.overlay_ui_builder.config_service.get_setting', return_value=14)
+    mock_set_setting = mocker.patch(
+        'whisperbridge.ui_qt.overlay_ui_builder.config_service.set_setting',
+        return_value=False,
+    )
+    mock_log_info = mocker.patch('whisperbridge.ui_qt.overlay_ui_builder.logger.info')
+
+    mock_parent = Mock(spec=['_apply_translator_font_size'])
+    mock_parent._apply_translator_font_size = mocker.Mock()
+
+    dialog = TranslatorSettingsDialog(parent=None)
+    dialog.parent = lambda: mock_parent
+    dialog.translator_font_size_spinbox.setValue(19)
+
+    mock_set_setting.assert_called_with("translator_font_size", 19)
+    assert dialog.translator_font_size_spinbox.value() == 14
+    mock_parent._apply_translator_font_size.assert_not_called()
+    mock_log_info.assert_not_called()
     dialog.close()
 
 
@@ -225,6 +376,7 @@ def test_translator_dialog_config_consistency(qapp, mocker):
     mock_settings = Mock()
     mock_settings.compact_view = False
     mock_settings.overlay_side_buttons_autohide = False
+    mock_settings.translator_font_size = 14
     mock_settings.stylist_cache_enabled = False
     mock_settings.translation_cache_enabled = False
     mock_settings.auto_copy_translated_main_window = False
@@ -243,6 +395,9 @@ def test_translator_dialog_config_consistency(qapp, mocker):
     autohide_checkbox = dialog.autohide_buttons_checkbox
     assert autohide_checkbox.text() == "Hide right-side buttons (show on hover)"
     assert autohide_checkbox.toolTip() == "If enabled, the narrow buttons on the right appear only on hover"
+
+    assert dialog.translator_font_size_label.text() == "Text size:"
+    assert dialog.translator_font_size_spinbox.toolTip() == "Set the font size for both translator text fields"
 
     dialog.close()
 
