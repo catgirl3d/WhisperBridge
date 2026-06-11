@@ -5,12 +5,13 @@
 
 ![1](docs/img/_251020140250.png) 
 
-Desktop application for instant on-screen text translation. Use it as a powerful OCR tool to capture and translate any screen region, or as a standard translator with a dedicated window.
+Desktop application for instant on-screen text translation. BYOK (Bring Your Own Key) is the only mode of operation: use your own OpenAI, Google Gemini, or DeepL API keys. Use it as a powerful OCR tool to capture and translate any screen region, or as a standard translator with a dedicated window.
 
 ## Features
 
 - **Screen region capture + OCR** - Uses LLM-based OCR (OpenAI/Google) for high-accuracy text recognition
 - **Fast translation via AI** - Almost instant translation using OpenAI, Google Gemini, or DeepL
+- **BYOK (Bring Your Own Key)** - Use your own OpenAI, Google Gemini, or DeepL API keys
 - **Text Stylist** - Rewrite text in different styles (Formal, Friendly, Simplify, etc.)
 - **Translator Window** - Convenient copy, paste, and quick actions
 - **Global hotkeys** - Configurable shortcuts for capture, translation, and activation
@@ -66,6 +67,8 @@ python src/main.py
 - **macOS/Linux:** `~/.whisperbridge/`
 
 ### API Key Setup
+
+WhisperBridge follows the BYOK (Bring Your Own Key) model: you provide your own provider API keys, and the app uses them directly.
 
 1. Open the Settings dialog in the application
 2. Provide your API keys (OpenAI, Google Gemini, and/or DeepL)
