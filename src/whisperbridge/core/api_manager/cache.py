@@ -38,13 +38,9 @@ class ModelCache:
         self._ttl = ttl_seconds
         self._cache_file = config_dir / "models_cache.json"
 
-    def _get_cache_path(self) -> Path:
-        """Return path to persistent model cache file."""
-        return self._cache_file
-
     def load_from_disk(self) -> None:
         """Load persistent model cache into memory if present."""
-        path = self._get_cache_path()
+        path = self._cache_file
         if not path.exists():
             return
         try:
@@ -62,7 +58,7 @@ class ModelCache:
 
     def save_to_disk(self) -> None:
         """Persist in-memory model cache to disk."""
-        path = self._get_cache_path()
+        path = self._cache_file
         data = {}
         with self._lock:
             for prov, (models, ts) in self._cache.items():
@@ -77,7 +73,7 @@ class ModelCache:
     def cleanup_old_files(self) -> None:
         """Remove cache files older than TTL."""
         try:
-            path = self._get_cache_path()
+            path = self._cache_file
             if path.exists():
                 file_age = time.time() - path.stat().st_mtime
                 if file_age > self._ttl:
