@@ -123,6 +123,41 @@ def test_vision_model_restore_prefers_unsaved_combo_value(qapp, mocker):
     assert dialog._get_openai_vision_model_to_select() == "gpt-5.6-luna"
 
 
+def test_apply_available_models_to_ui_applies_openai_vision_models(mocker):
+    """OpenAI model application should update both selectors with the same source list."""
+    dialog = SettingsDialog.__new__(SettingsDialog)
+    apply_models = mocker.patch.object(dialog, "_apply_models_to_ui")
+    apply_vision_models = mocker.patch.object(dialog, "_apply_openai_vision_models_to_ui")
+    vision_model = "gpt-5.6-luna"
+    vision_model_getter = mocker.patch.object(
+        dialog,
+        "_get_openai_vision_model_to_select",
+        return_value=vision_model,
+    )
+    models = ["gpt-5.4-mini", "gpt-5.6-luna"]
+
+    dialog._apply_available_models_to_ui(models, "gpt-5.4-mini", "api", "openai")
+
+    apply_models.assert_called_once_with(models, "gpt-5.4-mini", "api")
+    vision_model_getter.assert_called_once_with()
+    apply_vision_models.assert_called_once_with(models, vision_model, "api")
+
+
+def test_apply_available_models_to_ui_skips_openai_vision_for_other_providers(mocker):
+    """Non-OpenAI model application should not access or update the vision selector."""
+    dialog = SettingsDialog.__new__(SettingsDialog)
+    apply_models = mocker.patch.object(dialog, "_apply_models_to_ui")
+    apply_vision_models = mocker.patch.object(dialog, "_apply_openai_vision_models_to_ui")
+    vision_model_getter = mocker.patch.object(dialog, "_get_openai_vision_model_to_select")
+    models = ["gemini-2.5-flash"]
+
+    dialog._apply_available_models_to_ui(models, None, "cache", "google")
+
+    apply_models.assert_called_once_with(models, None, "cache")
+    vision_model_getter.assert_not_called()
+    apply_vision_models.assert_not_called()
+
+
 def test_make_qta_icon_returns_qicon(qapp):
     """make_qta_icon should return a QIcon (may be null depending on environment)."""
     icon = widget_factory.make_qta_icon({"icon": "fa5s.times", "color": "black"})

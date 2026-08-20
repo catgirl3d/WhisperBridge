@@ -914,13 +914,12 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
             QMessageBox.information(self, "Test Successful", "API key is working correctly!")
             try:
                 current_model = self.model_combo.currentText().strip()
-                self._apply_models_to_ui(models, current_model, source)
-                if self._get_current_provider() == "openai":
-                    self._apply_openai_vision_models_to_ui(
-                        models,
-                        self._get_openai_vision_model_to_select(),
-                        source,
-                    )
+                self._apply_available_models_to_ui(
+                    models,
+                    current_model,
+                    source,
+                    self._get_current_provider(),
+                )
                 logger.info(f"Successfully applied {len(models)} models from {source} after API test without extra fetch.")
             except Exception as e:
                 logger.error(f"Failed applying models after API test: {e}")
@@ -959,13 +958,7 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
             api_manager = get_api_manager()
             if not api_manager.is_initialized():
                 logger.debug("API manager not initialized; skipping model fetch in UI. It will be initialized at app startup.")
-                self._apply_models_to_ui([], model_to_select, "unconfigured")
-                if provider == "openai":
-                    self._apply_openai_vision_models_to_ui(
-                        [],
-                        self._get_openai_vision_model_to_select(),
-                        "unconfigured",
-                    )
+                self._apply_available_models_to_ui([], model_to_select, "unconfigured", provider)
                 return
 
             # Unified synchronous fetch for all providers (API manager is the single SoT)
@@ -988,23 +981,27 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
                 temp_api_key=temp_key
             )
 
-            self._apply_models_to_ui(models, model_to_select, source)
-            if provider == "openai":
-                self._apply_openai_vision_models_to_ui(
-                    models,
-                    self._get_openai_vision_model_to_select(),
-                    source,
-                )
+            self._apply_available_models_to_ui(models, model_to_select, source, provider)
 
         except Exception as e:
             logger.error(f"Failed to load models: {e}")
-            self._apply_models_to_ui([], model_to_select, "error")
-            if provider == "openai":
-                self._apply_openai_vision_models_to_ui(
-                    [],
-                    self._get_openai_vision_model_to_select(),
-                    "error",
-                )
+            self._apply_available_models_to_ui([], model_to_select, "error", provider)
+
+    def _apply_available_models_to_ui(
+        self,
+        models: list,
+        model_to_select: Optional[str],
+        source: str,
+        provider: str,
+    ) -> None:
+        """Apply available models to the relevant model selectors."""
+        self._apply_models_to_ui(models, model_to_select, source)
+        if provider == "openai":
+            self._apply_openai_vision_models_to_ui(
+                models,
+                self._get_openai_vision_model_to_select(),
+                source,
+            )
 
     def _apply_models_to_ui(self, models: list, current_model: Optional[str], source: str = "unknown"):
         """Apply models to the UI combo box."""
