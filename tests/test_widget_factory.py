@@ -8,12 +8,15 @@ Focus:
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication, QComboBox, QLineEdit, QListView, QPushButton
 
 from whisperbridge.ui_qt import widget_factory
+from whisperbridge.ui_qt.settings_dialog import SettingsDialog
+from whisperbridge.ui_qt.settings_ui_factory import SettingsUIFactory
 
 
 def test_create_widget_applies_common_keys(qapp):
@@ -59,6 +62,30 @@ def test_apply_custom_dropdown_style_sets_list_view(qapp):
 
     view = combo.view()
     assert isinstance(view, QListView)
+
+
+def test_settings_factory_creates_editable_openai_vision_combo(qapp):
+    """The OpenAI vision model selector should allow API-listed and manual IDs."""
+    combo = SettingsUIFactory().create_combo("openaiVisionModelCombo")
+
+    assert combo.objectName() == "openaiVisionModelCombo"
+    assert combo.isEditable()
+
+def test_vision_model_restore_prefers_unsaved_combo_value(qapp, mocker):
+    """Refreshing models must preserve a vision model edited but not saved yet."""
+    combo = SettingsUIFactory().create_combo("openaiVisionModelCombo")
+    combo.addItems(["gpt-5.4-mini", "gpt-5.6-luna"])
+    combo.setCurrentText("gpt-5.6-luna")
+
+    dialog = SettingsDialog.__new__(SettingsDialog)
+    dialog.openai_vision_model_combo = combo
+    dialog.current_settings = SimpleNamespace(openai_vision_model="gpt-5.4-mini")
+    mocker.patch(
+        "whisperbridge.ui_qt.settings_dialog.config_service.get_setting",
+        return_value="gpt-5.4-mini",
+    )
+
+    assert dialog._get_openai_vision_model_to_select() == "gpt-5.6-luna"
 
 
 def test_make_qta_icon_returns_qicon(qapp):

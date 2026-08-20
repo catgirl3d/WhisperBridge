@@ -310,8 +310,8 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
         self.openai_vision_model_label = self.factory.create_label("openaiVisionModelLabel")
         self.openai_vision_model_label.setText("OpenAI Vision Model:")
         self.openai_vision_model_label_container = self._create_hint_label(self.openai_vision_model_label, "api.vision_model_openai")
-        self.openai_vision_model_edit = self.factory.create_line_edit("openaiVisionModelEdit")
-        model_layout.addRow(self.openai_vision_model_label_container, self.openai_vision_model_edit)
+        self.openai_vision_model_combo = self.factory.create_combo("openaiVisionModelCombo")
+        model_layout.addRow(self.openai_vision_model_label_container, self.openai_vision_model_combo)
 
         self.google_vision_model_label = self.factory.create_label("googleVisionModelLabel")
         self.google_vision_model_label.setText("Google Vision Model:")
@@ -641,7 +641,7 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
             
             # Define vision model controls for each provider
             vision_controls = [
-                ("openai", self.openai_vision_model_label_container, self.openai_vision_model_edit),
+                ("openai", self.openai_vision_model_label_container, self.openai_vision_model_combo),
                 ("google", self.google_vision_model_label_container, self.google_vision_model_edit),
             ]
 
@@ -899,6 +899,12 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
             try:
                 current_model = self.model_combo.currentText().strip()
                 self._apply_models_to_ui(models, current_model, source)
+                if self._get_current_provider() == "openai":
+                    self._apply_openai_vision_models_to_ui(
+                        models,
+                        self._get_openai_vision_model_to_select(),
+                        source,
+                    )
                 logger.info(f"Successfully applied {len(models)} models from {source} after API test without extra fetch.")
             except Exception as e:
                 logger.error(f"Failed applying models after API test: {e}")
@@ -938,6 +944,12 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
             if not api_manager.is_initialized():
                 logger.debug("API manager not initialized; skipping model fetch in UI. It will be initialized at app startup.")
                 self._apply_models_to_ui([], model_to_select, "unconfigured")
+                if provider == "openai":
+                    self._apply_openai_vision_models_to_ui(
+                        [],
+                        self._get_openai_vision_model_to_select(),
+                        "unconfigured",
+                    )
                 return
 
             # Unified synchronous fetch for all providers (API manager is the single SoT)
@@ -961,10 +973,22 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
             )
 
             self._apply_models_to_ui(models, model_to_select, source)
+            if provider == "openai":
+                self._apply_openai_vision_models_to_ui(
+                    models,
+                    self._get_openai_vision_model_to_select(),
+                    source,
+                )
 
         except Exception as e:
             logger.error(f"Failed to load models: {e}")
             self._apply_models_to_ui([], model_to_select, "error")
+            if provider == "openai":
+                self._apply_openai_vision_models_to_ui(
+                    [],
+                    self._get_openai_vision_model_to_select(),
+                    "error",
+                )
 
     def _apply_models_to_ui(self, models: list, current_model: Optional[str], source: str = "unknown"):
         """Apply models to the UI combo box."""
@@ -1007,6 +1031,42 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
                 logger.debug(f"❌ No models available to select (source: {source})")
 
         logger.debug(f"Final combo box current text: '{self.model_combo.currentText()}'")
+
+    def _get_openai_vision_model_to_select(self) -> Optional[str]:
+        """Return the current OpenAI vision model for combo restoration."""
+        current_model = self.openai_vision_model_combo.currentText().strip()
+        if current_model:
+            return current_model
+
+        return (
+            getattr(self.current_settings, "openai_vision_model", None)
+            or config_service.get_setting("openai_vision_model")
+        )
+
+    def _apply_openai_vision_models_to_ui(
+        self,
+        models: list,
+        current_model: Optional[str],
+        source: str,
+    ) -> None:
+        """Populate the OpenAI vision selector from the standard model list."""
+        vision_models = models
+        self.openai_vision_model_combo.clear()
+
+        if vision_models:
+            self.openai_vision_model_combo.addItems(vision_models)
+            if current_model:
+                # The editable combo preserves a configured model not returned by the API.
+                self.openai_vision_model_combo.setCurrentText(current_model)
+            else:
+                self.openai_vision_model_combo.setCurrentIndex(0)
+        elif current_model:
+            # Keep the saved model visible when the API is unavailable or has no matching models.
+            self.openai_vision_model_combo.setEditText(current_model)
+
+        logger.debug(
+            f"Applied {len(vision_models)} OpenAI vision models from {source}: {vision_models}"
+        )
 
     def _on_provider_changed(self):
         """Handle provider change - update API key field visibility and reload models."""

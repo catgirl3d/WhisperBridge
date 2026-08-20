@@ -82,9 +82,9 @@ class SettingsUIFactory:
             'single_step': 0.1,
             'value': 1.2
         },
-        'openaiVisionModelEdit': {
-            'object_name': 'openaiVisionModelEdit',
-            'placeholder': 'e.g., gpt-4-vision-preview'
+        'openaiVisionModelCombo': {
+            'object_name': 'openaiVisionModelCombo',
+            'editable': True
         },
         'googleVisionModelEdit': {
             'object_name': 'googleVisionModelEdit',
