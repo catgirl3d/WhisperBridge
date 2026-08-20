@@ -37,7 +37,13 @@ from PySide6.QtCore import QThread, Signal, QObject, QTimer
 
 from ..services.config_service import config_service, SettingsObserver
 from ..core.api_manager import get_api_manager, APIProvider
-from ..core.config import validate_api_key_format, requires_model_selection, supports_stylist, Settings as DefaultSettings, BUILD_OCR_ENABLED
+from ..core.config import (
+    validate_api_key_format,
+    requires_model_selection,
+    supports_stylist,
+    Settings as DefaultSettings,
+    BUILD_OCR_ENABLED,
+)
 from loguru import logger
 from ..core.version import get_version
 from .workers import ApiTestWorker

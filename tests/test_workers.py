@@ -96,4 +96,3 @@ class TestWorkers:
         with qtbot.waitSignal(worker.error) as blocker:
             worker.run()
         assert blocker.args == ["Failed to save settings."]
-
