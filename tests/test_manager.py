@@ -149,7 +149,7 @@ class TestMakeRequestSync:
         # Act
         result = initialized_openai_manager.make_request_sync(
             APIProvider.OPENAI,
-            model="gpt-4",
+            model="gpt-5.4-mini",
             messages=[{"role": "user", "content": "Hello"}],
         )
 
@@ -193,7 +193,7 @@ class TestMakeRequestSync:
         
         result = api_manager.make_request_sync(
             APIProvider.OPENAI,
-            model="gpt-4",
+            model="gpt-5.4-mini",
             messages=[{"role": "user", "content": "Hello"}],
         )
 
@@ -227,7 +227,7 @@ class TestMakeRequestSync:
         with pytest.raises(Exception, match="unauthorized"):
             api_manager.make_request_sync(
                 APIProvider.OPENAI,
-                model="gpt-4",
+                model="gpt-5.4-mini",
                 messages=[{"role": "user", "content": "Hello"}],
             )
 
@@ -245,12 +245,12 @@ class TestTranslationRequests:
         # Act
         response, model = initialized_openai_manager.make_translation_request(
             messages=messages,
-            model_hint="gpt-4",
+            model_hint="gpt-5.4-mini",
         )
 
         # Assert
         assert response is not None
-        assert model == "gpt-4"
+        assert model == "gpt-5.4-mini"
 
     def test_make_translation_request_passes_configured_reasoning_effort(
         self, initialized_openai_manager, mock_openai_client
@@ -320,12 +320,12 @@ class TestVisionRequests:
         # Act
         response, model = initialized_openai_manager.make_vision_request(
             messages=messages,
-            model_hint="gpt-4o",
+            model_hint="gpt-5.4-mini",
         )
 
         # Assert
         assert response is not None
-        assert model == "gpt-4o"
+        assert model == "gpt-5.4-mini"
 
     def test_make_vision_request_google(self, initialized_google_manager):
         """Test vision request through Google."""
@@ -357,7 +357,7 @@ class TestVisionRequests:
         with pytest.raises(ValueError, match="Vision request requires an image part"):
             initialized_openai_manager.make_vision_request(
                 messages=messages,
-                model_hint="gpt-4o",
+                model_hint="gpt-5.4-mini",
             )
 
     def test_make_vision_request_unsupported_provider(self, initialized_deepl_manager):
@@ -570,7 +570,7 @@ class TestTemperatureUnsupportedRetry:
         # Act
         result = api_manager.make_request_sync(
             APIProvider.OPENAI,
-            model="gpt-4",
+            model="gpt-5.4-mini",
             messages=[{"role": "user", "content": "Hello"}],
             temperature=0.5,
         )
@@ -588,7 +588,7 @@ class TestShutdown:
         """Test that shutdown clears all resources."""
         # Add some state
         initialized_openai_manager._usage[APIProvider.OPENAI] = APIUsage(requests_count=5)
-        initialized_openai_manager._cache.set("openai", ["gpt-4"])
+        initialized_openai_manager._cache.set("openai", ["gpt-5.4-mini"])
 
         # Act
         initialized_openai_manager.shutdown()
@@ -606,7 +606,7 @@ class TestGetAvailableModelsSync:
         """Test getting available models through sync method."""
         # Setup models response
         mock_model = mocker.Mock()
-        mock_model.id = "gpt-4"
+        mock_model.id = "gpt-5.7"
         mock_models_response = mocker.Mock()
         mock_models_response.data = [mock_model]
         mock_openai_client.models.list.return_value = mock_models_response
@@ -615,6 +615,6 @@ class TestGetAvailableModelsSync:
         models, source = initialized_openai_manager.get_available_models_sync(APIProvider.OPENAI)
 
         # Assert
-        assert "gpt-4" in models
+        assert "gpt-5.7" in models
         # Source can be CACHE if it was cached before or API
         assert source in ("api", "cache")

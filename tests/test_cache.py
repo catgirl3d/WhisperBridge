@@ -29,7 +29,7 @@ class TestCacheSetAndGet:
         """Test that cache can store and retrieve models correctly."""
         # Arrange
         cache = ModelCache(tmp_path, ttl_seconds=1209600)
-        models = ["gpt-4", "gpt-3.5"]
+        models = ["gpt-5.4-mini", "gpt-5.6-luna"]
 
         # Act
         cache.set("openai", models)
@@ -49,7 +49,7 @@ class TestCacheTTLExpiration:
         """Test that cache returns None after TTL expires."""
         # Arrange
         cache = ModelCache(tmp_path, ttl_seconds=1)
-        models = ["gpt-4", "gpt-3.5"]
+        models = ["gpt-5.4-mini", "gpt-5.6-luna"]
 
         # Act - freeze time after TTL expires
         with freeze_time("2024-01-01 00:00:00") as frozen_time:
@@ -74,7 +74,7 @@ class TestCacheDiskPersistence:
         """Test that cache can be saved to and loaded from disk."""
         # Arrange
         cache1 = ModelCache(tmp_path, ttl_seconds=1209600)
-        models = ["gpt-4", "gpt-3.5"]
+        models = ["gpt-5.4-mini", "gpt-5.6-luna"]
         cache1.set("openai", models)
         cache1.save_to_disk()
 
@@ -143,7 +143,7 @@ class TestValidateModelList:
     def test_validate_model_list_valid(self):
         """Test that valid model lists pass validation."""
         # Arrange & Act & Assert
-        assert ModelCache.validate_model_list(["gpt-4", "gpt-3.5"]) is True
+        assert ModelCache.validate_model_list(["gpt-5.4-mini", "gpt-5.6-luna"]) is True
         assert ModelCache.validate_model_list(["model"]) is True
         assert ModelCache.validate_model_list(["  model  ", "another-model"]) is True
 
@@ -164,7 +164,7 @@ class TestCacheClearOperations:
         """Test that cache can clear all entries."""
         # Arrange
         cache = ModelCache(tmp_path, ttl_seconds=1209600)
-        cache.set("openai", ["gpt-4"])
+        cache.set("openai", ["gpt-5.4-mini"])
         cache.set("google", ["gemini-2.5-flash"])
         cache.set("deepl", ["deepl-translate"])
 
@@ -180,7 +180,7 @@ class TestCacheClearOperations:
         """Test that cache can clear a single provider."""
         # Arrange
         cache = ModelCache(tmp_path, ttl_seconds=1209600)
-        cache.set("openai", ["gpt-4"])
+        cache.set("openai", ["gpt-5.4-mini"])
         cache.set("google", ["gemini-2.5-flash"])
 
         # Act
@@ -204,7 +204,7 @@ class TestCacheCleanupOldFiles:
         cache_file = tmp_path / "models_cache.json"
         
         # Create a cache file
-        cache_file.write_text('{"openai": {"models": ["gpt-4"], "timestamp": 1234567890.0}}', encoding='utf-8')
+        cache_file.write_text('{"openai": {"models": ["gpt-5.4-mini"], "timestamp": 1234567890.0}}', encoding='utf-8')
         
         # Mock stat() for the specific cache file to make it appear old
         mock_stat = mocker.Mock()
@@ -236,7 +236,7 @@ class TestCacheIsCached:
         """Test that is_cached returns True for cached provider."""
         # Arrange
         cache = ModelCache(tmp_path, ttl_seconds=1209600)
-        cache.set("openai", ["gpt-4"])
+        cache.set("openai", ["gpt-5.4-mini"])
 
         # Act & Assert
         assert cache.is_cached("openai") is True
@@ -257,7 +257,7 @@ class TestCacheModelsAndPersist:
         """Test that cache_models_and_persist saves to both memory and disk."""
         # Arrange
         cache = ModelCache(tmp_path, ttl_seconds=1209600)
-        models = ["gpt-4", "gpt-3.5"]
+        models = ["gpt-5.4-mini", "gpt-5.6-luna"]
 
         # Act
         cache.cache_models_and_persist("openai", models)
@@ -284,7 +284,7 @@ class TestCacheInitializeSafely:
         """Test that initialize_safely loads cache from disk."""
         # Arrange
         cache1 = ModelCache(tmp_path, ttl_seconds=1209600)
-        cache1.set("openai", ["gpt-4"])
+        cache1.set("openai", ["gpt-5.4-mini"])
         cache1.save_to_disk()
 
         # Act
@@ -295,7 +295,7 @@ class TestCacheInitializeSafely:
         result = cache2.get("openai")
         assert result is not None
         models, _ = result
-        assert models == ["gpt-4"]
+        assert models == ["gpt-5.4-mini"]
 
     def test_initialize_safely_handles_missing_cache(self, tmp_path):
         """Test that initialize_safely handles missing cache file gracefully."""

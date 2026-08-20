@@ -22,21 +22,17 @@ class TestModelSupportsTemperature:
     """Tests for model_supports_temperature function."""
 
     def test_model_supports_temperature_standard_models(self):
-        """Test that standard models support temperature."""
-        # Arrange & Act & Assert
-        assert model_supports_temperature("gpt-4o-mini") is True
-        assert model_supports_temperature("gpt-4o") is True
+        """Standard non-reasoning models support custom temperature."""
         assert model_supports_temperature("gemini-2.5-flash") is True
-        assert model_supports_temperature("gemini-1.5-pro") is True
+        assert model_supports_temperature("gemini-3-flash") is True
 
     def test_model_supports_temperature_reasoning_models(self):
-        """Test that reasoning models do NOT support temperature."""
-        # Arrange & Act & Assert
+        """Reasoning and current GPT models do not support temperature."""
         assert model_supports_temperature("o1-preview") is False
         assert model_supports_temperature("o1-mini") is False
         assert model_supports_temperature("o3-mini") is False
-        assert model_supports_temperature("gpt-5-nano") is False
-        assert model_supports_temperature("gpt-5-pro") is False
+        assert model_supports_temperature("gpt-5.4-mini") is False
+        assert model_supports_temperature("gpt-5.7") is False
 
 
 class TestAdjustTemperatureForModel:
@@ -55,11 +51,9 @@ class TestAdjustTemperatureForModel:
         )
 
     def test_adjust_temperature_for_standard_model(self):
-        """Test that temperature is NOT changed for standard models."""
-        # Arrange & Act
-        result = adjust_temperature_for_model("gpt-4o", 0.5)
+        """Temperature is not changed for a standard model."""
+        result = adjust_temperature_for_model("gemini-3-flash", 0.5)
 
-        # Assert
         assert result == 0.5
 
 
@@ -77,7 +71,7 @@ class TestRequestBuilderLLMParams:
 
         # Act
         params = builder.build_llm_params(
-            model="gpt-4",
+            model="gemini-3-flash",
             messages=messages,
             temperature=0.8,
             temperature_setting_key="llm_temperature_translation",
@@ -86,7 +80,7 @@ class TestRequestBuilderLLMParams:
         )
 
         # Assert
-        assert params["model"] == "gpt-4"
+        assert params["model"] == "gemini-3-flash"
         assert params["messages"] == messages
         assert params["temperature"] == 0.8
         assert "max_completion_tokens" in params
@@ -102,7 +96,7 @@ class TestRequestBuilderLLMParams:
 
         # Act
         params = builder.build_llm_params(
-            model="gpt-4",
+            model="gemini-3-flash",
             messages=messages,
             temperature=None,
             temperature_setting_key="llm_temperature_translation",
@@ -125,7 +119,7 @@ class TestRequestBuilderLLMParams:
 
         # Act
         params = builder.build_llm_params(
-            model="gpt-4",
+            model="gemini-3-flash",
             messages=messages,
             temperature=None,
             temperature_setting_key="llm_temperature_translation",
@@ -198,7 +192,7 @@ class TestResolveTemperatureAndLimits:
 
         # Act
         temp, max_tokens = builder.resolve_llm_temperature_and_limits(
-            model="gpt-4o",
+            model="gemini-3-flash",
             temperature=0.7,
             temperature_setting_key="llm_temperature_translation",
             temperature_default=1.0,

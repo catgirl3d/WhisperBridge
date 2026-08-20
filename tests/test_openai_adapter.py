@@ -40,7 +40,7 @@ class TestOpenAITextRequests:
         )
 
         response = fake_openai_client.chat.completions.create(
-            model="gpt-4",
+            model="gpt-5.4-mini",
             messages=messages,
             temperature=0.7
         )
@@ -49,7 +49,7 @@ class TestOpenAITextRequests:
         assert mock_create.called
         # Verify params
         args, kwargs = mock_create.call_args
-        assert kwargs["model"] == "gpt-4"
+        assert kwargs["model"] == "gpt-5.4-mini"
         assert kwargs["messages"] == messages
         assert kwargs["temperature"] == 0.7
 
@@ -109,7 +109,7 @@ class TestOpenAITextRequests:
         )
 
         fake_openai_client.chat.completions.create(
-            model="gpt-4",
+            model="gpt-5.4-mini",
             messages=messages
         )
 
@@ -126,7 +126,7 @@ class TestOpenAITextRequests:
 
         # Test with temperature=0.0 (deterministic)
         fake_openai_client.chat.completions.create(
-            model="gpt-4",
+            model="gpt-5.4-mini",
             messages=messages,
             temperature=0.0
         )
@@ -135,7 +135,7 @@ class TestOpenAITextRequests:
 
         # Test with temperature=2.0 (maximum creativity)
         fake_openai_client.chat.completions.create(
-            model="gpt-4",
+            model="gpt-5.4-mini",
             messages=messages,
             temperature=2.0
         )
@@ -144,7 +144,7 @@ class TestOpenAITextRequests:
 
     def test_model_variations(self, mocker, fake_openai_client, mock_completion_response):
         """Test different model name handling."""
-        models_to_test = ["gpt-4o-mini", "gpt-4-turbo", "gpt-3.5-turbo"]
+        models_to_test = ["gpt-5.4-mini", "gpt-5.6-luna", "gpt-5.7"]
         messages = [{"role": "user", "content": "Hi"}]
         
         mock_create = mocker.patch.object(
@@ -172,7 +172,7 @@ class TestOpenAITextRequests:
 
         with pytest.raises(Exception, match="API Error: Rate limit exceeded"):
             fake_openai_client.chat.completions.create(
-                model="gpt-4",
+                model="gpt-5.4-mini",
                 messages=messages
             )
 
@@ -196,7 +196,7 @@ class TestOpenAIVisionRequests:
         )
 
         response = fake_openai_client.chat.completions.create(
-            model="gpt-4o",
+            model="gpt-5.6-luna",
             messages=messages,
             is_vision=True
         )
@@ -208,7 +208,7 @@ class TestOpenAIVisionRequests:
         assert "is_vision" not in kwargs
         assert kwargs["temperature"] == 1.0
         assert kwargs["max_completion_tokens"] == calculate_dynamic_completion_tokens(
-            model="gpt-4o",
+            model="gpt-5.6-luna",
             min_output_tokens=DEFAULT_MIN_OUTPUT_TOKENS,
             output_safety_margin=0.1,
         )
@@ -226,7 +226,7 @@ class TestOpenAIVisionRequests:
 
         with pytest.raises(ValueError, match="Vision request requires at least one image part"):
             fake_openai_client.chat.completions.create(
-                model="gpt-4o",
+                model="gpt-5.6-luna",
                 messages=messages,
                 is_vision=True
             )
@@ -246,7 +246,7 @@ class TestOpenAIVisionRequests:
         )
 
         fake_openai_client.chat.completions.create(
-            model="gpt-4o",
+            model="gpt-5.6-luna",
             messages=messages,
             is_vision=True
         )
@@ -272,7 +272,7 @@ class TestOpenAIVisionRequests:
         )
 
         fake_openai_client.chat.completions.create(
-            model="gpt-4o",
+            model="gpt-5.6-luna",
             messages=messages,
             is_vision=True
         )
@@ -298,13 +298,13 @@ class TestOpenAIVisionRequests:
         )
 
         fake_openai_client.chat.completions.create(
-            model="gpt-4o",
+            model="gpt-5.6-luna",
             messages=messages,
             is_vision=True
         )
 
         mock_calc.assert_called_once_with(
-            model="gpt-4o",
+            model="gpt-5.6-luna",
             min_output_tokens=DEFAULT_MIN_OUTPUT_TOKENS,
             output_safety_margin=0.1,
         )
@@ -327,7 +327,7 @@ class TestOpenAIVisionRequests:
 
         with pytest.raises(ValueError, match="Vision request requires at least one image part"):
             fake_openai_client.chat.completions.create(
-                model="gpt-4o",
+                model="gpt-5.6-luna",
                 messages=messages,
                 is_vision=True
             )
@@ -340,7 +340,7 @@ class TestOpenAIVisionRequests:
 
         with pytest.raises(ValueError, match="Vision request requires at least one image part"):
             fake_openai_client.chat.completions.create(
-                model="gpt-4o",
+                model="gpt-5.6-luna",
                 messages=messages,
                 is_vision=True
             )
@@ -357,7 +357,7 @@ class TestOpenAIVisionRequests:
 
         # The wrapper path defaults to 1.0 via _create(), but explicit overrides are forwarded.
         fake_openai_client.chat.completions.create(
-            model="gpt-4o",
+            model="gpt-5.6-luna",
             messages=messages,
             is_vision=True,
             temperature=0.5
@@ -373,11 +373,11 @@ class TestOpenAIModels:
     def test_list_models(self, mocker, fake_openai_client):
         """Test that adapter-level model listing filters unsupported models."""
         mock_models = SimpleNamespace(data=[
-            SimpleNamespace(id="gpt-4"),
-            SimpleNamespace(id="gpt-5-mini"),
+            SimpleNamespace(id="gpt-5.4-mini"),
+            SimpleNamespace(id="gpt-5.6-luna"),
             SimpleNamespace(id="whisper-1"),  # Should be excluded
             SimpleNamespace(id="dall-e-3"),   # Should be excluded
-            SimpleNamespace(id="gpt-3.5-turbo"),
+            SimpleNamespace(id="gpt-5.7"),
         ])
         mocker.patch.object(fake_openai_client._client.models, "list", return_value=mock_models)
         
@@ -387,17 +387,17 @@ class TestOpenAIModels:
         res = fake_openai_client.models.list()
         
         ids = [m.id for m in res.data]
-        assert ids == ["gpt-4", "gpt-5-mini", "gpt-3.5-turbo"]
-        assert "gpt-4" in ids
-        assert "gpt-3.5-turbo" in ids
+        assert ids == ["gpt-5.4-mini", "gpt-5.6-luna", "gpt-5.7"]
+        assert "gpt-5.4-mini" in ids
+        assert "gpt-5.7" in ids
         assert "whisper-1" not in ids
         assert "dall-e-3" not in ids
 
     def test_list_models_includes_chatgpt_prefix_models(self, mocker, fake_openai_client):
         """Test that adapter-level model listing keeps chatgpt-* models."""
         mock_models = SimpleNamespace(data=[
-            SimpleNamespace(id="chatgpt-4o-latest"),
-            SimpleNamespace(id="gpt-5-mini"),
+            SimpleNamespace(id="chatgpt-5.6-latest"),
+            SimpleNamespace(id="gpt-5.4-mini"),
             SimpleNamespace(id="omni-moderation-latest"),
         ])
         mocker.patch.object(fake_openai_client._client.models, "list", return_value=mock_models)
@@ -406,7 +406,7 @@ class TestOpenAIModels:
         res = fake_openai_client.models.list()
 
         ids = [m.id for m in res.data]
-        assert ids == ["chatgpt-4o-latest", "gpt-5-mini"]
+        assert ids == ["chatgpt-5.6-latest", "gpt-5.4-mini"]
 
     def test_list_models_returns_empty_on_sdk_error(self, mocker, fake_openai_client):
         """Test that model listing returns an empty result on SDK errors."""

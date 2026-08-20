@@ -55,13 +55,13 @@ class TestWorkers:
         mock_get_api = mocker.patch('whisperbridge.ui_qt.workers.get_api_manager')
         mock_api = Mock()
         mock_api.is_initialized.return_value = True
-        mock_api.get_available_models_sync.return_value = (['gpt-4'], 'mock')
+        mock_api.get_available_models_sync.return_value = (['gpt-5.4-mini'], 'mock')
         mock_get_api.return_value = mock_api
 
         worker = ApiTestWorker('openai', 'sk-test')
         with qtbot.waitSignal(worker.finished) as blocker:
             worker.run()
-        assert blocker.args == [True, '', ['gpt-4'], 'mock']
+        assert blocker.args == [True, '', ['gpt-5.4-mini'], 'mock']
 
     def test_api_test_worker_error(self, qtbot, mocker):
         """Test ApiTestWorker emits error on failure."""

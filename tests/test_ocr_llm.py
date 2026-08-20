@@ -61,7 +61,7 @@ def test_llm_success_path_returns_llm_result(fake_config, fake_api_manager, mock
         "ocr_engine": "llm",
         "api_provider": "openai",
         "ocr_llm_prompt": "Extract plain text...",
-        "openai_vision_model": "gpt-4o-mini"
+        "openai_vision_model": "gpt-5.4-mini"
     })
 
     # Mock to_data_url_jpeg
@@ -73,7 +73,7 @@ def test_llm_success_path_returns_llm_result(fake_config, fake_api_manager, mock
     mock_get_api_manager.return_value = fake_api_manager
     fake_api_manager.make_vision_request.return_value = (
         {"choices": [{"message": {"content": "Hello LLM"}}]},
-        "gpt-4o-mini"
+        "gpt-5.4-mini"
     )
 
     # Mock the response object to have the expected structure
@@ -81,7 +81,7 @@ def test_llm_success_path_returns_llm_result(fake_config, fake_api_manager, mock
     mock_response.choices = [MagicMock()]
     mock_response.choices[0].message = MagicMock()
     mock_response.choices[0].message.content = "Hello LLM"
-    fake_api_manager.make_vision_request.return_value = (mock_response, "gpt-4o-mini")
+    fake_api_manager.make_vision_request.return_value = (mock_response, "gpt-5.4-mini")
 
     # Mock extract_text_from_response to return the expected text
     fake_api_manager.extract_text_from_response.return_value = "Hello LLM"
@@ -91,7 +91,7 @@ def test_llm_success_path_returns_llm_result(fake_config, fake_api_manager, mock
     mock_config_service.get_setting.side_effect = lambda key, default=None: {
         "ocr_llm_prompt": "Extract plain text...",
         "api_provider": "openai",
-        "openai_vision_model": "gpt-4o-mini",
+        "openai_vision_model": "gpt-5.4-mini",
         "ocr_engine": "llm"
     }.get(key, default)
 

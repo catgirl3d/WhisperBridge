@@ -63,15 +63,15 @@ class TestAPIManagerTokenIntegration:
         ]
         
         # Call vision request
-        response, model = api_manager.make_vision_request(messages, "gpt-4o")
+        response, model = api_manager.make_vision_request(messages, "gpt-5.6-luna")
         
         # Verify adapter was called
         assert mock_client.chat.completions.create.called
         
         call_args = mock_client.chat.completions.create.call_args
         assert call_args is not None
-        expected_max_tokens = calculate_dynamic_completion_tokens("gpt-4o")
-        assert call_args.kwargs.get('temperature') == 0.0
+        expected_max_tokens = calculate_dynamic_completion_tokens("gpt-5.6-luna")
+        assert call_args.kwargs.get('temperature') == 1.0
         assert call_args.kwargs.get('max_completion_tokens') == expected_max_tokens
 
     def test_gemini_dynamic_tokens_reserve_output_budget(self):
@@ -246,7 +246,7 @@ class TestAPIManagerHelperMethods:
         }.get(key)
 
         params = api_manager._request_builder.build_llm_params(
-            model="gpt-4o-mini",
+            model="gemini-3-flash",
             messages=[{"role": "user", "content": "Hi"}],
             temperature=None,
             temperature_setting_key="llm_temperature_translation",
@@ -260,7 +260,7 @@ class TestAPIManagerHelperMethods:
     def test_build_llm_params_uses_override_temperature(self, api_manager, mock_config_service):
         """Test that an explicit temperature override bypasses configuration lookup."""
         params = api_manager._request_builder.build_llm_params(
-            model="gpt-4o-mini",
+            model="gemini-3-flash",
             messages=[{"role": "user", "content": "Hi"}],
             temperature=0.35,
             temperature_setting_key="llm_temperature_translation",
