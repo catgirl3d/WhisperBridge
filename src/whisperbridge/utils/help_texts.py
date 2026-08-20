@@ -26,8 +26,8 @@ HELP_TEXTS = {
         "detailed": "<b>API Timeout</b><br>How long to wait for the provider to respond. Increase if you have slow internet."
     },
     "api.reasoning_effort": {
-        "tooltip": "Controls how much reasoning the model uses.",
-        "detailed": "<b>Reasoning Effort</b><br><b>No override (model default):</b> do not send the reasoning_effort parameter.<br><b>none:</b> disable reasoning when supported.<br><b>minimal/low/medium/high/xhigh:</b> choose the level supported by the selected model."
+        "tooltip": "Controls reasoning effort for OpenAI text translation only; it does not affect OCR/vision requests.",
+        "detailed": "<b>Reasoning Effort</b><br>Applies only to OpenAI text translation requests. It is not sent for OCR/vision requests.<br><b>No override (model default):</b> do not send the reasoning_effort parameter.<br><b>none:</b> disable reasoning when supported.<br><b>minimal/low/medium/high/xhigh:</b> choose the level supported by the selected model."
     },
     "api.vision_model_openai": {
         "tooltip": "Model for OpenAI vision tasks (OCR with images).",
