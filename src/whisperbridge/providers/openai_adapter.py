@@ -12,7 +12,7 @@ from loguru import logger
 from openai.types.chat import ChatCompletionMessageParam
 
 from ..core.config import OPENAI_MODEL_POLICY, get_openai_model_excludes
-from ..core.model_limits import calculate_dynamic_completion_tokens, DEFAULT_MIN_OUTPUT_TOKENS
+from ..core.model_limits import get_model_max_completion_tokens
 
 __all__ = ["OpenAIChatClientAdapter", "DEFAULT_GPT_MODELS"]
 
@@ -94,7 +94,7 @@ class OpenAIChatClientAdapter:
         **kwargs: Any,
     ) -> Any:
         """
-        Handle vision requests with dynamic token allocation.
+        Handle vision requests using the model's registered output cap.
 
         Args:
             model: Model name to use.
@@ -121,12 +121,7 @@ class OpenAIChatClientAdapter:
         if not has_image:
             raise ValueError("Vision request requires at least one image part")
         
-        # Dynamically calculate max_completion_tokens based on model limits
-        max_completion_tokens = calculate_dynamic_completion_tokens(
-            model=model,
-            min_output_tokens=DEFAULT_MIN_OUTPUT_TOKENS,
-            output_safety_margin=0.1
-        )
+        max_completion_tokens = get_model_max_completion_tokens(model)
 
         logger.debug(
             f"Vision temperature: {temperature}, "

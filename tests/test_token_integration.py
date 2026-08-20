@@ -2,7 +2,6 @@
 
 import pytest
 
-from whisperbridge.core.model_limits import calculate_dynamic_completion_tokens
 from whisperbridge.core.api_manager import APIManager, APIProvider
 from whisperbridge.core.config import get_deepl_identifier
 from whisperbridge.services.config_service import ConfigService
@@ -27,9 +26,9 @@ def api_manager(mock_config_service, mocker):
 class TestAPIManagerTokenIntegration:
     """API manager token integration tests."""
 
-    def test_api_manager_vision_uses_dynamic_tokens(self, api_manager, mock_config_service, mocker):
+    def test_api_manager_vision_uses_hard_output_limit(self, api_manager, mock_config_service, mocker):
         """
-        Test that APIManager.make_vision_request passes dynamic token limits.
+        Test that APIManager.make_vision_request passes the hard token limit.
 
         This verifies that the vision request path builds LLM params and forwards
         max_completion_tokens to the provider request.
@@ -70,15 +69,14 @@ class TestAPIManagerTokenIntegration:
         
         call_args = mock_client.chat.completions.create.call_args
         assert call_args is not None
-        expected_max_tokens = calculate_dynamic_completion_tokens("gpt-5.6-luna")
         assert call_args.kwargs.get('temperature') == 1.0
-        assert call_args.kwargs.get('max_completion_tokens') == expected_max_tokens
+        assert call_args.kwargs.get('max_completion_tokens') == 128000
 
 class TestTranslationRequestTokenIntegration:
     """Additional integration tests for translation requests."""
 
-    def test_translation_request_with_dynamic_tokens(self, api_manager, mock_config_service, mocker):
-        """Test that translation requests use dynamic token calculation."""
+    def test_translation_request_uses_hard_output_limit(self, api_manager, mock_config_service, mocker):
+        """Test that translation requests use the hard output limit."""
         # Setup mock client
         mock_client = mocker.Mock()
         
@@ -109,9 +107,8 @@ class TestTranslationRequestTokenIntegration:
         assert mock_client.chat.completions.create.called
         call_args = mock_client.chat.completions.create.call_args
 
-        expected_max_tokens = calculate_dynamic_completion_tokens("gpt-5.4-mini")
         assert call_args.kwargs.get('temperature') == 1.0
-        assert call_args.kwargs.get('max_completion_tokens') == expected_max_tokens
+        assert call_args.kwargs.get('max_completion_tokens') == 128000
 
     def test_translation_request_with_large_text_uses_model_output_cap(self, api_manager, mock_config_service, mocker):
         """Test that a large translation request still uses the model-based output cap."""
@@ -144,8 +141,7 @@ class TestTranslationRequestTokenIntegration:
         
         # Verify max_completion_tokens is within model limits
         call_args = mock_client.chat.completions.create.call_args
-        expected_max_tokens = calculate_dynamic_completion_tokens("gpt-5.4-mini")
-        assert call_args.kwargs.get('max_completion_tokens') == expected_max_tokens
+        assert call_args.kwargs.get('max_completion_tokens') == 128000
 
 
 class TestAPIManagerHelperMethods:

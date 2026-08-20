@@ -83,7 +83,7 @@ class TestRequestBuilderLLMParams:
         assert params["model"] == "gemini-3-flash"
         assert params["messages"] == messages
         assert params["temperature"] == 0.8
-        assert "max_completion_tokens" in params
+        assert params["max_completion_tokens"] == 65536
 
     def test_build_llm_params_temperature_from_config(self, mocker):
         """Test that temperature is loaded from config when not provided."""
@@ -201,8 +201,7 @@ class TestResolveTemperatureAndLimits:
 
         # Assert
         assert temp == 0.7
-        assert isinstance(max_tokens, int)
-        assert max_tokens > 0
+        assert max_tokens == 65536
 
     def test_resolve_temperature_for_restricted_model(self, mocker):
         """Test that temperature is adjusted for restricted models."""
@@ -223,4 +222,4 @@ class TestResolveTemperatureAndLimits:
 
         # Assert
         assert temp == 1.0  # Forced to 1.0 for reasoning models
-        assert isinstance(max_tokens, int)
+        assert max_tokens == 100000

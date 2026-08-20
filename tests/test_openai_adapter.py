@@ -5,7 +5,6 @@ Unit tests for OpenAIChatClientAdapter.
 import pytest
 from types import SimpleNamespace
 
-from whisperbridge.core.model_limits import DEFAULT_MIN_OUTPUT_TOKENS, calculate_dynamic_completion_tokens
 from whisperbridge.providers.openai_adapter import OpenAIChatClientAdapter
 
 
@@ -207,11 +206,7 @@ class TestOpenAIVisionRequests:
         # Verify is_vision was NOT passed to SDK (it's popped)
         assert "is_vision" not in kwargs
         assert kwargs["temperature"] == 1.0
-        assert kwargs["max_completion_tokens"] == calculate_dynamic_completion_tokens(
-            model="gpt-5.6-luna",
-            min_output_tokens=DEFAULT_MIN_OUTPUT_TOKENS,
-            output_safety_margin=0.1,
-        )
+        assert kwargs["max_completion_tokens"] == 128000
 
     def test_vision_fails_without_image(self, fake_openai_client):
         """Test that vision request raises ValueError if no image is provided."""
@@ -281,15 +276,14 @@ class TestOpenAIVisionRequests:
         # The defensive check should pass
         assert mock_create.call_count == 1
 
-    def test_vision_dynamic_tokens(self, mocker, fake_openai_client, mock_completion_response):
-        """Test that dynamic token calculation is used for vision."""
+    def test_vision_uses_model_limit_helper(self, mocker, fake_openai_client, mock_completion_response):
+        """Test that the model limit helper is forwarded for vision."""
         messages = [
             {"role": "user", "content": [{"type": "image_url", "image_url": {"url": "url"}}]}
         ]
         
-        # Mock calculate_dynamic_completion_tokens to return a specific value
-        mock_calc = mocker.patch(
-            "whisperbridge.providers.openai_adapter.calculate_dynamic_completion_tokens",
+        mock_limit = mocker.patch(
+            "whisperbridge.providers.openai_adapter.get_model_max_completion_tokens",
             return_value=1234
         )
         
@@ -303,11 +297,7 @@ class TestOpenAIVisionRequests:
             is_vision=True
         )
 
-        mock_calc.assert_called_once_with(
-            model="gpt-5.6-luna",
-            min_output_tokens=DEFAULT_MIN_OUTPUT_TOKENS,
-            output_safety_margin=0.1,
-        )
+        mock_limit.assert_called_once_with("gpt-5.6-luna")
         kwargs = mock_create.call_args.kwargs
         assert kwargs["max_completion_tokens"] == 1234
 

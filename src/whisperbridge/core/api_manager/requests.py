@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from loguru import logger
 
-from ..model_limits import calculate_dynamic_completion_tokens, DEFAULT_MIN_OUTPUT_TOKENS
+from ..model_limits import get_model_max_completion_tokens
 
 
 def model_supports_temperature(model: str) -> bool:
@@ -135,11 +135,7 @@ class RequestBuilder:
 
         resolved_temp = adjust_temperature_for_model(model, resolved_temp)
 
-        max_completion_tokens = calculate_dynamic_completion_tokens(
-            model=model,
-            min_output_tokens=DEFAULT_MIN_OUTPUT_TOKENS,
-            output_safety_margin=0.1
-        )
+        max_completion_tokens = get_model_max_completion_tokens(model)
 
         logger.debug(f"{log_label} temperature: {resolved_temp}, max_completion_tokens={max_completion_tokens}")
         return resolved_temp, max_completion_tokens
