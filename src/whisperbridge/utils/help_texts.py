@@ -25,6 +25,10 @@ HELP_TEXTS = {
         "tooltip": "Maximum time to wait for API responses (seconds).",
         "detailed": "<b>API Timeout</b><br>How long to wait for the provider to respond. Increase if you have slow internet."
     },
+    "api.reasoning_effort": {
+        "tooltip": "Controls how much reasoning the model uses.",
+        "detailed": "<b>Reasoning Effort</b><br><b>No override (model default):</b> do not send the reasoning_effort parameter.<br><b>none:</b> disable reasoning when supported.<br><b>minimal/low/medium/high/xhigh:</b> choose the level supported by the selected model."
+    },
     "api.vision_model_openai": {
         "tooltip": "Model for OpenAI vision tasks (OCR with images).",
         "detailed": "<b>OpenAI Vision Model</b><br>Used for OCR when processing screenshots. Requires vision-capable model like gpt-4-vision."

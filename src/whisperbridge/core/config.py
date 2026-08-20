@@ -104,6 +104,26 @@ OPENAI_MODEL_EXCLUDE_DEFAULT: List[str] = [
     "-2026",
 ]
 
+OPENAI_REASONING_EFFORT_OPTIONS: List[str] = [
+    "not_set",
+    "none",
+    "minimal",
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+]
+
+OPENAI_REASONING_EFFORT_LABELS: Dict[str, str] = {
+    "not_set": "No override (model default)",
+    "none": "none",
+    "minimal": "minimal",
+    "low": "low",
+    "medium": "medium",
+    "high": "high",
+    "xhigh": "xhigh",
+}
+
 
 class Settings(BaseSettings):
     """Application settings model with comprehensive validation."""
@@ -122,6 +142,10 @@ class Settings(BaseSettings):
     deepl_identifier: str = Field(default="deepl-translate", description="DeepL model identifier for API compatibility")
     api_provider: str = Field(default="openai", description="API provider")
     openai_model: str = Field(default="gpt-5-nano", description="Default OpenAI model")
+    openai_reasoning_effort: str = Field(
+        default="not_set",
+        description="OpenAI reasoning effort; not_set omits the parameter from the request",
+    )
     google_model: str = Field(default="gemini-2.5-flash", description="Default Google model")
     api_timeout: int = Field(default=30, description="API request timeout in seconds")
     llm_temperature_translation: float = Field(
@@ -279,6 +303,20 @@ class Settings(BaseSettings):
         valid_themes = ["light", "dark", "system"]
         if v not in valid_themes:
             raise ValueError(f"Invalid theme: {v}. Must be one of {valid_themes}")
+        return v
+
+    @field_validator("openai_reasoning_effort", mode="before")
+    @classmethod
+    def validate_openai_reasoning_effort(cls, v: str) -> str:
+        """Validate the configured OpenAI reasoning effort."""
+        # Migrate the previous UI value without exposing it as an option again.
+        if v == "auto":
+            return "not_set"
+        if v not in OPENAI_REASONING_EFFORT_OPTIONS:
+            raise ValueError(
+                f"Invalid OpenAI reasoning effort: {v}. "
+                f"Must be one of {OPENAI_REASONING_EFFORT_OPTIONS}"
+            )
         return v
 
     @field_validator("api_provider")

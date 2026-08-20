@@ -1,12 +1,11 @@
 """
 OpenAI chat client adapter for WhisperBridge.
 
-Provides an OpenAI-compatible interface that wraps the native OpenAI SDK
-and adds provider-specific optimizations (e.g., GPT-5 reasoning parameters).
+Provides an OpenAI-compatible interface that wraps the native OpenAI SDK.
 """
 
 from types import SimpleNamespace
-from typing import Any, Dict, List, Optional
+from typing import Any, List, Optional
 
 import openai
 from loguru import logger
@@ -21,22 +20,6 @@ __all__ = ["OpenAIChatClientAdapter", "DEFAULT_GPT_MODELS"]
 DEFAULT_GPT_MODELS = ["gpt-5-mini", "gpt-5-nano"]
 
 
-def _get_gpt5_chat_params(model: str) -> Optional[Dict[str, str]]:
-    """Return model-specific GPT-5 Chat Completions parameters.
-
-    OpenAI documents ``reasoning_effort`` and ``verbosity`` as top-level Chat
-    Completions parameters for GPT-5. GPT-5.4 moved away from the older
-    ``minimal`` effort value and accepts ``none|low|medium|high|xhigh``.
-    Earlier GPT-5 variants still use ``minimal``.
-    """
-    model_lower = model.lower()
-    if not model_lower.startswith("gpt-5"):
-        return None
-
-    reasoning_effort = "none" if model_lower.startswith("gpt-5.4") else "minimal"
-    return {"reasoning_effort": reasoning_effort, "verbosity": "low"}
-
-
 class OpenAIChatClientAdapter:
     """
     Adapter for OpenAI Chat API with OpenAI-compatible interface.
@@ -45,7 +28,7 @@ class OpenAIChatClientAdapter:
       - chat.completions.create(...)
       - models.list()
 
-    Handles OpenAI-specific optimizations like GPT-5 reasoning parameters.
+    Passes provider-specific request parameters supplied by the API manager.
     """
 
     def __init__(self, api_key: str, timeout: Optional[int] = None):
@@ -70,7 +53,7 @@ class OpenAIChatClientAdapter:
         **kwargs: Any,
     ) -> Any:
         """
-        Handle chat completion with GPT-5 optimizations.
+        Handle a chat completion request.
 
         Args:
             model: Model name to use.
@@ -86,15 +69,6 @@ class OpenAIChatClientAdapter:
         is_vision = kwargs.pop("is_vision", False)
         if is_vision:
             return self._create_vision(model, messages, temperature)
-
-        # Apply GPT-5 optimizations with model-specific top-level parameters.
-        gpt5_chat_params = _get_gpt5_chat_params(model)
-        if gpt5_chat_params:
-            for key, value in gpt5_chat_params.items():
-                kwargs.setdefault(key, value)
-            logger.debug(
-                f"Using OpenAI GPT-5 optimizations: {', '.join(f'{k}={v}' for k, v in gpt5_chat_params.items())}"
-            )
 
         # Prepare API parameters
         api_params = {

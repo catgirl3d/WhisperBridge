@@ -7,6 +7,7 @@ following the UI configuration guidelines.
 
 from PySide6.QtWidgets import QComboBox, QLineEdit, QSpinBox, QPushButton, QCheckBox, QTextEdit, QDoubleSpinBox, QTableWidget, QLabel, QToolButton, QGroupBox, QWidget, QTabWidget
 from .widgets.hotkey_edit import HotkeyEdit
+from ..core.config import OPENAI_REASONING_EFFORT_LABELS, OPENAI_REASONING_EFFORT_OPTIONS
 
 
 class SettingsUIFactory:
@@ -47,6 +48,14 @@ class SettingsUIFactory:
         'modelCombo': {
             'object_name': 'modelCombo',
             'editable': True
+        },
+        'openaiReasoningEffortCombo': {
+            'object_name': 'openaiReasoningEffortCombo',
+            'items': [OPENAI_REASONING_EFFORT_LABELS[value] for value in OPENAI_REASONING_EFFORT_OPTIONS],
+            'item_data': OPENAI_REASONING_EFFORT_OPTIONS,
+        },
+        'openaiReasoningEffortLabel': {
+            'object_name': 'openaiReasoningEffortLabel'
         },
         'apiTimeoutSpin': {
             'object_name': 'apiTimeoutSpin',
@@ -358,7 +367,11 @@ class SettingsUIFactory:
         if 'editable' in cfg and hasattr(widget, 'setEditable'):
             widget.setEditable(cfg['editable'])
         if 'items' in cfg and hasattr(widget, 'addItems'):
-            widget.addItems(cfg['items'])
+            if 'item_data' in cfg and hasattr(widget, 'addItem'):
+                for text, data in zip(cfg['items'], cfg['item_data']):
+                    widget.addItem(text, data)
+            else:
+                widget.addItems(cfg['items'])
         if 'range' in cfg and hasattr(widget, 'setRange'):
             widget.setRange(*cfg['range'])
         if 'single_step' in cfg and hasattr(widget, 'setSingleStep'):

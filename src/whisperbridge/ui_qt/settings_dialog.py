@@ -140,13 +140,18 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
         self.settings_map = {
             "api_provider": (self.api_provider_combo, "currentText", "setCurrentText"),
             "api_timeout": (self.api_timeout_spin, "value", "setValue"),
+            "openai_reasoning_effort": (
+                self.openai_reasoning_effort_combo,
+                lambda widget: widget.currentData(),
+                lambda widget, value: widget.setCurrentIndex(widget.findData(value)),
+            ),
             "llm_temperature_translation": (self.llm_temperature_translation_spin, "value", "setValue"),
             "llm_temperature_vision": (self.llm_temperature_vision_spin, "value", "setValue"),
             "llm_temperature_stylist": (self.llm_temperature_stylist_spin, "value", "setValue"),
             "deepl_plan": (self.deepl_plan_combo, "currentText", "setCurrentText"),
             "auto_swap_en_ru": (self.ocr_auto_swap_checkbox, "isChecked", "setChecked"),
             "system_prompt": (self.system_prompt_edit, "toPlainText", "setPlainText"),
-            "openai_vision_model": (self.openai_vision_model_edit, "text", "setText"),
+            "openai_vision_model": (self.openai_vision_model_combo, "currentText", "setCurrentText"),
             "google_vision_model": (self.google_vision_model_edit, "text", "setText"),
             "translate_hotkey": (self.translate_hotkey_edit, "text", "setText"),
             "quick_translate_hotkey": (self.quick_translate_hotkey_edit, "text", "setText"),
@@ -270,6 +275,15 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
         self.model_label_container = self._create_hint_label(self.model_label, "api.model")
         self.model_combo = self.factory.create_combo("modelCombo")
         model_layout.addRow(self.model_label_container, self.model_combo)
+
+        self.openai_reasoning_effort_label = self.factory.create_label("openaiReasoningEffortLabel")
+        self.openai_reasoning_effort_label.setText("Reasoning Effort:")
+        self.openai_reasoning_effort_label_container = self._create_hint_label(
+            self.openai_reasoning_effort_label,
+            "api.reasoning_effort",
+        )
+        self.openai_reasoning_effort_combo = self.factory.create_combo("openaiReasoningEffortCombo")
+        model_layout.addRow(self.openai_reasoning_effort_label_container, self.openai_reasoning_effort_combo)
 
         # Don't load models here - they will be loaded in _load_settings
         logger.debug("Skipping model loading in _create_api_tab - will load in _load_settings")
@@ -655,6 +669,12 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
                     current_plan = getattr(self.current_settings, "deepl_plan", None) or config_service.get_setting("deepl_plan") or "free"
                     self.deepl_plan_combo.setCurrentText(current_plan)
 
+        elif control_type == "reasoning_effort":
+            is_openai = provider == "openai"
+            self.openai_reasoning_effort_label_container.setVisible(is_openai)
+            self.openai_reasoning_effort_combo.setVisible(is_openai)
+            self.openai_reasoning_effort_combo.setEnabled(is_openai)
+
     def _update_stylist_tab_visibility(self):
         """Update the visibility of the Stylist tab and related settings based on the current provider."""
         self._update_control_visibility("stylist")
@@ -666,6 +686,10 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
     def _update_deepl_plan_controls(self):
         """Update the visibility and value of DeepL plan controls based on the current provider."""
         self._update_control_visibility("deepl_plan")
+
+    def _update_reasoning_effort_visibility(self):
+        """Show OpenAI reasoning controls only for the OpenAI provider."""
+        self._update_control_visibility("reasoning_effort")
 
     def _load_settings(self, settings=None):
         """Load current settings into the UI."""
@@ -711,6 +735,7 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
 
         # Update DeepL plan controls visibility and value
         self._update_deepl_plan_controls()
+        self._update_reasoning_effort_visibility()
 
     def _on_save(self):
         """Handle save button click."""
@@ -1005,6 +1030,7 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
 
         self._load_models(provider_name=provider, model_to_select=model_to_restore)
         self._update_stylist_tab_visibility()
+        self._update_reasoning_effort_visibility()
 
         # Update DeepL plan controls visibility and value
         self._update_deepl_plan_controls()
