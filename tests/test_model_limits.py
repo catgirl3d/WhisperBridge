@@ -36,8 +36,6 @@ class TestGetModelMaxTokens:
         ("gpt-5.6-luna-012026", 128000),     # Matches the current GPT family prefix
         ("gemini-3-flash-preview", 65536),   # Should match "gemini-3-flash"
         ("gpt-5.4-mini-2026-07-18", 128000), # Matches the current GPT family prefix
-        ("o1-preview", 100000),              # Should match "o1-"
-        ("o3-mini", 100000),                 # Should match "o3-"
     ])
     def test_get_model_max_tokens_prefix_match(self, model, expected_base_limit):
         """TC-ML-002: Model variants should match base model limits via prefix."""

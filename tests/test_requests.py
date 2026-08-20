@@ -27,10 +27,7 @@ class TestModelSupportsTemperature:
         assert model_supports_temperature("gemini-3-flash") is True
 
     def test_model_supports_temperature_reasoning_models(self):
-        """Reasoning and current GPT models do not support temperature."""
-        assert model_supports_temperature("o1-preview") is False
-        assert model_supports_temperature("o1-mini") is False
-        assert model_supports_temperature("o3-mini") is False
+        """Current GPT-5 models do not support temperature."""
         assert model_supports_temperature("gpt-5.4-mini") is False
         assert model_supports_temperature("gpt-5.7") is False
 
@@ -41,7 +38,7 @@ class TestAdjustTemperatureForModel:
     def test_adjust_temperature_for_restricted_model(self, loguru_caplog):
         """Test that temperature is forced to 1.0 for restricted models."""
         # Arrange & Act
-        result = adjust_temperature_for_model("o1-preview", 0.7)
+        result = adjust_temperature_for_model("gpt-5.4-mini", 0.7)
 
         # Assert
         assert result == 1.0
@@ -213,7 +210,7 @@ class TestResolveTemperatureAndLimits:
 
         # Act
         temp, max_tokens = builder.resolve_llm_temperature_and_limits(
-            model="o1-preview",
+            model="gpt-5.4-mini",
             temperature=0.5,
             temperature_setting_key="llm_temperature_translation",
             temperature_default=1.0,
@@ -221,5 +218,5 @@ class TestResolveTemperatureAndLimits:
         )
 
         # Assert
-        assert temp == 1.0  # Forced to 1.0 for reasoning models
-        assert max_tokens == 100000
+        assert temp == 1.0  # Forced to 1.0 for current GPT-5 models
+        assert max_tokens == 128000

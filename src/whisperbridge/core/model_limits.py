@@ -29,9 +29,6 @@ MODEL_TOKEN_LIMITS: Dict[str, int] = {
     "gpt-4-turbo-preview": 4096,
     "gpt-4": 4096,
     "gpt-4-32k": 4096,
-    "o1-": 100000,  # Reasoning models (output-focused)
-    "o3-": 100000,
-    
     # Current documented models (OpenAI API docs, 2026)
     # https://developers.openai.com/api/docs/models/gpt-5.4-mini
     # https://developers.openai.com/api/docs/models/gpt-5.6-luna
