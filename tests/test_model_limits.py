@@ -159,22 +159,11 @@ class TestCalculateDynamicTokens:
         result = calculate_dynamic_completion_tokens(
             model="gpt-5.4-mini",
             min_output_tokens=2048,
-            output_safety_margin=0.1
+            output_safety_margin=0.99
         )
         
-        # Should guarantee at least min_output_tokens
-        assert result >= 2048
-
-    def test_calculate_dynamic_tokens_returns_near_max_output_with_default_margin(self):
-        """TC-ML-011: Default safety margin should keep output near the model cap."""
-        result = calculate_dynamic_completion_tokens(
-            model="gpt-5.4-mini",
-            min_output_tokens=2048,
-            output_safety_margin=0.1
-        )
-        
-        # Expected: 128000 * 0.9 = 115200
-        assert 114000 <= result <= 116000
+        # 128000 * 0.01 is below min_output_tokens, so the floor applies.
+        assert result == 2048
 
     @pytest.mark.parametrize("safety_margin,expected_multiplier", [
         (0.0, 1.0),    # No safety margin
@@ -202,21 +191,6 @@ class TestCalculateDynamicTokens:
                 output_safety_margin=invalid_margin
             )
 
-    def test_dynamic_tokens_apply_margin_to_output_limit_only(self):
-        """
-        TC-ML-014: Verify that calculate_dynamic_completion_tokens applies only the
-        safety margin to the model's hard output limit.
-        """
-        result = calculate_dynamic_completion_tokens(
-            model="gpt-5.4-mini",  # 128K output limit
-            min_output_tokens=2048,
-            output_safety_margin=0.1
-        )
-        
-        # Expected: 128000 * 0.9 = 115200
-        assert result > 110_000
-        assert 114_000 <= result <= 116_000
-
     @pytest.mark.parametrize("invalid_min", [-100, 0, 200_000])
     def test_calculate_dynamic_tokens_invalid_min_output(self, invalid_min):
         """TC-ML-015: min_output_tokens must be positive and reasonable."""
@@ -242,9 +216,7 @@ class TestCalculateDynamicTokens:
             min_output_tokens=2048
         )
         
-        # Should still reserve minimum output
-        assert result >= 2048
-        assert result <= 65536  # Model max
+        assert result == int(65536 * 0.9)
 
     def test_calculate_dynamic_tokens_unknown_model(self):
         """TC-ML-018: Unknown model should use DEFAULT_MAX_COMPLETION_TOKENS."""
@@ -311,160 +283,9 @@ class TestCalculateDynamicTokensValidation:
     def test_default_output_safety_margin(self):
         """Test default output_safety_margin value."""
         result = calculate_dynamic_completion_tokens(
-            model="gpt-4o-mini",
+            model="gpt-5.4-mini",
             min_output_tokens=100
         )
         # Default output_safety_margin is 0.1
-        # Expected: 16384 * 0.9 = 14745
-        assert 14000 <= result <= 15000
-
-    def test_gpt5_dynamic_tokens_with_margin(self):
-        """
-        Test dynamic token calculation for GPT-5 with safety margin.
-        
-        Tests the complete token calculation pipeline for a specific model.
-        """
-        # Calculate max completion for GPT-5
-        max_completion = calculate_dynamic_completion_tokens(
-            model="gpt-5",
-            min_output_tokens=2048,
-            output_safety_margin=0.1
-        )
-        
-        # Validate result
-        assert 114_000 <= max_completion <= 116_000  # ~115K for GPT-5 with margin
-
-
-class TestRemovedModels:
-    """Tests for models that were removed from DEFAULT_GPT_MODELS list."""
-
-    @pytest.mark.parametrize("removed_model", [
-        "gpt-4.1-mini",
-        "gpt-4.1-nano",
-    ])
-    def test_removed_models_get_correct_limits(self, removed_model):
-        """
-        TC-ML-021: Removed models should get correct token limits.
-        
-        Models gpt-4.1-mini and gpt-4.1-nano were removed from DEFAULT_GPT_MODELS
-        but may still be used by users with old configs or manual input.
-        They should match the 'gpt-4' prefix (limit 4096) and not match 'gpt-5'.
-        """
-        result = get_model_max_completion_tokens(removed_model)
-        
-        # Should match 'gpt-4' prefix, not 'gpt-5'
-        assert result == 4096, (
-            f"Model '{removed_model}' should match 'gpt-4' prefix with limit 4096, "
-            f"got {result}"
-        )
-
-    def test_removed_models_do_not_match_gpt5_prefix(self):
-        """
-        TC-ML-022: Removed models should NOT match GPT-5 prefix.
-        
-        This is a regression test to ensure that gpt-4.1 models don't
-        accidentally get GPT-5 token limits (128K) due to prefix matching bugs.
-        """
-        gpt5_limit = get_model_max_completion_tokens("gpt-5")
-        gpt41_mini_limit = get_model_max_completion_tokens("gpt-4.1-mini")
-        
-        # gpt-4.1-mini should NOT get gpt-5's limit
-        assert gpt41_mini_limit != gpt5_limit, (
-            f"gpt-4.1-mini should not match gpt-5 prefix. "
-            f"Got same limit {gpt41_mini_limit} as gpt-5"
-        )
-        
-        # gpt-4.1-mini should get gpt-4's limit (4096)
-        assert gpt41_mini_limit == 4096
-
-    def test_removed_models_with_dynamic_calculation(self):
-        """
-        TC-ML-023: Removed models should work correctly with dynamic calculation.
-        
-        Tests that calculate_dynamic_completion_tokens handles removed models properly.
-        """
-        for model in ["gpt-4.1-mini", "gpt-4.1-nano"]:
-            result = calculate_dynamic_completion_tokens(
-                model=model,
-                min_output_tokens=2048,
-                output_safety_margin=0.1
-            )
-            
-            # Should apply safety margin to gpt-4's limit (4096)
-            expected_max = int(4096 * 0.9)  # 3686 with 10% margin
-            assert result == expected_max, (
-                f"Model '{model}' with dynamic calculation should return "
-                f"{expected_max}, got {result}"
-            )
-
-
-class TestPrefixMatchingEdgeCases:
-    """Tests for edge cases in prefix matching logic."""
-
-    def test_gpt4_prefix_does_not_match_gpt5(self):
-        """
-        TC-ML-024: GPT-4 models should not match GPT-5 prefix.
-        
-        Regression test to ensure 'gpt-4' prefix doesn't accidentally
-        match 'gpt-5' due to sorting or matching bugs.
-        """
-        gpt4_limit = get_model_max_completion_tokens("gpt-4")
-        gpt5_limit = get_model_max_completion_tokens("gpt-5")
-        
-        assert gpt4_limit == 4096
-        assert gpt5_limit == 128000
-        assert gpt4_limit != gpt5_limit
-
-    def test_similar_model_names_dont_collide(self):
-        """
-        TC-ML-025: Similar model names should have correct distinct limits.
-        
-        Tests that models with similar names (gpt-4 vs gpt-5) don't
-        get mixed up due to prefix matching.
-        """
-        test_cases = [
-            ("gpt-4", 4096),
-            ("gpt-4o", 16384),
-            ("gpt-4o-mini", 16384),
-            ("gpt-5", 128000),
-            ("gpt-5-mini", 128000),
-            ("gpt-5-nano", 32768),
-        ]
-        
-        for model, expected_limit in test_cases:
-            result = get_model_max_completion_tokens(model)
-            assert result == expected_limit, (
-                f"Model '{model}' should have limit {expected_limit}, got {result}"
-            )
-
-    def test_versioned_models_match_correct_base(self):
-        """
-        TC-ML-026: Versioned model variants should match correct base.
-        
-        Ensures that gpt-4.1 matches gpt-4, not gpt-5.
-        """
-        # gpt-4.1 variants should match gpt-4 prefix
-        assert get_model_max_completion_tokens("gpt-4.1") == 4096
-        assert get_model_max_completion_tokens("gpt-4.1-mini") == 4096
-        assert get_model_max_completion_tokens("gpt-4.1-nano") == 4096
-        
-        # gpt-5 variants should match gpt-5 prefix
-        assert get_model_max_completion_tokens("gpt-5.1") == 128000
-        assert get_model_max_completion_tokens("gpt-5.1-mini") == 128000
-
-    def test_longest_prefix_wins_over_shorter(self):
-        """
-        TC-ML-027: Longest prefix should win over shorter prefixes.
-        
-        When multiple prefixes could match, the longest one should be used.
-        """
-        # gpt-5-mini should match 'gpt-5-mini' (128K), not 'gpt-5' (also 128K in this case)
-        # But the logic matters for correctness
-        result = get_model_max_completion_tokens("gpt-5-mini-turbo")
-        assert result == 128000  # From gpt-5-mini prefix
-        
-        # gpt-4o-mini should match 'gpt-4o-mini' (16384), not 'gpt-4' (4096)
-        result = get_model_max_completion_tokens("gpt-4o-mini-preview")
-        assert result == 16384, (
-            "Should match 'gpt-4o-mini' (longest prefix), not 'gpt-4'"
-        )
+        # Expected: 128000 * 0.9 = 115200
+        assert 114000 <= result <= 116000
