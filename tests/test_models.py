@@ -91,6 +91,30 @@ class TestGetAvailableModels:
             "openai", ["gpt-5.6-luna", "gpt-5.4-mini"]
         )
 
+    def test_get_available_models_hides_latest_aliases_and_keeps_supported_chatgpt_models(
+        self, model_manager, mock_cache, mock_provider_registry, mocker
+    ):
+        """The picker retains supported named ChatGPT models but excludes latest aliases."""
+        mocker.patch.object(mock_cache, "get", return_value=None)
+        mocker.patch.object(mock_cache, "cache_models_and_persist")
+        mock_client = mocker.Mock()
+        mock_client.models.list.return_value.data = [
+            mocker.Mock(id="gpt-5.3"),
+            mocker.Mock(id="gpt-5.4-mini"),
+            mocker.Mock(id="gpt-5.7-latest"),
+            mocker.Mock(id="chatgpt-5.6"),
+            mocker.Mock(id="chatgpt-5.6-latest"),
+        ]
+        mock_provider_registry.get_client.return_value = mock_client
+
+        result_models, source = model_manager.get_available_models(APIProvider.OPENAI)
+
+        assert result_models == ["chatgpt-5.6", "gpt-5.4-mini"]
+        assert source == ModelSource.API.value
+        mock_cache.cache_models_and_persist.assert_called_once_with(
+            "openai", ["chatgpt-5.6", "gpt-5.4-mini"]
+        )
+
     def test_get_available_models_with_temp_key(self, model_manager, mock_cache, mock_provider_registry, mocker):
         """Temporary OpenAI fetch applies the current-model policy."""
         mock_client = mocker.Mock()

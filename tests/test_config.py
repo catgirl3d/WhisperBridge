@@ -51,7 +51,9 @@ def test_filter_openai_model_selection_keeps_supported_families():
     """Both model selectors should use the same current model families."""
     models = [
         "gpt-5.3-mini",
+        "chatgpt-5.3",
         "gpt-5.4-mini",
+        "chatgpt-5.6",
         "gpt-5.6-luna",
         "gpt-5.7",
         "gpt-6",
@@ -59,6 +61,7 @@ def test_filter_openai_model_selection_keeps_supported_families():
 
     assert filter_openai_model_selection(models) == [
         "gpt-5.4-mini",
+        "chatgpt-5.6",
         "gpt-5.6-luna",
         "gpt-5.7",
         "gpt-6",

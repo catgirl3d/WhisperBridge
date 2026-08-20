@@ -101,7 +101,7 @@ class ModelManager:
 
     def _sort_openai_models(self, model_ids: List[str]) -> List[str]:
         def _extract_version_parts(model_id: str) -> tuple[int, int, int]:
-            match = re.match(r"^(?:chatgpt-)?gpt-(\d+(?:\.\d+)*)", model_id)
+            match = re.match(r"^(?:gpt|chatgpt)-(\d+(?:\.\d+)*)", model_id)
             if not match:
                 return (0, 0, 0)
 
@@ -121,7 +121,7 @@ class ModelManager:
             # then by size within the same version: nano -> mini -> standard.
             gpt5_rank = 3
             gpt5_version_key = (0, 0, 0)
-            if lm.startswith("gpt-5"):
+            if lm.startswith(("gpt-5", "chatgpt-5")):
                 version_parts = _extract_version_parts(lm)
                 gpt5_version_key = tuple(-part for part in version_parts)
                 if "nano" in lm:

@@ -17,7 +17,7 @@ def model_supports_temperature(model: str) -> bool:
     """
     Check if the model supports custom temperature values.
 
-    This helper currently treats all gpt-5* models as temperature-locked and
+    This helper currently treats all GPT-5 model IDs as temperature-locked and
     forces temperature=1.0 for them. Other models are treated as supporting
     temperature in range [0.0, 2.0].
 
@@ -37,8 +37,9 @@ def model_supports_temperature(model: str) -> bool:
     restricted_prefixes = [
         # TODO: Revisit GPT-5 temperature handling. OpenAI docs allow custom
         # temperature for GPT-5.4 when reasoning_effort="none", so not every
-        # gpt-5* model should be treated as temperature-locked.
-        "gpt-5",    # GPT-5 models with reasoning_effort parameter
+        # GPT-5 model IDs should be treated as temperature-locked.
+        "gpt-5",      # GPT-5 models with reasoning_effort parameter
+        "chatgpt-5",  # ChatGPT-prefixed GPT-5 aliases use the same API rules
     ]
 
     # Check if model starts with any restricted prefix

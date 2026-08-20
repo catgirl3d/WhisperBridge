@@ -97,7 +97,7 @@ def filter_openai_model_selection(model_ids: List[str]) -> List[str]:
 
 def _is_openai_model_allowed_for_selection(model_id: str) -> bool:
     lowered = model_id.lower()
-    match = re.match(r"^(?:chatgpt-)?gpt-(\d+)(?:\.(\d+))?", lowered)
+    match = re.match(r"^(?:gpt|chatgpt)-(\d+)(?:\.(\d+))?", lowered)
     if not match:
         return False
 
@@ -142,6 +142,7 @@ OPENAI_MODEL_EXCLUDE_DEFAULT: List[str] = [
     "-pro",
     "-2025",
     "-2026",
+    "-latest",
 ]
 
 OPENAI_REASONING_EFFORT_OPTIONS: List[str] = [

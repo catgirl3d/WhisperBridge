@@ -26,10 +26,18 @@ class TestModelSupportsTemperature:
         assert model_supports_temperature("gemini-2.5-flash") is True
         assert model_supports_temperature("gemini-3-flash") is True
 
-    def test_model_supports_temperature_reasoning_models(self):
+    @pytest.mark.parametrize(
+        "model",
+        [
+            "gpt-5.4-mini",
+            "gpt-5.7",
+            "chatgpt-5.6",
+            "chatgpt-5.6-latest",
+        ],
+    )
+    def test_model_supports_temperature_reasoning_models(self, model):
         """Current GPT-5 models do not support temperature."""
-        assert model_supports_temperature("gpt-5.4-mini") is False
-        assert model_supports_temperature("gpt-5.7") is False
+        assert model_supports_temperature(model) is False
 
 
 class TestAdjustTemperatureForModel:
