@@ -13,7 +13,7 @@ from typing import Any, Callable, Dict, Optional
 import keyring
 from loguru import logger
 
-from .config import Settings, get_config_path, BUILD_OCR_ENABLED
+from .config import API_TIMEOUT_DEFAULT, Settings, get_config_path, BUILD_OCR_ENABLED
 
 
 class SettingsManager:
@@ -41,7 +41,7 @@ class SettingsManager:
 
         # Add new fields with defaults
         data.setdefault("system_prompt", "You are a professional translator...")
-        data.setdefault("api_timeout", 30)
+        data.setdefault("api_timeout", API_TIMEOUT_DEFAULT)
         data.setdefault("max_retries", 3)
 
         # Global caching settings (used by TranslationService; OCR cache removed)

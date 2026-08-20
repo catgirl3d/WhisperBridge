@@ -7,7 +7,7 @@ following the UI configuration guidelines.
 
 from PySide6.QtWidgets import QComboBox, QLineEdit, QSpinBox, QPushButton, QCheckBox, QTextEdit, QDoubleSpinBox, QTableWidget, QLabel, QToolButton, QGroupBox, QWidget, QTabWidget
 from .widgets.hotkey_edit import HotkeyEdit
-from ..core.config import OPENAI_REASONING_EFFORT_OPTIONS
+from ..core.config import API_TIMEOUT_MAX, API_TIMEOUT_MIN, OPENAI_REASONING_EFFORT_OPTIONS
 
 
 OPENAI_REASONING_EFFORT_LABELS = {
@@ -70,7 +70,7 @@ class SettingsUIFactory:
         },
         'apiTimeoutSpin': {
             'object_name': 'apiTimeoutSpin',
-            'range': (1, 300)
+            'range': (API_TIMEOUT_MIN, API_TIMEOUT_MAX)
         },
         'llmTemperatureTranslationSpin': {
             'object_name': 'llmTemperatureTranslationSpin',

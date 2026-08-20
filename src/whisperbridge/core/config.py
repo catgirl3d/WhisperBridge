@@ -45,6 +45,10 @@ TRANSLATOR_FONT_SIZE_DEFAULT = 9
 TRANSLATOR_FONT_SIZE_MIN = 8
 TRANSLATOR_FONT_SIZE_MAX = 32
 
+API_TIMEOUT_DEFAULT = 30
+API_TIMEOUT_MIN = 1
+API_TIMEOUT_MAX = 60
+
 
 def normalize_translator_font_size(value: Any) -> int:
     """Return a safe translator font size clamped to the supported range."""
@@ -176,7 +180,7 @@ class Settings(BaseSettings):
         description="OpenAI reasoning effort; not_set omits the parameter from the request",
     )
     google_model: str = Field(default="gemini-2.5-flash", description="Default Google model")
-    api_timeout: int = Field(default=30, description="API request timeout in seconds")
+    api_timeout: int = Field(default=API_TIMEOUT_DEFAULT, description="API request timeout in seconds")
     llm_temperature_translation: float = Field(
         default=1.0,
         ge=0.0,
@@ -382,8 +386,10 @@ class Settings(BaseSettings):
             iv = int(v)
         except Exception:
             raise ValueError("api_timeout must be an integer")
-        if iv <= 0 or iv > 60:
-            raise ValueError("api_timeout must be between 1 and 60 seconds")
+        if iv < API_TIMEOUT_MIN or iv > API_TIMEOUT_MAX:
+            raise ValueError(
+                f"api_timeout must be between {API_TIMEOUT_MIN} and {API_TIMEOUT_MAX} seconds"
+            )
         return iv
 
     @field_validator("log_level")

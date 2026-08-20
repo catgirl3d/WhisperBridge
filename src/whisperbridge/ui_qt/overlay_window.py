@@ -25,7 +25,14 @@ from PySide6.QtWidgets import (
 
 from ..services.config_service import config_service, SettingsObserver
 from ..utils.language_utils import detect_language, get_language_name
-from ..core.config import SUPPORTED_PROVIDERS, TRANSLATOR_FONT_SIZE_DEFAULT, validate_api_key_format
+from ..core.config import (
+    API_TIMEOUT_DEFAULT,
+    API_TIMEOUT_MAX,
+    API_TIMEOUT_MIN,
+    SUPPORTED_PROVIDERS,
+    TRANSLATOR_FONT_SIZE_DEFAULT,
+    validate_api_key_format,
+)
 from .styled_overlay_base import StyledOverlayWindow
 from .workers import TranslationWorker, StyleWorker
 from .overlay_ui_builder import OverlayUIBuilder, TranslatorSettingsDialog
@@ -1049,7 +1056,13 @@ class OverlayWindow(StyledOverlayWindow):
         thread.finished.connect(thread.deleteLater)
 
         # Watchdog timer setup
-        api_timeout = config_service.get_setting("api_timeout") or 60
+        api_timeout = config_service.get_setting("api_timeout")
+        try:
+            api_timeout = int(api_timeout)
+        except (TypeError, ValueError):
+            api_timeout = None
+        if api_timeout is None or not API_TIMEOUT_MIN <= api_timeout <= API_TIMEOUT_MAX:
+            api_timeout = API_TIMEOUT_DEFAULT
         watchdog_timeout = max(api_timeout * 2, 60)  # Reduced minimum to 60 seconds
         
         watchdog = QTimer(self)

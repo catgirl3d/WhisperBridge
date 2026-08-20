@@ -396,7 +396,7 @@ class TestQtIntegration:
         (10, 60),   # api_timeout=10 -> watchdog=max(20,60)=60
         (30, 60),   # api_timeout=30 -> watchdog=max(60,60)=60
         (60, 120),  # api_timeout=60 -> watchdog=max(120,60)=120
-        (100, 200), # api_timeout=100 -> watchdog=max(200,60)=200
+        (100, 60),  # invalid api_timeout falls back to the 30-second default
     ])
     def test_watchdog_timeout_calculation_only(self, qtbot, overlay, mock_config_service, mocker, api_timeout, expected_watchdog):
         """Test watchdog timeout calculation without actual termination.
@@ -425,13 +425,13 @@ class TestQtIntegration:
 
     def test_timeout_emits_error_then_finished(self, qtbot, mock_config_service):
         """Verify that on timeout, error signal is emitted BEFORE finished."""
-        mock_config_service[0] = 0.1
+        mock_config_service[0] = 1
         worker = BaseAsyncWorker()
         error_spy = QSignalSpy(worker.error)
         finished_spy = QSignalSpy(worker.finished)
         
         async def slow_coro():
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(1.5)
             
         worker._run_async_task(slow_coro(), "TestTimeoutOrder")
         
@@ -502,9 +502,9 @@ class TestQtIntegration:
 
     def test_worker_timeout_handling(self, qtbot, mock_config_service, mocker):
         """Test TranslationWorker handles timeout correctly."""
-        mock_config_service[0] = 0.1
+        mock_config_service[0] = 1
         mock_service = Mock()
-        async def slow_mock(*args, **kwargs): await asyncio.sleep(0.5)
+        async def slow_mock(*args, **kwargs): await asyncio.sleep(1.5)
         mock_service.translate_text_async = AsyncMock(side_effect=slow_mock)
         
         mocker.patch('whisperbridge.services.translation_service.get_translation_service', return_value=mock_service)
@@ -814,7 +814,7 @@ class TestQtIntegration:
             # Main task completes quickly
             return "done"
         
-        mock_config_service[0] = 0.1
+        mock_config_service[0] = 1
         result = worker._run_async_task(main_task(), "TestCancel")
         
         # Should return result (main task completed)
@@ -1091,13 +1091,34 @@ class TestErrorRecovery:
                 thread.quit()
                 thread.wait(500)
     
-    def test_worker_recovery_after_timeout(self, qtbot, overlay, mock_config_service):
+    def test_worker_recovery_after_timeout(self, qtbot, overlay, mock_config_service, mocker):
         """Test that a new worker can be created after previous one timed out."""
-        mock_config_service[0] = 0.1
+        mock_config_service[0] = 1
+
+        mock_service = Mock()
+        call_count = 0
+
+        async def translate_text(*_args, **_kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                await asyncio.sleep(2)
+            return Mock(success=True, translated_text="result")
+
+        mock_service.translate_text_async = AsyncMock(side_effect=translate_text)
+        mocker.patch(
+            'whisperbridge.services.translation_service.get_translation_service',
+            return_value=mock_service,
+        )
         
         # First worker times out
         worker1, thread1 = overlay._setup_worker(TranslationWorker, "test1", "en", "ru")
-        qtbot.wait(500)  # Wait for timeout
+        error_spy = QSignalSpy(worker1.error)
+        with qtbot.waitSignal(thread1.finished, timeout=3000):
+            pass
+
+        assert error_spy.count() == 1
+        assert "timed out" in error_spy.at(0)[0]
         
         # First thread may be deleted by Qt's deleteLater, so handle gracefully
         try:
@@ -1110,10 +1131,13 @@ class TestErrorRecovery:
         # Second worker should work normally
         worker2, thread2 = overlay._setup_worker(TranslationWorker, "test2", "en", "ru")
         assert thread2.isRunning()
-        
-        # Complete second worker
+        finished_spy = QSignalSpy(worker2.finished)
         with qtbot.waitSignal(thread2.finished, timeout=1000):
-            worker2.finished.emit(True, "result")
+            pass
+
+        assert finished_spy.count() == 1
+        assert finished_spy.at(0)[0] is True
+        assert finished_spy.at(0)[1] == "result"
         
         # Second thread may also be deleted, handle gracefully
         try:

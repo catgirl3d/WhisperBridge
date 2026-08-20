@@ -1,7 +1,14 @@
 """Tests for Settings configuration and validation."""
 
 import pytest
-from whisperbridge.core.config import OPENAI_MODEL_POLICY, Settings, filter_openai_model_selection
+from whisperbridge.core.config import (
+    API_TIMEOUT_DEFAULT,
+    API_TIMEOUT_MAX,
+    API_TIMEOUT_MIN,
+    OPENAI_MODEL_POLICY,
+    Settings,
+    filter_openai_model_selection,
+)
 
 def test_settings_initialization():
     """Test that settings can be initialized."""
@@ -10,6 +17,14 @@ def test_settings_initialization():
     assert settings.openai_model == OPENAI_MODEL_POLICY.default_model
     assert settings.openai_vision_model == OPENAI_MODEL_POLICY.default_model
     assert settings.openai_reasoning_effort == "not_set"
+    assert settings.api_timeout == API_TIMEOUT_DEFAULT
+
+
+def test_api_timeout_uses_canonical_range():
+    assert Settings(api_timeout=API_TIMEOUT_MIN).api_timeout == API_TIMEOUT_MIN
+    assert Settings(api_timeout=API_TIMEOUT_MAX).api_timeout == API_TIMEOUT_MAX
+    with pytest.raises(ValueError):
+        Settings(api_timeout=API_TIMEOUT_MAX + 1)
 
 
 def test_openai_model_policy_has_selected_defaults_and_fallbacks():

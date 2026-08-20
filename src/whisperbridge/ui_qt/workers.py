@@ -11,7 +11,7 @@ from loguru import logger
 from PySide6.QtCore import QObject, Signal
 
 from ..core.api_manager import get_api_manager, APIProvider
-from ..core.config import Settings
+from ..core.config import API_TIMEOUT_DEFAULT, API_TIMEOUT_MAX, API_TIMEOUT_MIN, Settings
 from ..core.settings_manager import settings_manager
 from ..services.config_service import config_service
 from ..services.ocr_service import get_ocr_service
@@ -176,12 +176,18 @@ class BaseAsyncWorker(QObject):
             self.finished.emit(False, msg)
             return None
 
-        # Get timeout from settings (default to 60 seconds)
-        timeout = config_service.get_setting("api_timeout") or 60
-        # Validate timeout is positive
-        if not isinstance(timeout, (int, float)) or timeout <= 0:
-            logger.warning(f"Invalid api_timeout value: {timeout}, using default 60")
-            timeout = 60
+        raw_timeout = config_service.get_setting("api_timeout")
+        timeout = raw_timeout
+        try:
+            timeout = int(timeout)
+        except (TypeError, ValueError):
+            timeout = None
+        if timeout is None or not API_TIMEOUT_MIN <= timeout <= API_TIMEOUT_MAX:
+            logger.warning(
+                f"Invalid api_timeout value: {raw_timeout}, "
+                f"using default {API_TIMEOUT_DEFAULT}"
+            )
+            timeout = API_TIMEOUT_DEFAULT
         start_time = time.time()
 
         # Create and use a new event loop in this thread to avoid conflicting with Qt's loop
