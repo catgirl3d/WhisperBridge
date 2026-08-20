@@ -12,7 +12,6 @@ from loguru import logger
 from openai.types.chat import ChatCompletionMessageParam
 
 from ..core.config import OPENAI_MODEL_POLICY, get_openai_model_excludes
-from ..core.model_limits import get_model_max_completion_tokens
 
 __all__ = ["OpenAIChatClientAdapter", "DEFAULT_GPT_MODELS"]
 
@@ -61,16 +60,11 @@ class OpenAIChatClientAdapter:
             messages: List of message dictionaries with role and content.
             temperature: Sampling temperature.
             max_completion_tokens: Maximum tokens to generate.
-            **kwargs: Additional parameters (e.g., GPT-5 options, is_vision flag).
+            **kwargs: Additional parameters (e.g., GPT-5 options).
 
         Returns:
             OpenAI API response object.
         """
-        # Check if this is a vision request
-        is_vision = kwargs.pop("is_vision", False)
-        if is_vision:
-            return self._create_vision(model, messages, temperature)
-
         # Prepare API parameters
         api_params = {
             "model": model,
@@ -84,56 +78,6 @@ class OpenAIChatClientAdapter:
 
         # Make the API call
         response = self._client.chat.completions.create(**api_params)
-        return response
-
-    def _create_vision(
-        self,
-        model: str,
-        messages: List[ChatCompletionMessageParam],
-        temperature: float = 0.0,
-        **kwargs: Any,
-    ) -> Any:
-        """
-        Handle vision requests using the model's registered output cap.
-
-        Args:
-            model: Model name to use.
-            messages: List of message dictionaries with multimodal content.
-            temperature: Sampling temperature (default 0.0 for vision).
-            **kwargs: Additional parameters (is_vision flag is handled here).
-
-        Returns:
-            OpenAI API response object.
-        """
-        # Remove is_vision from kwargs to avoid passing to SDK
-        kwargs.pop("is_vision", None)
-        
-        # Defensive check: validate that we have at least one image in the request
-        has_image = False
-        for msg in messages:
-            if isinstance(msg.get("content"), list):
-                for part in msg["content"]:
-                    if isinstance(part, dict) and part.get("type") == "image_url":
-                        has_image = True
-                        break
-            if has_image:
-                break
-        if not has_image:
-            raise ValueError("Vision request requires at least one image part")
-        
-        max_completion_tokens = get_model_max_completion_tokens(model)
-
-        logger.debug(
-            f"Vision temperature: {temperature}, "
-            f"max_completion_tokens={max_completion_tokens}, model={model}"
-        )
-
-        response = self._client.chat.completions.create(
-            model=model,
-            messages=messages,
-            temperature=temperature,
-            max_completion_tokens=max_completion_tokens,
-        )
         return response
 
     def _list_models(self) -> Any:

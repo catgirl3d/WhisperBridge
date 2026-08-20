@@ -327,6 +327,8 @@ class APIManager:
             log_label="Translation",
         )
 
+        # Reasoning effort is intentionally limited to text translation;
+        # vision/OCR requests use make_vision_request and do not inherit it.
         if selected_provider == APIProvider.OPENAI:
             reasoning_effort = self.config_service.get_setting("openai_reasoning_effort") or "not_set"
             if reasoning_effort != "not_set":
