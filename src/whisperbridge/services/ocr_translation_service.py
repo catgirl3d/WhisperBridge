@@ -84,7 +84,7 @@ class OCRTranslationCoordinator:
             logger.debug("Translation service not available, skipping translation")
             return "", "Translation service not configured"
 
-        # Determine languages
+        # Pass the UI selections through; TranslationService owns detection and swap policy.
         source_lang, target_lang = self._determine_translation_languages(text)
 
         # Perform translation
@@ -104,40 +104,18 @@ class OCRTranslationCoordinator:
             logger.error(f"Translation error: {e}")
             return "", str(e)
     def _determine_translation_languages(self, text: str) -> Tuple[str, str]:
-        """Determine languages for translation based on settings.
+        """Read the UI language selections for TranslationService.
 
         Args:
-            text: Text content (used for auto-detection if enabled)
+            text: Text content (kept for compatibility with the existing method API)
 
         Returns:
             Tuple of (source_language, target_language)
         """
         settings = config_service.get_settings()
-        ocr_auto_swap = getattr(settings, "auto_swap_en_ru", False)
-
-        if ocr_auto_swap:
-            # Auto-detection and swapping of EN ↔ RU languages
-            try:
-                detected = self.translation_service.detect_language_sync(text) or "auto"
-
-                if detected == "en":
-                    target = "ru"
-                elif detected == "ru":
-                    target = "en"
-                else:
-                    target = "en"  # Default fallback
-
-                logger.debug(f"Auto-swap: detected='{detected}', target='{target}'")
-                return detected, target
-
-            except Exception as e:
-                logger.warning(f"Auto-swap detection failed: {e}, using defaults")
-                return "auto", "en"
-        else:
-            # Get language pair from UI settings
-            ui_source = getattr(settings, "ui_source_language", "auto")
-            ui_target = getattr(settings, "ui_target_language", "en")
-            return ui_source, ui_target
+        ui_source = getattr(settings, "ui_source_language", "auto")
+        ui_target = getattr(settings, "ui_target_language", "en")
+        return ui_source, ui_target
 
 # Global instance
 _coordinator: Optional[OCRTranslationCoordinator] = None

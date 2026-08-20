@@ -278,45 +278,27 @@ class CopyTranslateService(QObject):
                 log.info("Copy-translate overlay shown (original text only) due to missing API key")
                 return
 
-            # Translate text synchronously (respect auto_swap_en_ru setting) — with debug logs and live config check
+            # TranslationService owns detection and EN/RU auto-swap policy.
             try:
-                # Try to detect language and apply EN<->RU auto-swap if enabled in settings
                 log.debug(f"Copy-translate: text length={len(text_to_translate)}")
-                detected = self.translation_service.detect_language_sync(text_to_translate) or "auto"
-                log.debug(f"Copy-translate: detected language='{detected}'")
-
-                # Read all relevant settings
                 settings = self.config_service.get_settings()
-                swap_enabled = getattr(settings, "auto_swap_en_ru", False)
-                ui_source_language = getattr(settings, "ui_source_language", "en")
+                ui_source_language = getattr(settings, "ui_source_language", "auto")
                 ui_target_language = getattr(settings, "ui_target_language", "en")
-
-                # Determine effective source language
-                source_lang = ui_source_language
-
-                # Determine effective target language with checkbox priority
-                if swap_enabled:
-                    if detected == "en":
-                        target_lang = "ru"
-                    elif detected == "ru":
-                        target_lang = "en"
-                    else:
-                        # If auto-swap is on but language is not en/ru, use the explicit UI target
-                        target_lang = ui_target_language
-                else:
-                    # If auto-swap is off, use the explicit UI target
-                    target_lang = ui_target_language
-
-                log.debug(f"Copy-translate: swap_enabled={swap_enabled}. Source='{source_lang}', Target='{target_lang}'")
+                log.debug(
+                    f"Copy-translate: passing UI source='{ui_source_language}', "
+                    f"target='{ui_target_language}' to TranslationService"
+                )
 
                 # Show a brief translating notification
                 self.notification_service.info("Translating...", "WhisperBridge")
 
                 response = self.translation_service.translate_text_sync(
-                    text_to_translate, source_lang=source_lang, target_lang=target_lang
+                    text_to_translate,
+                    source_lang=ui_source_language,
+                    target_lang=ui_target_language,
                 )
             except Exception as exc:
-                log.error(f"Copy-translate: error during language detection/auto-swap: {exc}", exc_info=True)
+                log.error(f"Copy-translate: error preparing translation: {exc}", exc_info=True)
                 # Fallback to default translation call on any failure
                 self.notification_service.info("Translating...", "WhisperBridge")
                 response = self.translation_service.translate_text_sync(text_to_translate)

@@ -125,16 +125,15 @@ def test_run_translates_with_auto_swap_and_auto_copy(qapp, mocker):
         ui_source_language="auto",
         ui_target_language="uk",
     )
-    ctx.translation_service.detect_language_sync.return_value = "en"
     ctx.translation_service.translate_text_sync.return_value = SimpleNamespace(translated_text="Привіт")
 
     ctx.service.run()
 
-    ctx.translation_service.detect_language_sync.assert_called_once_with("selected text")
+    ctx.translation_service.detect_language_sync.assert_not_called()
     ctx.translation_service.translate_text_sync.assert_called_once_with(
         "selected text",
         source_lang="auto",
-        target_lang="ru",
+        target_lang="uk",
     )
     assert ctx.emitted == [("selected text", "Привіт", True)]
     assert ctx.hotkey_service.set_paused.call_args_list == [call(True), call(False)]
@@ -143,7 +142,7 @@ def test_run_translates_with_auto_swap_and_auto_copy(qapp, mocker):
     ctx.notification_service.error.assert_not_called()
 
 
-def test_run_falls_back_to_default_translation_when_detection_fails(qapp, mocker):
+def test_run_falls_back_to_default_translation_when_ui_settings_fail(qapp, mocker):
     ctx = _build_service(qapp, mocker)
     ctx.clipboard_service.get_clipboard_text.side_effect = ["old text", "selected text"]
     ctx.config_service.get_setting.side_effect = _make_get_setting(
@@ -155,11 +154,12 @@ def test_run_falls_back_to_default_translation_when_detection_fails(qapp, mocker
             "auto_copy_translated": RuntimeError("config read failed"),
         }
     )
-    ctx.translation_service.detect_language_sync.side_effect = RuntimeError("detect failed")
+    ctx.config_service.get_settings.side_effect = RuntimeError("settings read failed")
     ctx.translation_service.translate_text_sync.return_value = "Fallback translation"
 
     ctx.service.run()
 
+    ctx.translation_service.detect_language_sync.assert_not_called()
     ctx.translation_service.translate_text_sync.assert_called_once_with("selected text")
     assert ctx.emitted == [("selected text", "Fallback translation", False)]
     ctx.notification_service.info.assert_called_once_with("Translating...", "WhisperBridge")

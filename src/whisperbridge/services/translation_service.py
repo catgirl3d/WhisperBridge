@@ -212,6 +212,8 @@ class TranslationService:
         """Translate text asynchronously using API."""
 
         logger.info(f"Starting translation for text: '{text[:30]}...'")
+        source_lang = ui_source_lang
+        target_lang = ui_target_lang
 
         try:
             # Determine languages using the new helper
