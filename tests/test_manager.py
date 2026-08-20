@@ -252,6 +252,42 @@ class TestTranslationRequests:
         assert response is not None
         assert model == "gpt-4"
 
+    def test_make_translation_request_passes_configured_reasoning_effort(
+        self, initialized_openai_manager, mock_openai_client
+    ):
+        """Configured OpenAI reasoning effort is sent without model-name inference."""
+        initialized_openai_manager.config_service.get_setting.side_effect = lambda key: {
+            "api_provider": "openai",
+            "llm_temperature_translation": 1.0,
+            "openai_reasoning_effort": "none",
+        }.get(key)
+
+        initialized_openai_manager.make_translation_request(
+            messages=[{"role": "user", "content": "Translate this"}],
+            model_hint="gpt-5.6-luna",
+        )
+
+        kwargs = mock_openai_client.chat.completions.create.call_args.kwargs
+        assert kwargs["reasoning_effort"] == "none"
+
+    def test_make_translation_request_not_set_does_not_send_reasoning_effort(
+        self, initialized_openai_manager, mock_openai_client
+    ):
+        """not_set leaves reasoning selection to the selected model."""
+        initialized_openai_manager.config_service.get_setting.side_effect = lambda key: {
+            "api_provider": "openai",
+            "llm_temperature_translation": 1.0,
+            "openai_reasoning_effort": "not_set",
+        }.get(key)
+
+        initialized_openai_manager.make_translation_request(
+            messages=[{"role": "user", "content": "Translate this"}],
+            model_hint="gpt-5.6-luna",
+        )
+
+        kwargs = mock_openai_client.chat.completions.create.call_args.kwargs
+        assert "reasoning_effort" not in kwargs
+
     def test_make_translation_request_deepl(self, initialized_deepl_manager):
         """Test translation request through DeepL."""
         messages = [{"role": "user", "content": "Translate this"}]

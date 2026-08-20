@@ -53,15 +53,16 @@ class TestOpenAITextRequests:
         assert kwargs["messages"] == messages
         assert kwargs["temperature"] == 0.7
 
-    @pytest.mark.parametrize(
-        ("model", "expected_reasoning_effort"),
-        [
-            ("gpt-5-mini", "minimal"),
-            ("gpt-5.4", "none"),
-        ],
-    )
-    def test_gpt5_optimizations(self, mocker, fake_openai_client, mock_completion_response, model, expected_reasoning_effort):
-        """Test that GPT-5 models get model-specific top-level optimizations."""
+    @pytest.mark.parametrize("model", [
+        "gpt-5.4",
+        "gpt-5.6-luna",
+        "gpt-5.6-sol",
+        "gpt-5.6-terra",
+    ])
+    def test_gpt5_reasoning_is_not_inferred_from_model_name(
+        self, mocker, fake_openai_client, mock_completion_response, model
+    ):
+        """The adapter must not guess reasoning support from a model name."""
         messages = [{"role": "user", "content": "Hi"}]
         mock_create = mocker.patch.object(
             fake_openai_client._client.chat.completions, "create", return_value=mock_completion_response
@@ -74,11 +75,11 @@ class TestOpenAITextRequests:
 
         assert mock_create.called
         kwargs = mock_create.call_args.kwargs
-        assert kwargs["reasoning_effort"] == expected_reasoning_effort
-        assert kwargs["verbosity"] == "low"
+        assert "reasoning_effort" not in kwargs
+        assert "verbosity" not in kwargs
 
-    def test_gpt5_optimizations_do_not_override_explicit_kwargs(self, mocker, fake_openai_client, mock_completion_response):
-        """Test that caller-provided GPT-5 params win over adapter defaults."""
+    def test_explicit_gpt5_params_are_forwarded(self, mocker, fake_openai_client, mock_completion_response):
+        """Test that caller-provided GPT-5 params are forwarded unchanged."""
         messages = [{"role": "user", "content": "Hi"}]
         mock_create = mocker.patch.object(
             fake_openai_client._client.chat.completions, "create", return_value=mock_completion_response

@@ -410,26 +410,23 @@ class TestOpenAIAdapterGPTFamilyBehavior:
         adapter._create(model="gpt-5.4", messages=messages)
 
         call_args = mock_client.chat.completions.create.call_args
-        assert call_args.kwargs.get('reasoning_effort') == 'none'
-        assert call_args.kwargs.get('verbosity') == 'low'
+        assert 'reasoning_effort' not in call_args.kwargs
+        assert 'verbosity' not in call_args.kwargs
 
-    @pytest.mark.parametrize("model,expected_reasoning_effort", [
-        ("gpt-5-mini", 'minimal'),
-        ("gpt-5-nano", 'minimal'),
-        ("gpt-5", 'minimal'),
-        ("gpt-5.4", 'none'),
-        ("gpt-5.4-mini", 'none'),
-        ("gpt-4.1-mini", None),
-        ("gpt-4.1-nano", None),
-        ("gpt-4o-mini", None),
-        ("gpt-4o", None),
+    @pytest.mark.parametrize("model", [
+        "gpt-5.4",
+        "gpt-5.4-mini",
+        "gpt-5.6-luna",
+        "gpt-5.6-sol",
+        "gpt-5.6-terra",
+        "gpt-5.7",
+        "gpt-6",
     ])
-    def test_gpt5_optimizations_applied_correctly(self, mocker, model, expected_reasoning_effort):
+    def test_gpt5_reasoning_is_not_inferred(self, mocker, model):
         """
-        Test that GPT-5 optimizations are applied only to GPT-5 models.
+        Test that the adapter does not infer reasoning parameters.
 
-        Parametrized test to verify that the startswith("gpt-5") check
-        correctly identifies which models get optimizations.
+        Reasoning effort is supplied by APIManager from the user setting.
         """
         mock_openai = mocker.patch('whisperbridge.providers.openai_adapter.openai.OpenAI')
         from whisperbridge.providers.openai_adapter import OpenAIChatClientAdapter
@@ -455,23 +452,16 @@ class TestOpenAIAdapterGPTFamilyBehavior:
         assert mock_client.chat.completions.create.called
         call_args = mock_client.chat.completions.create.call_args
         
-        if expected_reasoning_effort is not None:
-            assert 'reasoning_effort' in call_args.kwargs, (
-                f"Model '{model}' SHOULD have GPT-5 optimizations"
-            )
-            assert call_args.kwargs.get('reasoning_effort') == expected_reasoning_effort
-            assert call_args.kwargs.get('verbosity') == 'low'
-        else:
-            assert 'reasoning_effort' not in call_args.kwargs, (
-                f"Model '{model}' should NOT have GPT-5 reasoning_effort"
-            )
-            assert 'verbosity' not in call_args.kwargs, (
-                f"Model '{model}' should NOT have GPT-5 optimizations"
-            )
+        assert 'reasoning_effort' not in call_args.kwargs, (
+            f"Model '{model}' should not get inferred reasoning_effort"
+        )
+        assert 'verbosity' not in call_args.kwargs, (
+            f"Model '{model}' should not get inferred verbosity"
+        )
 
-    def test_adapter_direct_vision_branch_handles_gpt41_models(self, mocker):
+    def test_adapter_direct_vision_branch_handles_current_models(self, mocker):
         """
-        Test that the adapter's direct vision branch handles GPT-4.1 models.
+        Test that the adapter's direct vision branch handles current models.
 
         This covers the adapter-only ``_create_vision`` path, which calculates
         max_completion_tokens internally.
