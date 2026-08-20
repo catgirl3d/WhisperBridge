@@ -183,6 +183,13 @@ class ModelManager:
         Returns:
             Filtered list of model IDs.
         """
+        if provider == APIProvider.OPENAI:
+            model_ids = [
+                model_id
+                for model_id in model_ids
+                if model_id.lower().startswith(("gpt-", "chatgpt-"))
+            ]
+
         exclude_terms = self._get_exclude_terms(provider)
         if exclude_terms is None:
             return model_ids

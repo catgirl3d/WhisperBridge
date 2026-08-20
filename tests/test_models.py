@@ -48,7 +48,7 @@ class TestGetAvailableModels:
 
     def test_get_available_models_from_cache(self, model_manager, mock_cache, mock_provider_registry, mocker):
         """Cached OpenAI models are re-filtered by exclusions and policy."""
-        models = ["gpt-5.3", "whisper-1", "gpt-5.4-mini"]
+        models = ["gpt-5.3", "whisper-1", "omni-moderation-latest", "gpt-5.4-mini"]
         timestamp = 1234567890.0
         mock_provider_registry.is_provider_available.return_value = True
         mocker.patch.object(mock_cache, "get", return_value=(models, timestamp))
@@ -76,6 +76,7 @@ class TestGetAvailableModels:
         mock_models_response.data = [
             mocker.Mock(id="gpt-5.3"),
             mocker.Mock(id="gpt-5.6-luna"),
+            mocker.Mock(id="omni-moderation-latest"),
             mocker.Mock(id="gpt-5.4-mini"),
         ]
         mock_client.models.list.return_value = mock_models_response
@@ -126,6 +127,7 @@ class TestGetAvailableModels:
         mock_models_response.data = [
             mocker.Mock(id="gpt-5.4-audio-preview"),
             mocker.Mock(id="whisper-1"),
+            mocker.Mock(id="omni-moderation-latest"),
             mocker.Mock(id="gpt-5.6-luna"),
         ]
         mock_client.models.list.return_value = mock_models_response
@@ -170,7 +172,7 @@ class TestApplyFilters:
             "whisperbridge.core.api_manager.models.get_openai_model_excludes",
             return_value=["audio", "preview"],
         )
-        models = ["gpt-5.4-mini", "gpt-5.6-luna", "gpt-5.4-audio-preview"]
+        models = ["gpt-5.4-mini", "gpt-5.6-luna", "gpt-5.4-audio-preview", "omni-moderation-latest"]
 
         result = model_manager.apply_filters(APIProvider.OPENAI, models)
 
@@ -182,11 +184,25 @@ class TestApplyFilters:
             "whisperbridge.core.api_manager.models.get_openai_model_excludes",
             return_value=["legacy-prefix", "audio"],
         )
-        models = ["legacy-prefix-model", "gpt-5.4-audio-preview", "gpt-5.7"]
+        models = ["legacy-prefix-model", "gpt-5.4-audio-preview", "gpt-5.7", "moderation-model"]
 
         result = model_manager.apply_filters(APIProvider.OPENAI, models)
 
         assert result == ["gpt-5.7"]
+
+    def test_apply_filters_openai_excludes_non_chat_models(self, model_manager, mocker):
+        """OpenAI selection keeps only GPT and ChatGPT model families."""
+        mocker.patch(
+            "whisperbridge.core.api_manager.models.get_openai_model_excludes",
+            return_value=[],
+        )
+
+        result = model_manager.apply_filters(
+            APIProvider.OPENAI,
+            ["gpt-5.4-mini", "chatgpt-5.6-latest", "omni-moderation-latest"],
+        )
+
+        assert result == ["gpt-5.4-mini", "chatgpt-5.6-latest"]
 
     def test_apply_filters_google_excludes(self, model_manager, mocker):
         """Google exclusions remove matching models and retain others."""
@@ -265,7 +281,6 @@ class TestApplyFilters:
             "gpt-5.7",
             "gpt-5.4",
             "gpt-5.7-latest",
-            "o1-mini",
         ]
 
         result = model_manager.apply_filters(APIProvider.OPENAI, models)
@@ -275,7 +290,6 @@ class TestApplyFilters:
             "gpt-5.6-luna",
             "gpt-5.4-mini",
             "gpt-5.4",
-            "o1-mini",
             "gpt-5.7-latest",
         ]
 
@@ -297,11 +311,11 @@ class TestApplyFilters:
             "whisperbridge.core.api_manager.models.get_openai_model_excludes",
             return_value=[],
         )
-        models = ["gpt-5.7-latest", "gpt-5.4-mini", "gpt-5.6-luna", "o3-mini"]
+        models = ["gpt-5.7-latest", "gpt-5.4-mini", "gpt-5.6-luna"]
 
         result = model_manager.apply_filters(APIProvider.OPENAI, models)
 
-        assert result == ["gpt-5.6-luna", "gpt-5.4-mini", "o3-mini", "gpt-5.7-latest"]
+        assert result == ["gpt-5.6-luna", "gpt-5.4-mini", "gpt-5.7-latest"]
 
 
 class TestGetDefaultModels:

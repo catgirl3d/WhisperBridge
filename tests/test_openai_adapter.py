@@ -180,42 +180,33 @@ class TestOpenAIModels:
     """Tests for model listing and filtering."""
 
     def test_list_models(self, mocker, fake_openai_client):
-        """Test that adapter-level model listing filters unsupported models."""
+        """Adapter listing returns normalized SDK models without selection filtering."""
         mock_models = SimpleNamespace(data=[
             SimpleNamespace(id="gpt-5.4-mini"),
             SimpleNamespace(id="gpt-5.6-luna"),
-            SimpleNamespace(id="whisper-1"),  # Should be excluded
-            SimpleNamespace(id="dall-e-3"),   # Should be excluded
+            SimpleNamespace(id="whisper-1"),
+            SimpleNamespace(id="dall-e-3"),
             SimpleNamespace(id="gpt-5.7"),
         ])
         mocker.patch.object(fake_openai_client._client.models, "list", return_value=mock_models)
         
-        # We need to mock get_openai_model_excludes to avoid external dependency issues in tests
-        mocker.patch("whisperbridge.providers.openai_adapter.get_openai_model_excludes", return_value=["whisper", "dall-e"])
-
         res = fake_openai_client.models.list()
         
         ids = [m.id for m in res.data]
-        assert ids == ["gpt-5.4-mini", "gpt-5.6-luna", "gpt-5.7"]
-        assert "gpt-5.4-mini" in ids
-        assert "gpt-5.7" in ids
-        assert "whisper-1" not in ids
-        assert "dall-e-3" not in ids
+        assert ids == ["gpt-5.4-mini", "gpt-5.6-luna", "whisper-1", "dall-e-3", "gpt-5.7"]
 
     def test_list_models_includes_chatgpt_prefix_models(self, mocker, fake_openai_client):
-        """Test that adapter-level model listing keeps chatgpt-* models."""
+        """Adapter listing preserves all SDK model IDs, including non-chat models."""
         mock_models = SimpleNamespace(data=[
             SimpleNamespace(id="chatgpt-5.6-latest"),
             SimpleNamespace(id="gpt-5.4-mini"),
             SimpleNamespace(id="omni-moderation-latest"),
         ])
         mocker.patch.object(fake_openai_client._client.models, "list", return_value=mock_models)
-        mocker.patch("whisperbridge.providers.openai_adapter.get_openai_model_excludes", return_value=[])
-
         res = fake_openai_client.models.list()
 
         ids = [m.id for m in res.data]
-        assert ids == ["chatgpt-5.6-latest", "gpt-5.4-mini"]
+        assert ids == ["chatgpt-5.6-latest", "gpt-5.4-mini", "omni-moderation-latest"]
 
     def test_list_models_returns_empty_on_sdk_error(self, mocker, fake_openai_client):
         """Test that model listing returns an empty result on SDK errors."""

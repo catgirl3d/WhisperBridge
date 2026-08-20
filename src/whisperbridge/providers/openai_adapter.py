@@ -11,7 +11,7 @@ import openai
 from loguru import logger
 from openai.types.chat import ChatCompletionMessageParam
 
-from ..core.config import OPENAI_MODEL_POLICY, get_openai_model_excludes
+from ..core.config import OPENAI_MODEL_POLICY
 
 __all__ = ["OpenAIChatClientAdapter", "DEFAULT_GPT_MODELS"]
 
@@ -82,7 +82,7 @@ class OpenAIChatClientAdapter:
 
     def _list_models(self) -> Any:
         """
-        Fetch and filter OpenAI models.
+        Fetch and normalize OpenAI models.
 
         Returns:
             SimpleNamespace with data list of model objects.
@@ -92,27 +92,8 @@ class OpenAIChatClientAdapter:
             all_models = [model.id for model in models_response.data]
             logger.debug(f"All available models from API: {all_models}")
 
-            # First, narrow down to chat-completion prefix patterns
-            chat_models = [
-                model.id
-                for model in models_response.data
-                if (model.id.lower().startswith("gpt-") or model.id.lower().startswith("chatgpt-"))
-            ]
-
-            # Apply global exclusion filters
-            exclude_terms = get_openai_model_excludes()
-
-            def _is_excluded(model_id: str) -> bool:
-                lowered = model_id.lower()
-                # Check for prefix-based exclusions (starts with) and substring-based exclusions (contains)
-                return any(lowered.startswith(term) or term in lowered for term in exclude_terms)
-
-            models = [m for m in chat_models if not _is_excluded(m)]
-
-            logger.debug(f"Filtered OpenAI chat completion models: {models}")
-
-            # Return SimpleNamespace with data list
-            return SimpleNamespace(data=[SimpleNamespace(id=model_id) for model_id in models])
+            # Selection policy belongs to ModelManager; this adapter only normalizes SDK objects.
+            return SimpleNamespace(data=[SimpleNamespace(id=model_id) for model_id in all_models])
 
         except Exception as e:
             logger.error(f"Error listing OpenAI models: {e}")
