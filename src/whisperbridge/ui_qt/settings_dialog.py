@@ -142,8 +142,8 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
             "api_timeout": (self.api_timeout_spin, "value", "setValue"),
             "openai_reasoning_effort": (
                 self.openai_reasoning_effort_combo,
-                lambda widget: widget.currentData(),
-                lambda widget, value: widget.setCurrentIndex(widget.findData(value)),
+                lambda widget: widget.currentData() or "not_set",
+                self._set_reasoning_effort_combo,
             ),
             "llm_temperature_translation": (self.llm_temperature_translation_spin, "value", "setValue"),
             "llm_temperature_vision": (self.llm_temperature_vision_spin, "value", "setValue"),
@@ -166,6 +166,16 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
         # OCR-specific mappings only exist when OCR UI is present
         if BUILD_OCR_ENABLED and hasattr(self, "ocr_llm_prompt_edit"):
             self.settings_map["ocr_llm_prompt"] = (self.ocr_llm_prompt_edit, "toPlainText", "setPlainText")
+
+    @staticmethod
+    def _set_reasoning_effort_combo(widget, value) -> None:
+        """Restore a valid reasoning option even when persisted data is stale."""
+        index = widget.findData(value)
+        if index < 0:
+            index = widget.findData("not_set")
+        if index < 0 and widget.count() > 0:
+            index = 0
+        widget.setCurrentIndex(index)
 
     def _apply_stylesheet(self):
         """Apply the main stylesheet"""

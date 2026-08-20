@@ -64,12 +64,47 @@ def test_apply_custom_dropdown_style_sets_list_view(qapp):
     assert isinstance(view, QListView)
 
 
+def test_settings_factory_creates_reasoning_effort_combo(qapp):
+    """The model settings factory should expose all configured reasoning modes."""
+    combo = SettingsUIFactory().create_combo("openaiReasoningEffortCombo")
+
+    assert combo.objectName() == "openaiReasoningEffortCombo"
+    assert [combo.itemText(index) for index in range(combo.count())] == [
+        "No override (model default)",
+        "none",
+        "minimal",
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+    ]
+    assert [combo.itemData(index) for index in range(combo.count())] == [
+        "not_set",
+        "none",
+        "minimal",
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+    ]
+
+
 def test_settings_factory_creates_editable_openai_vision_combo(qapp):
     """The OpenAI vision model selector should allow API-listed and manual IDs."""
     combo = SettingsUIFactory().create_combo("openaiVisionModelCombo")
 
     assert combo.objectName() == "openaiVisionModelCombo"
     assert combo.isEditable()
+
+
+def test_reasoning_effort_restore_falls_back_to_not_set(qapp):
+    """Unknown persisted reasoning values must leave a valid selection."""
+    combo = SettingsUIFactory().create_combo("openaiReasoningEffortCombo")
+
+    SettingsDialog._set_reasoning_effort_combo(combo, "removed-option")
+
+    assert combo.currentData() == "not_set"
+
 
 def test_vision_model_restore_prefers_unsaved_combo_value(qapp, mocker):
     """Refreshing models must preserve a vision model edited but not saved yet."""
