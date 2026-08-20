@@ -89,8 +89,8 @@ class TestAPIManagerTokenIntegration:
         assert max_output == int(65536 * 0.9)
 
     @pytest.mark.parametrize("model,expected_max", [
-        ("gpt-4o-mini", 16384),
-        ("gpt-5", 128000),
+        ("gpt-5.4-mini", 128000),
+        ("gpt-5.6-luna", 128000),
         ("gemini-3-pro", 65536),
     ])
     def test_model_switching_token_limits(self, model, expected_max):
@@ -139,13 +139,13 @@ class TestTranslationRequestTokenIntegration:
         ]
         
         # Call translation request
-        response, model = api_manager.make_translation_request(messages, "gpt-4o-mini")
+        response, model = api_manager.make_translation_request(messages, "gpt-5.4-mini")
         
         # Verify adapter was called with max_completion_tokens
         assert mock_client.chat.completions.create.called
         call_args = mock_client.chat.completions.create.call_args
 
-        expected_max_tokens = calculate_dynamic_completion_tokens("gpt-4o-mini")
+        expected_max_tokens = calculate_dynamic_completion_tokens("gpt-5.4-mini")
         assert call_args.kwargs.get('temperature') == 1.0
         assert call_args.kwargs.get('max_completion_tokens') == expected_max_tokens
 
@@ -176,11 +176,11 @@ class TestTranslationRequestTokenIntegration:
         ]
         
         # Call translation request
-        response, model = api_manager.make_translation_request(messages, "gpt-5")
+        response, model = api_manager.make_translation_request(messages, "gpt-5.4-mini")
         
         # Verify max_completion_tokens is within model limits
         call_args = mock_client.chat.completions.create.call_args
-        expected_max_tokens = calculate_dynamic_completion_tokens("gpt-5")
+        expected_max_tokens = calculate_dynamic_completion_tokens("gpt-5.4-mini")
         assert call_args.kwargs.get('max_completion_tokens') == expected_max_tokens
 
 
@@ -302,8 +302,8 @@ class TestModelLimitsIntegration:
         """Test that model variants match base models correctly."""
         # Test various model variants
         variants = [
-            ("gpt-5-turbo-2025", 128000),
-            ("gpt-4o-mini-2024-07-18", 16384),
+            ("gpt-5.6-luna", 128000),
+            ("gpt-5.4-mini", 128000),
             ("gemini-3-flash-preview", 65536),
         ]
         
@@ -491,7 +491,7 @@ class TestOpenAIAdapterGPTFamilyBehavior:
         # Create adapter
         adapter = OpenAIChatClientAdapter(api_key="test-key")
         
-        # Test vision request with gpt-4.1-mini
+        # Test vision request with gpt-5.6-luna
         messages = [
             {
                 "role": "user",
@@ -502,14 +502,14 @@ class TestOpenAIAdapterGPTFamilyBehavior:
             }
         ]
         
-        adapter._create_vision(model="gpt-4.1-mini", messages=messages)
+        adapter._create_vision(model="gpt-5.6-luna", messages=messages)
         
         # Verify the API was called
         assert mock_client.chat.completions.create.called
         call_args = mock_client.chat.completions.create.call_args
         
-        # Should have max_completion_tokens calculated for gpt-4 (4096 limit)
+        # Should have max_completion_tokens calculated for the GPT-5 limit.
         max_tokens = call_args.kwargs.get('max_completion_tokens')
         assert max_tokens is not None
-        assert max_tokens <= 4096  # gpt-4 limit
+        assert max_tokens <= 128000
         assert max_tokens >= 2048  # min_output_tokens

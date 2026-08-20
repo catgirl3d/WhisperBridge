@@ -21,18 +21,24 @@ class TestGetModelMaxTokens:
     """Tests for model limit lookup behavior."""
 
     @pytest.mark.parametrize("model,expected_limit", [
-        ("gpt-4o-mini", 16384),
-        ("gpt-5", 128000),
+        ("gpt-5.4-mini", 128000),
+        ("gpt-5.6-luna", 128000),
         ("gemini-3-flash", 65536),
     ])
     def test_get_model_max_tokens_exact_match(self, model, expected_limit):
         """TC-ML-001: Exact model names should return correct limits."""
         assert get_model_max_completion_tokens(model) == expected_limit
 
+    @pytest.mark.parametrize("model", ["gpt-5.4-mini", "gpt-5.6-luna"])
+    def test_current_openai_models_have_explicit_limits(self, model):
+        """Documented current OpenAI models have explicit registry entries."""
+        assert model in MODEL_TOKEN_LIMITS
+
+
     @pytest.mark.parametrize("model,expected_base_limit", [
-        ("gpt-5-turbo-012026", 128000),      # Should match "gpt-5"
+        ("gpt-5.6-luna-012026", 128000),     # Matches the current GPT family prefix
         ("gemini-3-flash-preview", 65536),   # Should match "gemini-3-flash"
-        ("gpt-4o-mini-2024-07-18", 16384),   # Should match "gpt-4o-mini"
+        ("gpt-5.4-mini-2026-07-18", 128000), # Matches the current GPT family prefix
         ("o1-preview", 100000),              # Should match "o1-"
         ("o3-mini", 100000),                 # Should match "o3-"
     ])
@@ -55,8 +61,8 @@ class TestGetModelMaxTokens:
             f"Expected WARNING level, got: {[r.levelname for r in loguru_caplog.records]}"
 
     @pytest.mark.parametrize("deprecated_model", [
-        "gpt-3.5-turbo",
-        "gpt-3.5-turbo-16k",
+        "legacy-chat-model",
+        "deprecated-chat-model",
     ])
     def test_deprecated_models_return_default(self, deprecated_model):
         """Deprecated models should return default limit."""
@@ -64,10 +70,10 @@ class TestGetModelMaxTokens:
         assert result == DEFAULT_MAX_COMPLETION_TOKENS
 
     @pytest.mark.parametrize("model", [
-        "GPT-5",
-        "gpt-5",
-        "GpT-5",
-        "  gpt-5  ",  # With whitespace
+        "GPT-5.4-MINI",
+        "gpt-5.4-mini",
+        "GpT-5.4-MiNi",
+        "  gpt-5.4-mini  ",  # With whitespace
     ])
     def test_get_model_max_tokens_case_insensitive(self, model):
         """TC-ML-004: Model lookup should be case-insensitive and strip whitespace."""
@@ -80,7 +86,7 @@ class TestGetModelMaxTokens:
         This is a representative prefix-match case for a GPT-5 mini variant.
         The stricter longest-prefix proof lives in TC-ML-005b below.
         """
-        result = get_model_max_completion_tokens("gpt-5-mini-turbo-test")
+        result = get_model_max_completion_tokens("gpt-5.4-mini-turbo-test")
 
         assert result == 128000
 
@@ -89,24 +95,24 @@ class TestGetModelMaxTokens:
         TC-ML-005b: Verify longest prefix matching with different token limits.
         
         This test patches MODEL_TOKEN_LIMITS to have different limits for
-        "gpt-5" (50000) and "gpt-5-mini" (100000). When querying "gpt-5-mini-turbo",
-        it should match "gpt-5-mini" (longest prefix) and return 100000, NOT 50000.
+        "gpt-5.4" (50000) and "gpt-5.4-mini" (100000). When querying
+        "gpt-5.4-mini-turbo", it should match the longer prefix.
         
         This ensures the sorted-by-length iteration correctly finds the longest match.
         """
         # Create a test dict with different limits for nested prefixes
         test_limits = {
-            "gpt-5": 50000,      # Shorter prefix, lower limit
-            "gpt-5-mini": 100000,  # Longer prefix, higher limit
+            "gpt-5.4": 50000,      # Shorter prefix, lower limit
+            "gpt-5.4-mini": 100000,  # Longer prefix, higher limit
         }
         
         mocker.patch('whisperbridge.core.model_limits.MODEL_TOKEN_LIMITS', test_limits)
-        result = get_model_max_completion_tokens("gpt-5-mini-turbo-test")
+        result = get_model_max_completion_tokens("gpt-5.4-mini-turbo-test")
         
-        # Should match "gpt-5-mini" (longest prefix), return 100000
-        # NOT match "gpt-5" (shorter prefix), which would return 50000
+        # Should match "gpt-5.4-mini" (longest prefix), return 100000
+        # NOT match "gpt-5.4" (shorter prefix), which would return 50000
         assert result == 100000, (
-                f"Expected 100000 (from 'gpt-5-mini' prefix), got {result}. "
+                f"Expected 100000 (from 'gpt-5.4-mini' prefix), got {result}. "
                 "This indicates the shortest prefix was matched instead of the longest."
             )
 
@@ -122,8 +128,8 @@ class TestGetModelMaxTokens:
 
     def test_get_model_max_tokens_special_chars(self):
         """TC-ML-007: Models with special chars should be handled gracefully."""
-        result = get_model_max_completion_tokens("gpt-5@beta#v2")
-        # "gpt-5@beta#v2" matches "gpt-5" prefix, so returns 128000
+        result = get_model_max_completion_tokens("gpt-5.4@beta#v2")
+        # The versioned current-model prefix resolves to the registered limit.
         assert result == 128000
 
     def test_model_limits_registry_integrity(self):
@@ -140,18 +146,18 @@ class TestCalculateDynamicTokens:
     def test_calculate_dynamic_tokens_basic(self):
         """TC-ML-009: Standard case for a model with a 10% safety margin."""
         result = calculate_dynamic_completion_tokens(
-            model="gpt-4o-mini",
+            model="gpt-5.4-mini",
             min_output_tokens=2048,
             output_safety_margin=0.1
         )
         
-        # Expected: 16384 * 0.9 = 14745 (with safety margin)
-        assert 14000 <= result <= 15000
+        # Expected: 128000 * 0.9 = 115200 (with safety margin)
+        assert 114000 <= result <= 116000
 
     def test_calculate_dynamic_tokens_min_floor(self):
         """TC-ML-010: min_output_tokens should always be enforced."""
         result = calculate_dynamic_completion_tokens(
-            model="gpt-4o-mini",
+            model="gpt-5.4-mini",
             min_output_tokens=2048,
             output_safety_margin=0.1
         )
@@ -162,7 +168,7 @@ class TestCalculateDynamicTokens:
     def test_calculate_dynamic_tokens_returns_near_max_output_with_default_margin(self):
         """TC-ML-011: Default safety margin should keep output near the model cap."""
         result = calculate_dynamic_completion_tokens(
-            model="gpt-5",
+            model="gpt-5.4-mini",
             min_output_tokens=2048,
             output_safety_margin=0.1
         )
@@ -179,12 +185,12 @@ class TestCalculateDynamicTokens:
     def test_calculate_dynamic_tokens_safety_margins(self, safety_margin, expected_multiplier):
         """TC-ML-012: Different safety margins should proportionally reduce output."""
         result = calculate_dynamic_completion_tokens(
-            model="gpt-4o-mini",  # 16384 limit
+            model="gpt-5.4-mini",  # 128000 limit
             min_output_tokens=100,
             output_safety_margin=safety_margin
         )
         
-        expected = int(16384 * expected_multiplier)
+        expected = int(128000 * expected_multiplier)
         assert abs(result - expected) / expected < 0.05  # <5% error
 
     @pytest.mark.parametrize("invalid_margin", [-0.1, 1.0, 1.5, 100])
@@ -192,7 +198,7 @@ class TestCalculateDynamicTokens:
         """TC-ML-013: Safety margin outside [0.0, 1.0) should raise ValueError."""
         with pytest.raises(ValueError, match="output_safety_margin must be between"):
             calculate_dynamic_completion_tokens(
-                model="gpt-5",
+                model="gpt-5.4-mini",
                 output_safety_margin=invalid_margin
             )
 
@@ -202,7 +208,7 @@ class TestCalculateDynamicTokens:
         safety margin to the model's hard output limit.
         """
         result = calculate_dynamic_completion_tokens(
-            model="gpt-5",  # 128K output limit
+            model="gpt-5.4-mini",  # 128K output limit
             min_output_tokens=2048,
             output_safety_margin=0.1
         )
@@ -216,7 +222,7 @@ class TestCalculateDynamicTokens:
         """TC-ML-015: min_output_tokens must be positive and reasonable."""
         with pytest.raises(ValueError):
             calculate_dynamic_completion_tokens(
-                model="gpt-4o-mini",
+                model="gpt-5.4-mini",
                 min_output_tokens=invalid_min
             )
 
@@ -224,8 +230,8 @@ class TestCalculateDynamicTokens:
         """TC-ML-016: min_output_tokens above the model cap should raise ValueError."""
         with pytest.raises(ValueError, match="min_output_tokens.*cannot exceed model's max output limit"):
             calculate_dynamic_completion_tokens(
-                model="gpt-4o-mini",  # 16384 limit
-                min_output_tokens=50000,  # Request more than model supports
+                model="gpt-5.4-mini",  # 128000 limit
+                min_output_tokens=200000,  # Request more than model supports
                 output_safety_margin=0.0
             )
 
@@ -256,7 +262,7 @@ class TestCalculateDynamicTokens:
         loguru_caplog.set_level(logging.DEBUG)
         
         result = calculate_dynamic_completion_tokens(
-            model="gpt-5"
+            model="gpt-5.4-mini"
         )
         
         # Verify the function returns a valid result
@@ -268,8 +274,8 @@ class TestCalculateDynamicTokens:
         
         # Verify the log message contains expected information
         log_messages = [record.message for record in loguru_caplog.records]
-        assert any("Model: gpt-5" in msg for msg in log_messages), \
-            f"Expected log message containing 'Model: gpt-5', got: {log_messages}"
+        assert any("Model: gpt-5.4-mini" in msg for msg in log_messages), \
+            f"Expected log message containing 'Model: gpt-5.4-mini', got: {log_messages}"
 
 
 class TestCalculateDynamicTokensValidation:
@@ -297,7 +303,7 @@ class TestCalculateDynamicTokensValidation:
     def test_default_min_output_tokens(self):
         """Test default min_output_tokens value."""
         result = calculate_dynamic_completion_tokens(
-            model="gpt-4o-mini"
+            model="gpt-5.4-mini"
         )
         # Default min_output_tokens is 2048
         assert result >= 2048

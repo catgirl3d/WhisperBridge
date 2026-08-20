@@ -19,8 +19,8 @@ from typing import Dict, Optional
 from loguru import logger
 
 # Model token limits (max_completion_tokens)
-# Values reflect HARD OUTPUT LIMITS (completion tokens only) per official API docs (Jan 2026)
-# Critical distinction: Context window ≠ output limit (e.g., Gemini 3 has 1M context but 64K output cap)
+# Values reflect hard output limits (completion tokens only) from provider documentation.
+# Context window and output limit are separate constraints.
 MODEL_TOKEN_LIMITS: Dict[str, int] = {
     # OpenAI Models
     "gpt-4o-mini": 16384,
@@ -32,7 +32,13 @@ MODEL_TOKEN_LIMITS: Dict[str, int] = {
     "o1-": 100000,  # Reasoning models (output-focused)
     "o3-": 100000,
     
-    # GPT-5 Series (Released Aug 2025 - Dec 2025)
+    # Current documented models (OpenAI API docs, 2026)
+    # https://developers.openai.com/api/docs/models/gpt-5.4-mini
+    # https://developers.openai.com/api/docs/models/gpt-5.6-luna
+    "gpt-5.4-mini": 128000,
+    "gpt-5.6-luna": 128000,
+
+    # Legacy GPT-5 family entries retained for saved/manual model IDs
     "gpt-5": 128000,        # Official output limit (400K context window)
     "gpt-5-mini": 128000,   # Same output limit as base GPT-5
     "gpt-5-nano": 32768,    # Verified lower-tier variant limit
