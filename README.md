@@ -87,7 +87,7 @@ In the Settings window you can configure:
 
 The app uses LLM-based OCR for superior accuracy. Configuration keys:
 - `ocr_llm_prompt`: custom prompt for the vision model.
-- `openai_vision_model`: model name for OpenAI vision requests (default: "gpt-4o-mini")
+- `openai_vision_model`: model name for OpenAI vision requests (default: "gpt-5.4-mini")
 - `google_vision_model`: model name for Google vision requests (default: "gemini-2.5-flash")
 
 Flow: Capture → LLM OCR (image encoded & resized) → extract text → translate.

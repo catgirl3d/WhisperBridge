@@ -26,7 +26,7 @@ def model_supports_temperature(model: str) -> bool:
     not yet represented in this helper.
 
     Args:
-        model: Model name (e.g., "gpt-5-nano", "o1-preview", "gpt-4o-mini")
+        model: Model name (e.g., "gpt-5.4-mini", "o1-preview")
 
     Returns:
         True if model supports custom temperature, False otherwise.

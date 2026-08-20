@@ -11,10 +11,16 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from loguru import logger
 
-from ..config import get_deepl_identifier, get_google_model_excludes, get_openai_model_excludes
+from ..config import (
+    OPENAI_MODEL_POLICY,
+    filter_openai_model_selection,
+    get_deepl_identifier,
+    get_google_model_excludes,
+    get_openai_model_excludes,
+)
 from ...providers.deepl_adapter import DeepLClientAdapter
 from ...providers.google_chat_adapter import GoogleChatClientAdapter
-from ...providers.openai_adapter import OpenAIChatClientAdapter, DEFAULT_GPT_MODELS
+from ...providers.openai_adapter import OpenAIChatClientAdapter
 from .cache import ModelCache
 from .providers import APIProvider
 from .types import ModelSource
@@ -58,8 +64,9 @@ class ModelManager:
             logger.warning(f"Failed to get custom default models from config: {e}")
 
         # Fallback to built-in default models
-        logger.debug(f"Using built-in default models: {DEFAULT_GPT_MODELS}")
-        return DEFAULT_GPT_MODELS.copy()
+        fallback_models = list(OPENAI_MODEL_POLICY.fallback_models)
+        logger.debug(f"Using built-in default models: {fallback_models}")
+        return fallback_models
 
     def get_fallback_models(self, provider: APIProvider) -> Tuple[List[str], str]:
         """
@@ -159,6 +166,12 @@ class ModelManager:
 
         return sorted(model_ids, key=_rank_google)
 
+    def _filter_models_for_selection(self, provider: APIProvider, model_ids: List[str]) -> List[str]:
+        filtered = self.apply_filters(provider, model_ids)
+        if provider == APIProvider.OPENAI:
+            return filter_openai_model_selection(filtered)
+        return filtered
+
     def apply_filters(self, provider: APIProvider, model_ids: List[str]) -> List[str]:
         """
         Apply global exclusion filters and provider-specific ordering.
@@ -215,7 +228,7 @@ class ModelManager:
                 if models or provider == APIProvider.DEEPL:
                     logger.debug(f"Using cached models for {provider.value}")
                     # Apply global filters to cached data to ensure any newly added exclusions take effect
-                    filtered_models = self.apply_filters(provider, models)
+                    filtered_models = self._filter_models_for_selection(provider, models)
                     return filtered_models, ModelSource.CACHE.value
                 else:
                     logger.debug(f"Cache for {provider.value} is empty, forcing fresh fetch.")
@@ -246,7 +259,10 @@ class ModelManager:
         try:
             if provider == APIProvider.OPENAI:
                 models_response = client.models.list()
-                models = self.apply_filters(provider, [model.id for model in models_response.data])
+                models = self._filter_models_for_selection(
+                    provider,
+                    [model.id for model in models_response.data],
+                )
                 logger.debug(f"Filtered OpenAI chat completion models: {models}")
 
             elif provider == APIProvider.GOOGLE:

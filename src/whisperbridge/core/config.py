@@ -8,6 +8,7 @@ and environment variable management.
 import json
 import os
 import re
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
 
@@ -64,6 +65,41 @@ def normalize_translator_font_size(value: Any) -> int:
 
     return max(TRANSLATOR_FONT_SIZE_MIN, min(TRANSLATOR_FONT_SIZE_MAX, font_size))
 
+
+@dataclass(frozen=True)
+class OpenAIModelPolicy:
+    """Single source of truth for selectable OpenAI model policy."""
+
+    minimum_version: tuple[int, int]
+    default_model: str
+    fallback_models: tuple[str, ...]
+
+
+OPENAI_MODEL_POLICY = OpenAIModelPolicy(
+    minimum_version=(5, 4),
+    default_model="gpt-5.4-mini",
+    fallback_models=("gpt-5.4-mini",),
+)
+
+
+def filter_openai_model_selection(model_ids: List[str]) -> List[str]:
+    """Keep the current model families while allowing future GPT versions."""
+    return [
+        model_id
+        for model_id in model_ids
+        if _is_openai_model_allowed_for_selection(model_id)
+    ]
+
+
+def _is_openai_model_allowed_for_selection(model_id: str) -> bool:
+    lowered = model_id.lower()
+    match = re.match(r"^(?:chatgpt-)?gpt-(\d+)(?:\.(\d+))?", lowered)
+    if not match:
+        return False
+
+    version = (int(match.group(1)), int(match.group(2) or 0))
+    return version >= OPENAI_MODEL_POLICY.minimum_version
+
 GOOGLE_MODEL_EXCLUDE_DEFAULT: List[str] = [
     "embedding",
     "robotics",
@@ -83,6 +119,7 @@ GOOGLE_MODEL_EXCLUDE_DEFAULT: List[str] = [
 
 OPENAI_MODEL_EXCLUDE_DEFAULT: List[str] = [
     "audio",
+    "tts",
     "realtime",
     "image",
     "dall-e",
@@ -91,7 +128,6 @@ OPENAI_MODEL_EXCLUDE_DEFAULT: List[str] = [
     "moderation",
     "codex",
     "gpt-3",
-    "gpt-4o-mini-audio",
     "-transcribe",
     "-search",
     "gpt-4-turbo",
@@ -141,7 +177,10 @@ class Settings(BaseSettings):
     deepl_plan: str = Field(default="free", description="DeepL plan type ('free' or 'pro')")
     deepl_identifier: str = Field(default="deepl-translate", description="DeepL model identifier for API compatibility")
     api_provider: str = Field(default="openai", description="API provider")
-    openai_model: str = Field(default="gpt-5-nano", description="Default OpenAI model")
+    openai_model: str = Field(
+        default=OPENAI_MODEL_POLICY.default_model,
+        description="Default OpenAI model",
+    )
     openai_reasoning_effort: str = Field(
         default="not_set",
         description="OpenAI reasoning effort; not_set omits the parameter from the request",
@@ -217,7 +256,10 @@ class Settings(BaseSettings):
         default="Extract plain text from the image in natural reading order. Output only the text.",
         description="Prompt for LLM-based OCR",
     )
-    openai_vision_model: str = Field(default="gpt-4o-mini", description="OpenAI vision model for OCR")
+    openai_vision_model: str = Field(
+        default=OPENAI_MODEL_POLICY.default_model,
+        description="OpenAI vision model for OCR",
+    )
     google_vision_model: str = Field(default="gemini-2.5-flash", description="Google vision model for OCR")
 
     # UI Settings

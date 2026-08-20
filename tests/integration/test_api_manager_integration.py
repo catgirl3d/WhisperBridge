@@ -6,6 +6,7 @@ import threading
 import pytest
 from whisperbridge.core.api_manager.providers import APIProvider
 from whisperbridge.core.api_manager.types import APIUsage
+from whisperbridge.core.config import OPENAI_MODEL_POLICY
 
 pytestmark = pytest.mark.integration
 
@@ -22,19 +23,19 @@ class TestAPIManagerIntegration:
         messages = [{"role": "user", "content": "Hello"}]
         response, model = api_manager.make_translation_request(
             messages=messages,
-            model_hint="gpt-4o"
+            model_hint="gpt-5.4-mini"
         )
 
         # 3. Extract text
         text = api_manager.extract_text_from_response(response)
         assert text == "Test response"
-        assert model == "gpt-4o"
+        assert model == "gpt-5.4-mini"
 
         call_args = mock_openai_client.chat.completions.create.call_args
         assert call_args is not None
-        assert call_args.kwargs["model"] == "gpt-4o"
+        assert call_args.kwargs["model"] == "gpt-5.4-mini"
         assert call_args.kwargs["messages"] == messages
-        assert call_args.kwargs["temperature"] == 0.8
+        assert call_args.kwargs["temperature"] == 1.0
         assert "max_completion_tokens" in call_args.kwargs
 
     def test_full_translation_flow_google(self, api_manager, config_google, mock_google_client):
@@ -125,7 +126,8 @@ class TestAPIManagerIntegration:
         # 1. Session 1: Fetch and cache
         mock_config_service.get_setting.return_value = "sk-test"
         mock_client = mocker.Mock()
-        mock_model = mocker.Mock(id="gpt-4o")
+        fallback_model = OPENAI_MODEL_POLICY.fallback_models[0]
+        mock_model = mocker.Mock(id=fallback_model)
         mock_client.models.list.return_value = mocker.Mock(data=[mock_model])
         mocker.patch("whisperbridge.core.api_manager.providers.OpenAIChatClientAdapter", return_value=mock_client)
 
@@ -133,7 +135,7 @@ class TestAPIManagerIntegration:
         manager1.initialize()
         models, source = manager1.get_available_models_sync(APIProvider.OPENAI)
         assert source == "api"
-        assert "gpt-4o" in models
+        assert fallback_model in models
         manager1.shutdown()
 
         # 2. Session 2: Load from cache
@@ -143,7 +145,7 @@ class TestAPIManagerIntegration:
         manager2.initialize()
         models2, source2 = manager2.get_available_models_sync(APIProvider.OPENAI)
         
-        assert "gpt-4o" in models2
+        assert fallback_model in models2
         assert source2 == "cache"
 
     def test_concurrent_translation_requests(self, api_manager, config_openai, mock_openai_client):
@@ -157,7 +159,7 @@ class TestAPIManagerIntegration:
             try:
                 resp, _ = api_manager.make_translation_request(
                     messages=[{"role": "user", "content": "Hi"}],
-                    model_hint="gpt-4o"
+                    model_hint="gpt-5.4-mini"
                 )
                 results.append(resp)
             except Exception as e:
