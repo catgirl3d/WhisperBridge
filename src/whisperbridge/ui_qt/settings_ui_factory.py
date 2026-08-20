@@ -7,7 +7,18 @@ following the UI configuration guidelines.
 
 from PySide6.QtWidgets import QComboBox, QLineEdit, QSpinBox, QPushButton, QCheckBox, QTextEdit, QDoubleSpinBox, QTableWidget, QLabel, QToolButton, QGroupBox, QWidget, QTabWidget
 from .widgets.hotkey_edit import HotkeyEdit
-from ..core.config import OPENAI_REASONING_EFFORT_LABELS, OPENAI_REASONING_EFFORT_OPTIONS
+from ..core.config import OPENAI_REASONING_EFFORT_OPTIONS
+
+
+OPENAI_REASONING_EFFORT_LABELS = {
+    'not_set': 'No override (model default)',
+    'none': 'none',
+    'minimal': 'minimal',
+    'low': 'low',
+    'medium': 'medium',
+    'high': 'high',
+    'xhigh': 'xhigh',
+}
 
 
 class SettingsUIFactory:

@@ -150,16 +150,6 @@ OPENAI_REASONING_EFFORT_OPTIONS: List[str] = [
     "xhigh",
 ]
 
-OPENAI_REASONING_EFFORT_LABELS: Dict[str, str] = {
-    "not_set": "No override (model default)",
-    "none": "none",
-    "minimal": "minimal",
-    "low": "low",
-    "medium": "medium",
-    "high": "high",
-    "xhigh": "xhigh",
-}
-
 
 class Settings(BaseSettings):
     """Application settings model with comprehensive validation."""
