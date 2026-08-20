@@ -110,6 +110,52 @@ class TestTranslationRequestTokenIntegration:
         assert call_args.kwargs.get('temperature') == 1.0
         assert call_args.kwargs.get('max_completion_tokens') == 128000
 
+    def test_translation_request_omits_unconfigured_reasoning_effort(
+        self, api_manager, mock_config_service, mocker
+    ):
+        """An unconfigured reasoning effort is omitted from the provider request."""
+        mock_client = mocker.Mock()
+        mock_response = mocker.Mock()
+        mock_response.usage = mocker.Mock(total_tokens=100)
+        mock_client.chat.completions.create.return_value = mock_response
+        api_manager._providers._clients[APIProvider.OPENAI] = mock_client
+        mock_config_service.get_setting.side_effect = lambda key: {
+            "api_provider": "openai",
+            "llm_temperature_translation": 1.0,
+            "openai_reasoning_effort": "not_set",
+        }.get(key)
+
+        api_manager.make_translation_request(
+            messages=[{"role": "user", "content": "Translate this"}],
+            model_hint="gpt-5.4-mini",
+        )
+
+        kwargs = mock_client.chat.completions.create.call_args.kwargs
+        assert "reasoning_effort" not in kwargs
+
+    def test_translation_request_forwards_configured_reasoning_effort(
+        self, api_manager, mock_config_service, mocker
+    ):
+        """A configured reasoning effort reaches the provider request unchanged."""
+        mock_client = mocker.Mock()
+        mock_response = mocker.Mock()
+        mock_response.usage = mocker.Mock(total_tokens=100)
+        mock_client.chat.completions.create.return_value = mock_response
+        api_manager._providers._clients[APIProvider.OPENAI] = mock_client
+        mock_config_service.get_setting.side_effect = lambda key: {
+            "api_provider": "openai",
+            "llm_temperature_translation": 1.0,
+            "openai_reasoning_effort": "high",
+        }.get(key)
+
+        api_manager.make_translation_request(
+            messages=[{"role": "user", "content": "Translate this"}],
+            model_hint="gpt-5.4-mini",
+        )
+
+        kwargs = mock_client.chat.completions.create.call_args.kwargs
+        assert kwargs["reasoning_effort"] == "high"
+
     def test_translation_request_with_large_text_uses_model_output_cap(self, api_manager, mock_config_service, mocker):
         """Test that a large translation request still uses the model-based output cap."""
         # Setup mock client
