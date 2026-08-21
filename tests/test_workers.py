@@ -1,51 +1,17 @@
 """
-Minimal tests for worker classes and factory.
+Minimal tests for worker classes.
 Run with: python -m pytest test_workers.py
 """
 
 import pytest
 from unittest.mock import Mock
-from PySide6.QtCore import QObject, Signal, QThread
-from typing import Protocol
 
-from whisperbridge.ui_qt.workers import ApiTestWorker, TranslationWorker
+from whisperbridge.ui_qt.workers import ApiTestWorker
 from whisperbridge.services.config_workers import SettingsSaveWorker
-from whisperbridge.ui_qt.app import QtApp
 
 # If run directly, execute pytest with very verbose output and no coverage
 if __name__ == "__main__":
     pytest.main([__file__, "-vv", "--no-cov"])
-
-class RunnableWorker(Protocol):
-    finished: Signal
-    error: Signal
-
-    def run(self): ...
-    def moveToThread(self, thread: QThread): ...
-    def deleteLater(self): ...
-
-
-class MockWorker(RunnableWorker):
-    """Mock worker for testing factory."""
-    finished = Signal()
-    error = Signal(str)
-
-    def __init__(self, should_succeed=True):
-        super().__init__()
-        self.should_succeed = should_succeed
-
-    def run(self):
-        if self.should_succeed:
-            self.finished.emit()
-        else:
-            self.error.emit("Mock error")
-
-    def moveToThread(self, thread: QThread):
-        pass
-
-    def deleteLater(self):
-        pass
-
 
 class TestWorkers:
     """Test worker signal emissions."""

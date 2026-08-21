@@ -257,11 +257,10 @@ class TestQtIntegration:
         assert window.original_text.document().defaultFont().pointSize() == 20
         assert window.translated_text.document().defaultFont().pointSize() == 20
 
-    # --- Watchdog Timer Tests ---
+    # --- Worker Thread Lifecycle Tests ---
 
-    def test_watchdog_starts_with_correct_timeout(self, qtbot, overlay, mock_config_service):
-        """Verify watchdog starts with correct timeout value."""
-        mock_config_service[0] = 10
+    def test_worker_thread_lifecycle(self, qtbot, overlay):
+        """Verify the worker thread starts and stops with the worker."""
         worker, thread = overlay._setup_worker(TranslationWorker, "test", "en", "ru")
         
         # Verify thread is running
@@ -442,14 +441,16 @@ class TestQtIntegration:
         assert finished_spy.at(0)[0] is False
         assert finished_spy.at(0)[1] == error_msg
 
-    def test_success_emits_only_finished(self, qtbot):
-        """Verify success emits ONLY finished signal."""
+    def test_base_async_worker_direct_success_emits_no_signals(self):
+        """Verify direct BaseAsyncWorker success does not emit signals."""
         worker = BaseAsyncWorker()
         error_spy = QSignalSpy(worker.error)
+        finished_spy = QSignalSpy(worker.finished)
         async def fast_coro(): return "ok"
         result = worker._run_async_task(fast_coro(), "TestSuccess")
         assert result == "ok"
         assert error_spy.count() == 0
+        assert finished_spy.count() == 0
 
     def test_signal_disconnection_after_cleanup(self, qtbot, overlay):
         """Verify cleanup happens correctly and worker is deleted."""
@@ -714,33 +715,28 @@ class TestQtIntegration:
 
     # --- Stress Tests ---
 
-    def test_rapid_fire_requests(self, qtbot, overlay):
-        """Test that rapid consecutive requests don't cause crashes."""
-        results = []
-        errors = []
-        
-        def on_finished(success, result):
-            results.append((success, result))
-        
-        def on_error(msg):
-            errors.append(msg)
-        
-        # Fire 5 rapid requests
+    def test_rapid_fire_requests(self, qtbot, overlay, mocker):
+        """Test that five rapid requests emit their results and clean up."""
+        mocker.patch.object(TranslationWorker, "run", autospec=True, return_value=None)
+        workers_and_threads = []
+        finished_spies = []
+        error_spies = []
+
         for i in range(5):
             worker, thread = overlay._setup_worker(TranslationWorker, f"test{i}", "en", "ru")
-            worker.finished.connect(on_finished)
-            worker.error.connect(on_error)
-            
-            # Immediately emit result
-            worker.finished.emit(True, f"result{i}")
-            qtbot.wait(50)  # Small delay between requests
-        
-        # Wait for all to complete
-        qtbot.wait(1000)
-        
-        # System should handle this gracefully (no crashes)
-        # Main check: we got here without crash
-        assert True
+            workers_and_threads.append((worker, thread))
+            finished_spies.append(QSignalSpy(worker.finished))
+            error_spies.append(QSignalSpy(worker.error))
+
+        for i, (worker, thread) in enumerate(workers_and_threads):
+            with qtbot.waitSignal(thread.finished, timeout=1000):
+                worker.finished.emit(True, f"result{i}")
+
+        assert [
+            (spy.at(0)[0], spy.at(0)[1]) for spy in finished_spies
+        ] == [(True, f"result{i}") for i in range(5)]
+        assert [spy.count() for spy in error_spies] == [0] * 5
+        assert [spy.count() for spy in finished_spies] == [1] * 5
 
     def test_many_workers_sequential(self, qtbot, overlay):
         """Test that many sequential operations don't cause memory issues."""
@@ -764,66 +760,113 @@ class TestQtIntegration:
         assert final_timers - initial_timers < 5, \
             f"Memory leak detected after 20 operations: {final_timers - initial_timers} leaked objects"
 
-    def test_multiple_workers_concurrent(self, qtbot, overlay):
-        """Test that multiple workers can run concurrently without issues."""
+    def test_multiple_workers_concurrent(self, qtbot, overlay, mocker):
+        """Test that three concurrent workers emit results and finish cleanly."""
+        mocker.patch.object(TranslationWorker, "run", autospec=True, return_value=None)
         workers_and_threads = []
-        
-        # Start 3 concurrent workers
+        finished_spies = []
+        error_spies = []
+
         for i in range(3):
             worker, thread = overlay._setup_worker(TranslationWorker, f"test{i}", "en", "ru")
             workers_and_threads.append((worker, thread))
-        
-        # Wait a bit for them to start
-        qtbot.wait(100)
-        
-        # Complete all workers - but handle case where they may already be finished
+            finished_spies.append(QSignalSpy(worker.finished))
+            error_spies.append(QSignalSpy(worker.error))
+
         for i, (worker, thread) in enumerate(workers_and_threads):
-            try:
-                # Use a separate wait for each worker to avoid issues
-                with qtbot.waitSignal(thread.finished, timeout=1000):
-                    worker.finished.emit(True, f"result{i}")
-            except Exception:
-                # Worker may already be finished/deleted, that's OK
-                pass
-        
-        # Wait for cleanup to complete
-        qtbot.wait(200)
-        QApplication.processEvents()
-        
-        # No crash = success - threads may be deleted by now
+            with qtbot.waitSignal(thread.finished, timeout=1000):
+                worker.finished.emit(True, f"result{i}")
+
+        assert [
+            (spy.at(0)[0], spy.at(0)[1]) for spy in finished_spies
+        ] == [(True, f"result{i}") for i in range(3)]
+        assert [spy.count() for spy in error_spies] == [0] * 3
+        assert [spy.count() for spy in finished_spies] == [1] * 3
 
     # --- Additional Coverage Tests ---
     
-    def test_pending_task_cancellation_timeout(self, qtbot, mock_config_service, caplog):
-        """Test that pending tasks are cancelled with timeout."""
+    def test_pending_task_cancellation_timeout(self, mocker, loguru_caplog):
+        """Test cancellation cleanup warns on timeout without deadlocking."""
         worker = BaseAsyncWorker()
-        
+
+        loop = asyncio.new_event_loop()
+        original_close = loop.close
+        mocker.patch("whisperbridge.ui_qt.workers.asyncio.new_event_loop", return_value=loop)
+        mocker.patch.object(loop, "close")
+
+        cancellation_received = asyncio.Event()
+        release_task = asyncio.Event()
+        background_task = None
+        cleanup_gather = None
+
         async def main_task():
-            # Create a background task that won't respond to cancellation
-            async def immortal_task():
+            async def tracked_task():
                 try:
                     await asyncio.sleep(1000)
                 except asyncio.CancelledError:
-                    # Ignore cancellation and sleep again
-                    await asyncio.sleep(1000)
-            
-            # Start immortal task as background
-            loop = asyncio.get_event_loop()
-            loop.create_task(immortal_task())
-            
-            # Main task completes quickly
+                    cancellation_received.set()
+                    while not release_task.is_set():
+                        try:
+                            await release_task.wait()
+                        except asyncio.CancelledError:
+                            continue
+                    return "released"
+
+            nonlocal background_task
+            background_task = asyncio.create_task(tracked_task())
+            await asyncio.sleep(0)
             return "done"
-        
-        mock_config_service[0] = 1
-        result = worker._run_async_task(main_task(), "TestCancel")
-        
-        # Should return result (main task completed)
-        assert result == "done"
-        
-        # Check for task cancellation warning
-        # Note: caplog may not capture all logs in all pytest versions
-        # The important thing is that the worker completes without hanging
-        assert result == "done"
+
+        async def simulated_wait_for(awaitable, timeout):
+            nonlocal cleanup_gather
+            if timeout == 5.0:
+                cleanup_gather = awaitable
+                awaitable.cancel()
+
+                def consume_gather_exception(future):
+                    try:
+                        future.exception()
+                    except asyncio.CancelledError:
+                        pass
+
+                awaitable.add_done_callback(consume_gather_exception)
+                await cancellation_received.wait()
+                raise asyncio.TimeoutError
+            return await awaitable
+
+        mocker.patch(
+            "whisperbridge.ui_qt.workers.asyncio.wait_for",
+            side_effect=simulated_wait_for,
+        )
+
+        try:
+            result = worker._run_async_task(main_task(), "TestCancel")
+
+            assert result == "done"
+            assert cancellation_received.is_set()
+            assert any(
+                record.message == (
+                    "Task cancellation timed out after 5 seconds, "
+                    "proceeding with loop cleanup"
+                )
+                and record.levelname == "WARNING"
+                for record in loguru_caplog.records
+            )
+
+            release_task.set()
+            assert loop.run_until_complete(background_task) == "released"
+            assert cleanup_gather is not None
+            assert cleanup_gather.done()
+            try:
+                cleanup_gather.exception()
+            except asyncio.CancelledError:
+                pass
+            assert not asyncio.all_tasks(loop)
+        finally:
+            if background_task is not None and not background_task.done():
+                release_task.set()
+                loop.run_until_complete(background_task)
+            original_close()
     
     
     def test_translation_worker_empty_response(self, qtbot, mock_config_service, mocker):
