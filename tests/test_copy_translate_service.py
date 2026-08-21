@@ -17,10 +17,11 @@ def _make_get_setting(values):
 def _patch_copy_environment(mocker):
     controller = mocker.Mock(name="controller")
     c_key = object()
+    ctrl_key = "ctrl"
 
     keyboard_module = ModuleType("pynput.keyboard")
     setattr(keyboard_module, "Controller", mocker.Mock(return_value=controller))
-    setattr(keyboard_module, "Key", SimpleNamespace(ctrl="ctrl"))
+    setattr(keyboard_module, "Key", SimpleNamespace(ctrl=ctrl_key))
     setattr(keyboard_module, "KeyCode", SimpleNamespace(from_vk=mocker.Mock(return_value=c_key)))
 
     pynput_module = ModuleType("pynput")
@@ -41,7 +42,7 @@ def _patch_copy_environment(mocker):
     mocker.patch("time.sleep", return_value=None)
     mocker.patch("platform.system", return_value="linux")
 
-    return SimpleNamespace(controller=controller, c_key=c_key)
+    return SimpleNamespace(controller=controller, c_key=c_key, ctrl_key=ctrl_key)
 
 
 def _build_service(qapp, mocker):
@@ -82,6 +83,7 @@ def _build_service(qapp, mocker):
         emitted=emitted,
         controller=patched.controller,
         c_key=patched.c_key,
+        ctrl_key=patched.ctrl_key,
     )
 
 
@@ -136,10 +138,34 @@ def test_run_translates_with_auto_swap_and_auto_copy(qapp, mocker):
         target_lang="uk",
     )
     assert ctx.emitted == [("selected text", "Привіт", True)]
+    assert ctx.controller.method_calls == [
+        call.press(ctx.ctrl_key),
+        call.press(ctx.c_key),
+        call.release(ctx.c_key),
+        call.release(ctx.ctrl_key),
+    ]
     assert ctx.hotkey_service.set_paused.call_args_list == [call(True), call(False)]
     ctx.notification_service.info.assert_called_once_with("Translating...", "WhisperBridge")
     ctx.notification_service.warning.assert_not_called()
     ctx.notification_service.error.assert_not_called()
+
+
+def test_run_reports_copy_simulation_error_without_result_and_resumes_hotkeys(qapp, mocker):
+    """A controller failure emits no result, reports the exception, and resumes hotkeys."""
+    ctx = _build_service(qapp, mocker)
+    ctx.clipboard_service.get_clipboard_text.return_value = "old text"
+    ctx.controller.press.side_effect = RuntimeError("controller failed")
+
+    ctx.service.run()
+
+    assert ctx.emitted == []
+    ctx.translation_service.detect_language_sync.assert_not_called()
+    ctx.translation_service.translate_text_sync.assert_not_called()
+    ctx.notification_service.error.assert_called_once_with(
+        "Copy-translate copy simulation failed: controller failed",
+        "WhisperBridge",
+    )
+    assert ctx.hotkey_service.set_paused.call_args_list == [call(True), call(False)]
 
 
 def test_run_falls_back_to_default_translation_when_ui_settings_fail(qapp, mocker):

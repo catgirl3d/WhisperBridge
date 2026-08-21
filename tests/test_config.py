@@ -3,8 +3,6 @@
 import pytest
 from whisperbridge.core.config import (
     API_TIMEOUT_DEFAULT,
-    API_TIMEOUT_MAX,
-    API_TIMEOUT_MIN,
     OPENAI_MODEL_POLICY,
     Settings,
     filter_openai_model_selection,
@@ -21,10 +19,12 @@ def test_settings_initialization():
 
 
 def test_api_timeout_uses_canonical_range():
-    assert Settings(api_timeout=API_TIMEOUT_MIN).api_timeout == API_TIMEOUT_MIN
-    assert Settings(api_timeout=API_TIMEOUT_MAX).api_timeout == API_TIMEOUT_MAX
+    assert Settings(api_timeout=1).api_timeout == 1
+    assert Settings(api_timeout=60).api_timeout == 60
     with pytest.raises(ValueError):
-        Settings(api_timeout=API_TIMEOUT_MAX + 1)
+        Settings(api_timeout=0)
+    with pytest.raises(ValueError):
+        Settings(api_timeout=61)
 
 
 def test_openai_model_policy_has_selected_defaults_and_fallbacks():

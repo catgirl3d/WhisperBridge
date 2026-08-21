@@ -155,16 +155,15 @@ class ModelCache:
 
     def is_cached(self, provider: str) -> bool:
         """
-        Check if provider has cached models.
+        Check if provider has a non-expired cache entry.
 
         Args:
             provider: Provider identifier.
 
         Returns:
-            True if provider has cached models, False otherwise.
+            True if provider has a non-expired cache entry, False otherwise.
         """
-        with self._lock:
-            return provider in self._cache
+        return self.get(provider) is not None
 
     @staticmethod
     def validate_model_list(models: List[str]) -> bool:

@@ -5,6 +5,8 @@ Provides centralized API management with authentication,
 error handling, retry logic, and usage monitoring.
 """
 
+import threading
+
 from .types import APIUsage, ModelSource
 from .errors import APIError, APIErrorType, RetryableAPIError
 from .providers import APIProvider
@@ -12,7 +14,7 @@ from .manager import APIManager
 
 # Singleton management
 _api_manager: APIManager | None = None
-_manager_lock = None
+_manager_lock = threading.RLock()
 
 
 def get_api_manager() -> APIManager:
@@ -22,14 +24,10 @@ def get_api_manager() -> APIManager:
     This function ensures that a single instance of the APIManager is used throughout
     the application. It uses a lock to be thread-safe.
     """
-    global _api_manager, _manager_lock
+    global _api_manager
 
-    # Import lock and config here to avoid circular imports
-    import threading
+    # Import config here to avoid circular imports
     from ...services.config_service import config_service
-
-    if _manager_lock is None:
-        _manager_lock = threading.RLock()
 
     with _manager_lock:
         if _api_manager is None:

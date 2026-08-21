@@ -12,9 +12,9 @@ This module tests caching functionality including:
 """
 
 import json
+import os
 import threading
 import time
-from pathlib import Path
 
 import pytest
 from freezegun import freeze_time
@@ -197,36 +197,39 @@ class TestCacheClearOperations:
 class TestCacheCleanupOldFiles:
     """Tests for old file cleanup functionality."""
 
-    def test_cleanup_old_files(self, tmp_path, mocker):
-        """Test that old cache files are removed when they exceed TTL."""
+    def test_cleanup_old_files_removes_old_file(self, tmp_path):
+        """Test that an old cache file is actually removed when it exceeds TTL."""
         # Arrange
         cache = ModelCache(tmp_path, ttl_seconds=60)
         cache_file = tmp_path / "models_cache.json"
-        
-        # Create a cache file
         cache_file.write_text('{"openai": {"models": ["gpt-5.4-mini"], "timestamp": 1234567890.0}}', encoding='utf-8')
-        
-        # Mock stat() for the specific cache file to make it appear old
-        mock_stat = mocker.Mock()
-        mock_stat.st_mtime = time.time() - 120  # 2 minutes ago (older than TTL of 60)
-        
-        # Patch Path.stat to return old stat for our cache file
-        original_stat = Path.stat
-        def patched_stat(self, *args, **kwargs):
-            if self == cache_file:
-                return mock_stat
-            return original_stat(self, *args, **kwargs)
-        mocker.patch.object(Path, 'stat', patched_stat)
-        
-        # Mock unlink to verify it's called
-        mock_unlink = mocker.patch.object(type(cache_file), 'unlink')
+        old_timestamp = time.time() - 120
+        os.utime(cache_file, (old_timestamp, old_timestamp))
 
         # Act
         cache.cleanup_old_files()
 
         # Assert
-        # unlink() should have been called on the cache file
+        assert not cache_file.exists()
+
+    def test_cleanup_old_files_handles_unlink_error(self, tmp_path, mocker):
+        """Test that cleanup tolerates an inaccessible old cache file."""
+        # Arrange
+        cache = ModelCache(tmp_path, ttl_seconds=60)
+        cache_file = tmp_path / "models_cache.json"
+        cache_file.write_text("cache", encoding="utf-8")
+        old_timestamp = time.time() - 120
+        os.utime(cache_file, (old_timestamp, old_timestamp))
+        mock_unlink = mocker.patch.object(
+            type(cache_file), "unlink", side_effect=PermissionError("file is in use")
+        )
+
+        # Act
+        cache.cleanup_old_files()
+
+        # Assert
         mock_unlink.assert_called_once()
+        assert cache_file.exists()
 
 
 class TestCacheIsCached:
@@ -248,6 +251,16 @@ class TestCacheIsCached:
 
         # Act & Assert
         assert cache.is_cached("openai") is False
+
+    def test_is_cached_false_after_ttl_expires(self, tmp_path):
+        """Test that is_cached returns False for an expired provider entry."""
+        cache = ModelCache(tmp_path, ttl_seconds=1)
+
+        with freeze_time("2024-01-01 00:00:00") as frozen_time:
+            cache.set("openai", ["gpt-5.4-mini"])
+            frozen_time.tick(2)
+
+            assert cache.is_cached("openai") is False
 
 
 class TestCacheModelsAndPersist:

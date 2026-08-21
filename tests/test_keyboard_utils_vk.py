@@ -8,6 +8,33 @@ import pytest
 from whisperbridge.utils.keyboard_utils import KeyboardUtils, WIN_VK_MAP, _VK_TO_NAME_MAP
 
 
+# Independent oracle for the Windows virtual-key values used by the application.
+CANONICAL_WINDOWS_VK_CODES = {
+    "ctrl": 0x11,
+    "alt": 0x12,
+    "shift": 0x10,
+    "win": 0x5B,
+    **{letter: ord(letter.upper()) for letter in "abcdefghijklmnopqrstuvwxyz"},
+    **{digit: ord(digit) for digit in "0123456789"},
+    **{f"f{i}": 0x6F + i for i in range(1, 13)},
+    "space": 0x20,
+    "enter": 0x0D,
+    "esc": 0x1B,
+    "tab": 0x09,
+    "backspace": 0x08,
+    "delete": 0x2E,
+    "up": 0x26,
+    "down": 0x28,
+    "left": 0x25,
+    "right": 0x27,
+    "home": 0x24,
+    "end": 0x23,
+    "pageup": 0x21,
+    "pagedown": 0x22,
+    "insert": 0x2D,
+}
+
+
 class TestGetVksForHotkey:
     """Tests for get_vks_for_hotkey method."""
 
@@ -124,6 +151,16 @@ class TestGetVksForHotkey:
         result = KeyboardUtils.get_vks_for_hotkey("ctrl+a")
         assert result == set()
 
+    def test_hotkey_uses_canonical_windows_vk_codes(self, monkeypatch):
+        """Test hotkey resolution against independent Windows VK values."""
+        monkeypatch.setattr(KeyboardUtils, "get_platform", lambda: "windows")
+
+        assert KeyboardUtils.get_vks_for_hotkey("ctrl+alt+j") == {
+            CANONICAL_WINDOWS_VK_CODES["ctrl"],
+            CANONICAL_WINDOWS_VK_CODES["alt"],
+            CANONICAL_WINDOWS_VK_CODES["j"],
+        }
+
 
 class TestGetNameFromVk:
     """Tests for get_name_from_vk method."""
@@ -177,6 +214,10 @@ class TestGetNameFromVk:
 
 class TestVkMapConsistency:
     """Tests for VK map consistency and bidirectional mapping."""
+
+    def test_vk_map_matches_canonical_windows_codes(self):
+        """Test every production mapping against independent Windows VK values."""
+        assert WIN_VK_MAP == CANONICAL_WINDOWS_VK_CODES
 
     def test_vk_map_is_bidirectional(self):
         """Test that VK map is consistent in both directions."""
