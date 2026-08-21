@@ -512,7 +512,7 @@ def test_callback_with_parent_without_update_layout(qapp, mocker):
 
 # ==================== Error Handling Tests ====================
 
-def test_error_handling_in_compact_view_callback(qapp, mocker):
+def test_error_handling_in_compact_view_callback(qapp, mocker, loguru_caplog):
     """Test error handling when saving compact_view setting."""
     # Mock config_service to return False for all settings
     mock_settings = Mock()
@@ -526,12 +526,18 @@ def test_error_handling_in_compact_view_callback(qapp, mocker):
                  return_value=mock_settings)
     
     # Mock set_setting to raise exception
-    mocker.patch('whisperbridge.ui_qt.overlay_ui_builder.config_service.set_setting',
-                 side_effect=Exception("Database error"))
+    mock_set_setting = mocker.patch(
+        'whisperbridge.ui_qt.overlay_ui_builder.config_service.set_setting',
+        side_effect=Exception("Database error"),
+    )
     
     dialog = TranslatorSettingsDialog()
     # Should not raise exception, just log error
     dialog.compact_view_checkbox.setChecked(True)
+
+    assert dialog.compact_view_checkbox.isChecked()
+    mock_set_setting.assert_called_once_with("compact_view", True)
+    assert any(record.message == "Failed to save compact view setting: Database error" for record in loguru_caplog.records)
     
     dialog.close()
 
@@ -596,7 +602,7 @@ def test_dialog_has_all_groups(qapp, mocker):
     dialog.close()
 
 
-def test_error_handling_in_stylist_cache_callback(qapp, mocker):
+def test_error_handling_in_stylist_cache_callback(qapp, mocker, loguru_caplog):
     """Test error handling when saving stylist_cache_enabled setting."""
     # Mock config_service to return False for all settings
     mock_settings = Mock()
@@ -608,12 +614,18 @@ def test_error_handling_in_stylist_cache_callback(qapp, mocker):
     
     mocker.patch('whisperbridge.ui_qt.overlay_ui_builder.config_service.get_settings',
                  return_value=mock_settings)
-    mocker.patch('whisperbridge.ui_qt.overlay_ui_builder.config_service.set_setting',
-                 side_effect=Exception("Config error"))
+    mock_set_setting = mocker.patch(
+        'whisperbridge.ui_qt.overlay_ui_builder.config_service.set_setting',
+        side_effect=Exception("Config error"),
+    )
     
     dialog = TranslatorSettingsDialog()
     # Should not raise exception, just log error
     dialog.stylist_cache_checkbox.setChecked(True)
+
+    assert dialog.stylist_cache_checkbox.isChecked()
+    mock_set_setting.assert_called_once_with("stylist_cache_enabled", True)
+    assert any(record.message == "Failed to save Text Stylist cache setting: Config error" for record in loguru_caplog.records)
     
     dialog.close()
 
