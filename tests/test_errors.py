@@ -18,7 +18,6 @@ import pytest
 from whisperbridge.core.api_manager.errors import (
     APIError,
     APIErrorType,
-    RetryableAPIError,
     classify_error,
     log_network_diagnostics,
     requires_initialization,
@@ -257,13 +256,3 @@ class TestAPIErrorDataclass:
         assert error.error_type == APIErrorType.RATE_LIMIT
         assert error.status_code == 429
         assert error.retry_after == 60
-
-
-class TestRetryableAPIError:
-    """Tests for RetryableAPIError exception."""
-
-    def test_retryable_api_error_creation(self):
-        """Test that RetryableAPIError can be created."""
-        # Arrange & Act & Assert
-        with pytest.raises(RetryableAPIError, match="Retryable error"):
-            raise RetryableAPIError("Retryable error")
