@@ -1,4 +1,6 @@
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont
+from PySide6.QtWidgets import QTextEdit
 
 from whisperbridge.ui_qt.widgets.placeholder_text_edit import PlaceholderTextEdit
 
@@ -27,6 +29,17 @@ def test_placeholder_text_edit_keeps_logical_placeholder_text(qapp):
     assert widget.placeholderText() == "Translation will appear here..."
 
 
+def test_placeholder_text_edit_clears_qt_placeholder_state(qapp):
+    """Custom placeholder text should disable Qt's implicit placeholder state."""
+    widget = PlaceholderTextEdit()
+    QTextEdit.setPlaceholderText(widget, "qt-sentinel")
+
+    widget.setPlaceholderText("Translation will appear here...")
+
+    assert widget.placeholderText() == "Translation will appear here..."
+    assert QTextEdit.placeholderText(widget) == ""
+
+
 def test_placeholder_text_edit_draws_placeholder_with_widget_font(qapp):
     """Placeholder drawing should use the current widget font and stored placeholder."""
     widget = PlaceholderTextEdit()
@@ -43,9 +56,10 @@ def test_placeholder_text_edit_draws_placeholder_with_widget_font(qapp):
     assert widget.font().pointSize() == 22
     assert widget.document().defaultFont().pointSize() == 22
     assert fake_painter.font.pointSize() == 22
+    assert fake_painter.pen == widget.palette().placeholderText().color()
     assert len(fake_painter.draw_calls) == 1
     _, flags, text = fake_painter.draw_calls[0]
-    assert flags
+    assert flags == Qt.AlignmentFlag.AlignTop | Qt.TextFlag.TextWordWrap
     assert text == "Translation will appear here..."
 
 

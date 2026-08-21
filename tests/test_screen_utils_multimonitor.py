@@ -74,7 +74,9 @@ def test_convert_rect_to_pixels_uses_screen_resolution_helper(mocker):
 def test_convert_rect_to_pixels_fallback_without_screen(mocker):
     """If screen cannot be resolved, conversion should keep logical coordinates."""
     rect = _FakeRect(-50, 20, 120, 60)
-    mocker.patch.object(ScreenUtils, "_get_screen_for_rect", return_value=None)
+    helper = mocker.patch.object(ScreenUtils, "_get_screen_for_rect", return_value=None)
 
-    assert ScreenUtils.convert_rect_to_pixels(rect) == (-50, 20, 120, 60)
+    result = ScreenUtils.convert_rect_to_pixels(rect)
 
+    helper.assert_called_once_with(rect)
+    assert result == (-50, 20, 120, 60)

@@ -32,7 +32,7 @@ class TestOpenAITextRequests:
     """Tests for text-only chat completion requests."""
 
     def test_text_only_success(self, mocker, fake_openai_client, mock_completion_response):
-        """Test regular chat completion."""
+        """Forward the direct request contract, including the default token limit."""
         messages = [{"role": "user", "content": "Hi"}]
         mock_create = mocker.patch.object(
             fake_openai_client._client.chat.completions, "create", return_value=mock_completion_response
@@ -44,12 +44,11 @@ class TestOpenAITextRequests:
         )
 
         assert response.choices[0].message.content == "Hello from OpenAI"
-        assert mock_create.called
-        # Verify params
-        args, kwargs = mock_create.call_args
-        assert kwargs["model"] == "gpt-5.4-mini"
-        assert kwargs["messages"] == messages
-        assert "temperature" not in kwargs
+        mock_create.assert_called_once_with(
+            model="gpt-5.4-mini",
+            messages=messages,
+            max_completion_tokens=256,
+        )
 
     @pytest.mark.parametrize("model", [
         "gpt-5.4",
@@ -76,8 +75,10 @@ class TestOpenAITextRequests:
         assert "reasoning_effort" not in kwargs
         assert "verbosity" not in kwargs
 
-    def test_explicit_gpt5_params_are_forwarded(self, mocker, fake_openai_client, mock_completion_response):
-        """Test that caller-provided GPT-5 params are forwarded unchanged."""
+    def test_explicit_token_limit_and_provider_kwargs_are_forwarded(
+        self, mocker, fake_openai_client, mock_completion_response
+    ):
+        """Forward explicit token and provider parameters without rewriting them."""
         messages = [{"role": "user", "content": "Hi"}]
         mock_create = mocker.patch.object(
             fake_openai_client._client.chat.completions, "create", return_value=mock_completion_response
@@ -86,13 +87,18 @@ class TestOpenAITextRequests:
         fake_openai_client.chat.completions.create(
             model="gpt-5.4-mini",
             messages=messages,
+            max_completion_tokens=819,
             reasoning_effort="high",
             verbosity="medium",
         )
 
-        kwargs = mock_create.call_args.kwargs
-        assert kwargs["reasoning_effort"] == "high"
-        assert kwargs["verbosity"] == "medium"
+        mock_create.assert_called_once_with(
+            model="gpt-5.4-mini",
+            messages=messages,
+            max_completion_tokens=819,
+            reasoning_effort="high",
+            verbosity="medium",
+        )
 
     def test_text_system_and_history(self, mocker, fake_openai_client, mock_completion_response):
         """Test complex message history handling."""

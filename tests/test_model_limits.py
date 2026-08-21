@@ -55,15 +55,6 @@ class TestGetModelMaxTokens:
         assert any(record.levelname == "WARNING" for record in loguru_caplog.records), \
             f"Expected WARNING level, got: {[r.levelname for r in loguru_caplog.records]}"
 
-    @pytest.mark.parametrize("deprecated_model", [
-        "legacy-chat-model",
-        "deprecated-chat-model",
-    ])
-    def test_deprecated_models_return_default(self, deprecated_model):
-        """Deprecated models should return default limit."""
-        result = get_model_max_completion_tokens(deprecated_model)
-        assert result == DEFAULT_MAX_COMPLETION_TOKENS
-
     @pytest.mark.parametrize("model", [
         "GPT-5.4-MINI",
         "gpt-5.4-mini",

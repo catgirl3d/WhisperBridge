@@ -128,6 +128,21 @@ class _FakeGuiApp:
         return self._screens
 
 
+def test_get_qt_virtual_bounds_includes_negative_screen_coordinates(capture_service, mocker):
+    """Qt virtual bounds should include monitors positioned left of the origin."""
+    left = _FakeScreen(QRect(-1920, 0, 1920, 1080))
+    right = _FakeScreen(QRect(0, 0, 1920, 1080))
+
+    mocker.patch("whisperbridge.services.screen_capture_service.QT_AVAILABLE", True)
+    mocker.patch.object(
+        ScreenCaptureService,
+        "_get_qt_gui_app",
+        return_value=_FakeGuiApp([left, right]),
+    )
+
+    assert capture_service._get_qt_virtual_bounds() == Rectangle(-1920, 0, 3840, 1080)
+
+
 def test_qt_capture_composes_from_multiple_screens(capture_service, mocker):
     """Capture should compose image parts from all intersecting screens."""
     left = _FakeScreen(QRect(-1920, 0, 1920, 1080))
@@ -256,16 +271,22 @@ def test_qt_capture_returns_none_when_no_screen_intersection(capture_service, mo
     mocker.patch("whisperbridge.services.screen_capture_service.QT_AVAILABLE", True)
     mocker.patch.object(
         ScreenCaptureService,
+        "_clamp_rectangle_to_qt_screens",
+        side_effect=lambda rectangle: rectangle,
+    )
+    mocker.patch.object(
+        ScreenCaptureService,
         "_get_qt_gui_app",
         return_value=_FakeGuiApp([screen]),
     )
     mocker.patch("whisperbridge.services.screen_capture_service.QImage", _FakeQImage)
     mocker.patch("whisperbridge.services.screen_capture_service.QPainter", _FakePainter)
 
-    region = Rectangle(x=-3000, y=10, width=200, height=50)
+    region = Rectangle(x=-200, y=10, width=200, height=50)
     result = capture_service.capture_area(region)
 
     assert result.success is False
+    assert screen.grab_calls == []
 
 
 def test_qt_capture_handles_memoryview_bits_without_setsize(capture_service, mocker):
@@ -322,15 +343,23 @@ def test_qt_capture_fails_when_qt_gui_app_is_unavailable(capture_service, mocker
 def test_capture_virtual_desktop_uses_qt_virtual_bounds(capture_service, mocker):
     """Virtual desktop capture should use Qt-derived virtual bounds when available."""
     virtual_bounds = Rectangle(-1920, 0, 3840, 1080)
+    captured_image = Mock()
+    captured_rectangle = Rectangle(-1920, 0, 3840, 1080)
     mocker.patch.object(capture_service, "_get_qt_virtual_bounds", return_value=virtual_bounds)
 
     capture_area_mock = mocker.patch.object(capture_service, "capture_area")
-    capture_area_mock.return_value = Mock(success=True, image=Mock(), rectangle=virtual_bounds)
+    capture_area_mock.return_value = Mock(
+        success=True,
+        image=captured_image,
+        rectangle=captured_rectangle,
+    )
 
     result = capture_service.capture_virtual_desktop()
 
     capture_area_mock.assert_called_once_with(virtual_bounds, None)
     assert result.success is True
+    assert result.image is captured_image
+    assert result.rectangle is captured_rectangle
 
 
 def test_crop_captured_image_returns_clipped_region(capture_service):
