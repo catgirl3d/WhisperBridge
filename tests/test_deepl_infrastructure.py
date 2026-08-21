@@ -22,6 +22,7 @@ if sys.platform == 'win32':
         sys.stderr.reconfigure(encoding='utf-8')
 
 import pytest
+import httpx
 from _pytest.outcomes import Skipped
 from whisperbridge.core.api_manager import APIManager, APIProvider
 from whisperbridge.services.config_service import ConfigService
@@ -105,8 +106,9 @@ def test_api_manager_deepl():
             
         print(f"[OK] APIManager initialized")
         
-        # Check if DeepL client is available
-        assert APIProvider.DEEPL in api_manager._clients, "DeepL client not found in APIManager"
+        # Check if DeepL client is available through the provider registry
+        assert api_manager._providers.is_provider_available(APIProvider.DEEPL), \
+            "DeepL client not found in provider registry"
             
         print(f"[OK] DeepL client registered in APIManager")
         
@@ -231,12 +233,13 @@ def test_error_handling():
     
     messages = [{"role": "user", "content": "Test"}]
     
-    with pytest.raises(Exception):
+    with pytest.raises(httpx.HTTPStatusError) as exc_info:
         adapter.chat.completions.create(
             model="deepl-translate",
             messages=messages,
             target_lang="RU"
         )
+    assert exc_info.value.response.status_code in (401, 403)
     print(f"[OK] Correctly raised error for invalid API key")
 
 
@@ -260,13 +263,13 @@ def run_all_tests():
     for name, func in test_funcs:
         try:
             func()
-            results[name] = True
+            results[name] = "passed"
         except Skipped:
             print(f"[SKIP] {name} (Key not found)")
-            results[name] = True  # Consider skip as success for summary
+            results[name] = "skipped"
         except Exception as e:
             print(f"[FAIL] {name}: {e}")
-            results[name] = False
+            results[name] = "failed"
     
     # Print summary
     print("\n")
@@ -274,24 +277,32 @@ def run_all_tests():
     print("TEST SUMMARY")
     print("=" * 80)
     
-    passed = sum(1 for result in results.values() if result)
+    passed = sum(1 for result in results.values() if result == "passed")
+    skipped = sum(1 for result in results.values() if result == "skipped")
+    failed = sum(1 for result in results.values() if result == "failed")
     total = len(results)
-    
+
     for test_name, result in results.items():
-        status = "[PASS]" if result else "[FAIL]"
+        status = {
+            "passed": "[PASS]",
+            "skipped": "[SKIP]",
+            "failed": "[FAIL]",
+        }[result]
         print(f"{status:8} | {test_name}")
-    
+
     print("-" * 80)
-    print(f"Total: {passed}/{total} tests passed")
-    
-    if passed == total:
+    print(f"Total: {total} | Passed: {passed} | Skipped: {skipped} | Failed: {failed}")
+
+    if failed == 0 and skipped == 0:
         print("\n>>> SUCCESS: All tests passed! DeepL integration is working correctly.")
+    elif failed == 0:
+        print(f"\n>>> SUCCESS: Tests completed with {skipped} skipped test(s).")
     else:
-        print(f"\n>>> WARNING: {total - passed} test(s) failed. Please review the errors above.")
+        print(f"\n>>> WARNING: {failed} test(s) failed. Please review the errors above.")
     
     print("=" * 80)
     
-    return passed == total
+    return failed == 0
 
 
 if __name__ == "__main__":

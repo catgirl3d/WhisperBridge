@@ -288,18 +288,29 @@ class TestTranslationRequests:
         kwargs = mock_openai_client.chat.completions.create.call_args.kwargs
         assert "reasoning_effort" not in kwargs
 
-    def test_make_translation_request_deepl(self, initialized_deepl_manager):
+    def test_make_translation_request_deepl(self, initialized_deepl_manager, mock_deepl_client):
         """Test translation request through DeepL."""
         messages = [{"role": "user", "content": "Translate this"}]
 
         # Act
         response, model = initialized_deepl_manager.make_translation_request(
             messages=messages,
+            model_hint="test-deepl-model",
             target_lang="DE",
         )
 
         # Assert
-        assert response is not None
+        assert response is mock_deepl_client.client.chat.completions.create.return_value
+        assert model == "test-deepl-model"
+        mock_deepl_client.client.chat.completions.create.assert_called_once_with(
+            model="test-deepl-model",
+            messages=messages,
+            target_lang="DE",
+        )
+        usage = initialized_deepl_manager._usage[APIProvider.DEEPL]
+        assert usage.requests_count == 1
+        assert usage.successful_requests == 1
+        assert usage.failed_requests == 0
 
 
 class TestVisionRequests:
