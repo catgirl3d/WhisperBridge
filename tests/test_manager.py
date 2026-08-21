@@ -9,7 +9,6 @@ This module tests API manager integration functionality including:
 - Response text extraction
 - Usage statistics
 - Rate limiting
-- Temperature unsupported retry
 - Shutdown
 """
 
@@ -155,6 +154,19 @@ class TestMakeRequestSync:
         assert result is not None
         assert initialized_openai_manager._usage[APIProvider.OPENAI].successful_requests == 1
 
+    def test_make_request_sync_rejects_temperature_before_client_call(self, initialized_openai_manager):
+        client = initialized_openai_manager._providers.get_client(APIProvider.OPENAI)
+
+        with pytest.raises(TypeError, match="temperature is not a supported"):
+            initialized_openai_manager.make_request_sync(
+                APIProvider.OPENAI,
+                model="gpt-5.4-mini",
+                messages=[{"role": "user", "content": "Hello"}],
+                temperature=0.5,
+            )
+
+        client.chat.completions.create.assert_not_called()
+
     def test_make_request_sync_retry_on_rate_limit(self, api_manager, mock_config_service, mocker):
         """Test retry logic on rate limit error."""
         # Arrange
@@ -256,7 +268,6 @@ class TestTranslationRequests:
         """Configured OpenAI reasoning effort is sent without model-name inference."""
         initialized_openai_manager.config_service.get_setting.side_effect = lambda key: {
             "api_provider": "openai",
-            "llm_temperature_translation": 1.0,
             "openai_reasoning_effort": "none",
         }.get(key)
 
@@ -274,7 +285,6 @@ class TestTranslationRequests:
         """not_set leaves reasoning selection to the selected model."""
         initialized_openai_manager.config_service.get_setting.side_effect = lambda key: {
             "api_provider": "openai",
-            "llm_temperature_translation": 1.0,
             "openai_reasoning_effort": "not_set",
         }.get(key)
 
@@ -550,44 +560,6 @@ class TestRateLimiting:
         # Assert
         assert result is False
         assert initialized_openai_manager._usage[APIProvider.OPENAI].rate_limit_hits == 0
-
-
-class TestTemperatureUnsupportedRetry:
-    """Tests for temperature unsupported retry logic."""
-
-    def test_temperature_unsupported_retry(self, api_manager, config_openai, mocker):
-        """Test retry without temperature on unsupported_value error."""
-        # First call fails with unsupported_value, second succeeds
-        error = Exception("unsupported_value: temperature not supported")
-        mock_response = mocker.Mock()
-        mock_response.choices = [mocker.Mock()]
-        mock_response.choices[0].message.content = "Test response"
-        mock_response.usage = mocker.Mock()
-        mock_response.usage.total_tokens = 50
-
-        mock_client = mocker.Mock()
-        mock_client.chat.completions.create.side_effect = [error, mock_response]
-
-        mocker.patch(
-            "whisperbridge.core.api_manager.providers.OpenAIChatClientAdapter",
-            return_value=mock_client
-        )
-
-        api_manager.initialize()
-        api_manager._usage[APIProvider.OPENAI] = APIUsage()
-
-        # Act
-        result = api_manager.make_request_sync(
-            APIProvider.OPENAI,
-            model="gpt-5.4-mini",
-            messages=[{"role": "user", "content": "Hello"}],
-            temperature=0.5,
-        )
-
-        # Assert
-        assert result is not None
-        # First call with temperature, second without
-        assert mock_client.chat.completions.create.call_count == 2
 
 
 class TestShutdown:

@@ -51,7 +51,6 @@ class TestTextOnlyRequests:
         response = fake_google_client.chat.completions.create(
             model="gemini-2.0-flash",
             messages=messages,
-            temperature=0.7,
             max_completion_tokens=256
         )
         
@@ -70,7 +69,6 @@ class TestTextOnlyRequests:
         response = fake_google_client.chat.completions.create(
             model="gemini-3-flash",
             messages=messages,
-            temperature=0.7,
             max_completion_tokens=256
         )
         
@@ -117,7 +115,6 @@ class TestMultimodalRequests:
         response = fake_google_client.chat.completions.create(
             model="gemini-2.0-flash-exp",
             messages=messages,
-            temperature=0.7,
             max_completion_tokens=256
         )
         
@@ -162,7 +159,6 @@ class TestMultimodalRequests:
         response = fake_google_client.chat.completions.create(
             model="gemini-2.0-flash-exp",
             messages=messages,
-            temperature=0.7,
             max_completion_tokens=256
         )
         
@@ -210,7 +206,6 @@ class TestMultimodalRequests:
         response = fake_google_client.chat.completions.create(
             model="gemini-3-flash",
             messages=messages,
-            temperature=0.7,
             max_completion_tokens=256
         )
         

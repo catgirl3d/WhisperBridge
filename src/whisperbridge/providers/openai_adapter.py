@@ -48,7 +48,6 @@ class OpenAIChatClientAdapter:
         self,
         model: str,
         messages: List[ChatCompletionMessageParam],
-        temperature: float = 1.0,
         max_completion_tokens: int = 256,
         **kwargs: Any,
     ) -> Any:
@@ -58,7 +57,6 @@ class OpenAIChatClientAdapter:
         Args:
             model: Model name to use.
             messages: List of message dictionaries with role and content.
-            temperature: Sampling temperature.
             max_completion_tokens: Maximum tokens to generate.
             **kwargs: Additional parameters (e.g., GPT-5 options).
 
@@ -69,7 +67,6 @@ class OpenAIChatClientAdapter:
         api_params = {
             "model": model,
             "messages": messages,
-            "temperature": temperature,
             "max_completion_tokens": max_completion_tokens,
             **kwargs,
         }

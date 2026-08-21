@@ -35,7 +35,7 @@ class TestAPIManagerIntegration:
         assert call_args is not None
         assert call_args.kwargs["model"] == "gpt-5.4-mini"
         assert call_args.kwargs["messages"] == messages
-        assert call_args.kwargs["temperature"] == 1.0
+        assert "temperature" not in call_args.kwargs
         assert "max_completion_tokens" in call_args.kwargs
 
     def test_full_translation_flow_google(self, api_manager, config_google, mock_google_client):
@@ -57,7 +57,7 @@ class TestAPIManagerIntegration:
         assert call_args is not None
         assert call_args.kwargs["model"] == "gemini-2.5-flash"
         assert call_args.kwargs["messages"] == messages
-        assert call_args.kwargs["temperature"] == 0.8
+        assert "temperature" not in call_args.kwargs
         assert "max_completion_tokens" in call_args.kwargs
 
     def test_full_translation_flow_deepl(self, api_manager, config_deepl, mock_deepl_client):

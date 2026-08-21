@@ -192,6 +192,9 @@ class APIManager:
             ValueError: If provider is not configured.
             Exception: For non-retryable errors.
         """
+        if "temperature" in kwargs:
+            raise TypeError("temperature is not a supported API request parameter")
+
         client = self._providers.get_client(provider)
         if not client:
             raise ValueError(f"Provider {provider.value} not configured. Please set up your API key in settings.")
@@ -219,36 +222,6 @@ class APIManager:
             return response
 
         except Exception as e:
-            error_str = str(e).lower()
-
-            # Handle unsupported temperature error by retrying without temperature parameter
-            if "unsupported_value" in error_str and "temperature" in error_str:
-                logger.warning(
-                    f"Temperature parameter not supported by this model. "
-                    f"Retrying without temperature parameter (API default). Original error: {e}"
-                )
-                # Remove temperature from kwargs and retry once
-                retry_kwargs = kwargs.copy()
-                retry_kwargs.pop("temperature", None)
-
-                try:
-                    response = client.chat.completions.create(**retry_kwargs)
-                    request_time = time.time() - start_time
-                    logger.debug(f"API request completed in {request_time:.2f}s (retried without temperature)")
-
-                    with self._lock:
-                        usage.requests_count += 1
-                        usage.successful_requests += 1
-                        usage.last_request_time = datetime.now()
-                        if hasattr(response, "usage") and response.usage:
-                            usage.tokens_used += response.usage.total_tokens
-
-                    return response
-                except Exception as retry_e:
-                    # If retry also fails, fall through to normal error handling
-                    logger.debug(f"Retry without temperature also failed: {retry_e}")
-                    e = retry_e
-
             api_error = classify_error(e, provider.value)
 
             with self._lock:
@@ -277,7 +250,6 @@ class APIManager:
         self,
         messages: List[Dict[str, Any]],
         model_hint: Optional[str] = None,
-        temperature: Optional[float] = None,
         **api_kwargs
     ) -> tuple[Any, str]:
         """
@@ -291,7 +263,6 @@ class APIManager:
         Args:
             messages: A list of messages for the chat completion.
             model_hint: The model name to use for the request.
-            temperature: Optional temperature override.
             api_kwargs: Additional provider-specific kwargs (e.g., target_lang/source_lang for DeepL).
 
         Returns:
@@ -321,10 +292,6 @@ class APIManager:
         api_params = self._request_builder.build_llm_params(
             model=final_model,
             messages=messages,
-            temperature=temperature,
-            temperature_setting_key="llm_temperature_translation",
-            temperature_default=1.0,
-            log_label="Translation",
         )
 
         # Reasoning effort is intentionally limited to text translation;
@@ -388,14 +355,10 @@ class APIManager:
 
         logger.debug(f"Vision request: provider={selected_provider.value}, model={final_model}")
 
-        # 4. Build LLM params (temperature + limits)
+        # 4. Build LLM params
         api_params = self._request_builder.build_llm_params(
             model=final_model,
             messages=messages,
-            temperature=None,
-            temperature_setting_key="llm_temperature_vision",
-            temperature_default=0.0,
-            log_label="Vision",
         )
 
         # 5. Route to adapter (both providers now use the same path)

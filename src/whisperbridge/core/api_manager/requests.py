@@ -1,78 +1,12 @@
 """
 Request building utilities for the API Manager package.
 
-This module provides:
-- Temperature support helpers for model-specific temperature handling
-- RequestBuilder class for building API request parameters
+This module provides request parameter builders for the API Manager package.
 """
 
-from typing import Any, Dict, List, Optional, Tuple
-
-from loguru import logger
+from typing import Any, Dict, List, Optional
 
 from ..model_limits import get_model_max_completion_tokens
-
-
-def model_supports_temperature(model: str) -> bool:
-    """
-    Check if the model supports custom temperature values.
-
-    This helper currently treats all GPT-5 model IDs as temperature-locked and
-    forces temperature=1.0 for them. Other models are treated as supporting
-    temperature in range [0.0, 2.0].
-
-    Note: OpenAI docs indicate GPT-5.4 may support custom temperature when
-    reasoning_effort="none". That nuance is tracked by the TODO below and is
-    not yet represented in this helper.
-
-    Args:
-        model: Model name (e.g., "gpt-5.4-mini", "gemini-3-flash")
-
-    Returns:
-        True if model supports custom temperature, False otherwise.
-    """
-    model_lower = model.lower()
-
-    # Current GPT-5 models are treated as temperature-locked.
-    restricted_prefixes = [
-        # TODO: Revisit GPT-5 temperature handling. OpenAI docs allow custom
-        # temperature for GPT-5.4 when reasoning_effort="none", so not every
-        # GPT-5 model IDs should be treated as temperature-locked.
-        "gpt-5",      # GPT-5 models with reasoning_effort parameter
-        "chatgpt-5",  # ChatGPT-prefixed GPT-5 aliases use the same API rules
-    ]
-
-    # Check if model starts with any restricted prefix
-    for prefix in restricted_prefixes:
-        if model_lower.startswith(prefix):
-            logger.debug(f"Model '{model}' is restricted (prefix: {prefix}), temperature must be 1.0")
-            return False
-
-    return True
-
-
-def adjust_temperature_for_model(model: str, temperature: float) -> float:
-    """
-    Adjust temperature value based on model capabilities.
-
-    If the model doesn't support custom temperature, forces temperature=1.0.
-    Logs the adjustment if it occurs.
-
-    Args:
-        model: Model name to check
-        temperature: Desired temperature value
-
-    Returns:
-        Adjusted temperature (1.0 for restricted models, otherwise original value)
-    """
-    if not model_supports_temperature(model):
-        if temperature != 1.0:
-            logger.info(
-                f"Model '{model}' does not support custom temperature. "
-                f"Overriding {temperature} -> 1.0"
-            )
-        return 1.0
-    return temperature
 
 
 class RequestBuilder:
@@ -92,89 +26,25 @@ class RequestBuilder:
         """
         self._config = config_service
 
-    def resolve_llm_temperature_and_limits(
-        self,
-        *,
-        model: str,
-        temperature: Optional[float],
-        temperature_setting_key: str,
-        temperature_default: float,
-        log_label: str,
-    ) -> Tuple[float, int]:
-        """
-        Resolve LLM temperature and max completion tokens for a request.
-
-        Args:
-            model: Model name.
-            temperature: Optional temperature override.
-            temperature_setting_key: Config key for temperature setting.
-            temperature_default: Default temperature value.
-            log_label: Label for logging (e.g., "Translation", "Vision").
-
-        Returns:
-            Tuple of (resolved_temperature, max_completion_tokens).
-        """
-        if temperature is None:
-            try:
-                val = self._config.get_setting(temperature_setting_key)
-                resolved_temp = round(float(val if val is not None else temperature_default), 2)
-            except (ValueError, TypeError) as e:
-                logger.warning(
-                    f"Failed to parse {log_label.lower()} temperature from config, using default {temperature_default}. Error: {e}"
-                )
-                resolved_temp = temperature_default
-        else:
-            try:
-                resolved_temp = round(float(temperature), 2)
-            except (ValueError, TypeError) as e:
-                logger.warning(
-                    f"Failed to parse provided temperature '{temperature}', using default {temperature_default}. Error: {e}"
-                )
-                resolved_temp = temperature_default
-
-        resolved_temp = adjust_temperature_for_model(model, resolved_temp)
-
-        max_completion_tokens = get_model_max_completion_tokens(model)
-
-        logger.debug(f"{log_label} temperature: {resolved_temp}, max_completion_tokens={max_completion_tokens}")
-        return resolved_temp, max_completion_tokens
-
     def build_llm_params(
         self,
         *,
         model: str,
         messages: List[Dict[str, Any]],
-        temperature: Optional[float],
-        temperature_setting_key: str,
-        temperature_default: float,
-        log_label: str,
     ) -> Dict[str, Any]:
         """
-        Build API params for LLM providers with normalized temperature and limits.
+        Build API params for LLM providers with model-specific token limits.
 
         Args:
             model: Model name.
             messages: List of messages for the chat completion.
-            temperature: Optional temperature override.
-            temperature_setting_key: Config key for temperature setting.
-            temperature_default: Default temperature value.
-            log_label: Label for logging.
-
         Returns:
             Dictionary of API parameters.
         """
-        resolved_temp, max_completion_tokens = self.resolve_llm_temperature_and_limits(
-            model=model,
-            temperature=temperature,
-            temperature_setting_key=temperature_setting_key,
-            temperature_default=temperature_default,
-            log_label=log_label,
-        )
         return {
             "model": model,
             "messages": messages,
-            "temperature": resolved_temp,
-            "max_completion_tokens": max_completion_tokens,
+            "max_completion_tokens": get_model_max_completion_tokens(model),
         }
 
     def build_deepl_params(
@@ -206,7 +76,5 @@ class RequestBuilder:
 
 
 __all__ = [
-    "model_supports_temperature",
-    "adjust_temperature_for_model",
     "RequestBuilder",
 ]

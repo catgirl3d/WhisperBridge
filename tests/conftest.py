@@ -149,8 +149,6 @@ def config_openai(mock_config_service):
         "openai_api_key": "sk-test123",
         "api_provider": "openai",
         "api_timeout": 30,
-        "llm_temperature_translation": 0.8,
-        "llm_temperature_vision": 0.0,
     }.get(key)
     return mock_config_service
 
@@ -162,8 +160,6 @@ def config_google(mock_config_service):
         "google_api_key": "AIzatest123",
         "api_provider": "google",
         "api_timeout": 30,
-        "llm_temperature_translation": 0.8,
-        "llm_temperature_vision": 0.0,
     }.get(key)
     return mock_config_service
 

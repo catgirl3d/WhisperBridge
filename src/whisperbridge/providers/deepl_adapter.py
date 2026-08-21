@@ -57,7 +57,6 @@ class DeepLClientAdapter:
         self,
         model: str,
         messages: List[Dict[str, str]],
-        temperature: float = 1.0,
         max_completion_tokens: int = 256,
         **kwargs: Any,
     ) -> Any:

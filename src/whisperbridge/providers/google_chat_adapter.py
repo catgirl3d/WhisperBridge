@@ -47,7 +47,6 @@ class GoogleChatClientAdapter:
         self,
         model: str,
         messages: List[Dict[str, Any]],
-        temperature: float = 1.0,
         max_completion_tokens: int = 256,
         **kwargs: Any,
     ) -> Any:
@@ -55,9 +54,9 @@ class GoogleChatClientAdapter:
         is_multimodal = self._is_multimodal_request(messages)
         
         if is_multimodal:
-            return self._create_multimodal(model, messages, temperature, max_completion_tokens, **kwargs)
+            return self._create_multimodal(model, messages, max_completion_tokens, **kwargs)
         else:
-            return self._create_text_only(model, messages, temperature, max_completion_tokens, **kwargs)
+            return self._create_text_only(model, messages, max_completion_tokens, **kwargs)
 
     def _is_multimodal_request(self, messages: List[Dict[str, Any]]) -> bool:
         """Check if messages contain image content."""
@@ -73,7 +72,6 @@ class GoogleChatClientAdapter:
         self,
         model: str,
         messages: List[Dict[str, Any]],
-        temperature: float = 1.0,
         max_completion_tokens: int = 256,
         **kwargs: Any,
     ) -> Any:
@@ -97,7 +95,6 @@ class GoogleChatClientAdapter:
         # Configure generation parameters
         config = self._types.GenerateContentConfig(
             max_output_tokens=int(max_completion_tokens or 256),
-            temperature=float(temperature if temperature is not None else 1.0),
             system_instruction=system_instruction,
         )
 
@@ -135,7 +132,6 @@ class GoogleChatClientAdapter:
         self,
         model: str,
         messages: List[Dict[str, Any]],
-        temperature: float = 1.0,
         max_completion_tokens: int = 256,
         **kwargs: Any,
     ) -> Any:
@@ -177,7 +173,6 @@ class GoogleChatClientAdapter:
         # Configure generation parameters
         config = self._types.GenerateContentConfig(
             max_output_tokens=int(max_completion_tokens or 256),
-            temperature=float(temperature if temperature is not None else 1.0),
             system_instruction=system_instruction,
         )
 

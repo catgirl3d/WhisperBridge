@@ -72,27 +72,6 @@ class SettingsUIFactory:
             'object_name': 'apiTimeoutSpin',
             'range': (API_TIMEOUT_MIN, API_TIMEOUT_MAX)
         },
-        'llmTemperatureTranslationSpin': {
-            'object_name': 'llmTemperatureTranslationSpin',
-            'range': (0.0, 2.0),
-            'decimals': 2,
-            'single_step': 0.1,
-            'value': 1.0
-        },
-        'llmTemperatureVisionSpin': {
-            'object_name': 'llmTemperatureVisionSpin',
-            'range': (0.0, 2.0),
-            'decimals': 2,
-            'single_step': 0.1,
-            'value': 0.0
-        },
-        'llmTemperatureStylistSpin': {
-            'object_name': 'llmTemperatureStylistSpin',
-            'range': (0.0, 2.0),
-            'decimals': 2,
-            'single_step': 0.1,
-            'value': 1.2
-        },
         'openaiVisionModelCombo': {
             'object_name': 'openaiVisionModelCombo',
             'editable': True
@@ -260,10 +239,6 @@ class SettingsUIFactory:
         'stylistTab': {
             'object_name': 'stylistTab'
         },
-        'llmTemperatureGroup': {
-            'object_name': 'llmTemperatureGroup',
-            'title': 'LLM Temperature Settings'
-        }
     }
 
     def create_combo(self, key: str) -> QComboBox:

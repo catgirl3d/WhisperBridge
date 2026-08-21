@@ -1,5 +1,4 @@
 """Integration-style tests for token management across API manager paths."""
-
 import pytest
 
 from whisperbridge.core.api_manager import APIManager, APIProvider
@@ -46,7 +45,6 @@ class TestAPIManagerTokenIntegration:
         api_manager._providers._clients[APIProvider.OPENAI] = mock_client
         mock_config_service.get_setting.side_effect = lambda key: {
             "api_provider": "openai",
-            "llm_temperature_vision": 0.0,
             "api_timeout": 30,
         }.get(key)
         
@@ -69,7 +67,7 @@ class TestAPIManagerTokenIntegration:
         
         call_args = mock_client.chat.completions.create.call_args
         assert call_args is not None
-        assert call_args.kwargs.get('temperature') == 1.0
+        assert 'temperature' not in call_args.kwargs
         assert call_args.kwargs.get('max_completion_tokens') == 128000
 
 class TestTranslationRequestTokenIntegration:
@@ -90,7 +88,6 @@ class TestTranslationRequestTokenIntegration:
         api_manager._providers._clients[APIProvider.OPENAI] = mock_client
         mock_config_service.get_setting.side_effect = lambda key: {
             "api_provider": "openai",
-            "llm_temperature_translation": 1.0,
             "api_timeout": 30,
         }.get(key)
         
@@ -107,7 +104,7 @@ class TestTranslationRequestTokenIntegration:
         assert mock_client.chat.completions.create.called
         call_args = mock_client.chat.completions.create.call_args
 
-        assert call_args.kwargs.get('temperature') == 1.0
+        assert 'temperature' not in call_args.kwargs
         assert call_args.kwargs.get('max_completion_tokens') == 128000
 
     def test_translation_request_omits_unconfigured_reasoning_effort(
@@ -121,7 +118,6 @@ class TestTranslationRequestTokenIntegration:
         api_manager._providers._clients[APIProvider.OPENAI] = mock_client
         mock_config_service.get_setting.side_effect = lambda key: {
             "api_provider": "openai",
-            "llm_temperature_translation": 1.0,
             "openai_reasoning_effort": "not_set",
         }.get(key)
 
@@ -144,7 +140,6 @@ class TestTranslationRequestTokenIntegration:
         api_manager._providers._clients[APIProvider.OPENAI] = mock_client
         mock_config_service.get_setting.side_effect = lambda key: {
             "api_provider": "openai",
-            "llm_temperature_translation": 1.0,
             "openai_reasoning_effort": "high",
         }.get(key)
 
@@ -171,7 +166,6 @@ class TestTranslationRequestTokenIntegration:
         api_manager._providers._clients[APIProvider.OPENAI] = mock_client
         mock_config_service.get_setting.side_effect = lambda key: {
             "api_provider": "openai",
-            "llm_temperature_translation": 1.0,
             "api_timeout": 30,
         }.get(key)
         
@@ -244,36 +238,3 @@ class TestAPIManagerHelperMethods:
         assert params["messages"]
         assert params["target_lang"] == "EN"
         assert "source_lang" not in params
-
-    def test_build_llm_params_uses_config_temperature(self, api_manager, mock_config_service):
-        """Test that LLM request params read temperature from configuration when not overridden."""
-        mock_config_service.get_setting.side_effect = lambda key: {
-            "llm_temperature_translation": "1.5",
-        }.get(key)
-
-        params = api_manager._request_builder.build_llm_params(
-            model="gemini-3-flash",
-            messages=[{"role": "user", "content": "Hi"}],
-            temperature=None,
-            temperature_setting_key="llm_temperature_translation",
-            temperature_default=1.0,
-            log_label="Translation",
-        )
-
-        assert params["temperature"] == 1.5
-        assert isinstance(params["max_completion_tokens"], int)
-
-    def test_build_llm_params_uses_override_temperature(self, api_manager, mock_config_service):
-        """Test that an explicit temperature override bypasses configuration lookup."""
-        params = api_manager._request_builder.build_llm_params(
-            model="gemini-3-flash",
-            messages=[{"role": "user", "content": "Hi"}],
-            temperature=0.35,
-            temperature_setting_key="llm_temperature_translation",
-            temperature_default=1.0,
-            log_label="Translation",
-        )
-
-        mock_config_service.get_setting.assert_not_called()
-        assert params["temperature"] == 0.35
-        assert isinstance(params["max_completion_tokens"], int)

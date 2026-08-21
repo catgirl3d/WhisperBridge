@@ -40,8 +40,7 @@ class TestOpenAITextRequests:
 
         response = fake_openai_client.chat.completions.create(
             model="gpt-5.4-mini",
-            messages=messages,
-            temperature=0.7
+            messages=messages
         )
 
         assert response.choices[0].message.content == "Hello from OpenAI"
@@ -50,7 +49,7 @@ class TestOpenAITextRequests:
         args, kwargs = mock_create.call_args
         assert kwargs["model"] == "gpt-5.4-mini"
         assert kwargs["messages"] == messages
-        assert kwargs["temperature"] == 0.7
+        assert "temperature" not in kwargs
 
     @pytest.mark.parametrize("model", [
         "gpt-5.4",
@@ -115,31 +114,6 @@ class TestOpenAITextRequests:
         assert mock_create.called
         kwargs = mock_create.call_args.kwargs
         assert kwargs["messages"] == messages
-
-    def test_temperature_extremes(self, mocker, fake_openai_client, mock_completion_response):
-        """Test temperature edge cases (0.0 and 2.0)."""
-        messages = [{"role": "user", "content": "Test"}]
-        mock_create = mocker.patch.object(
-            fake_openai_client._client.chat.completions, "create", return_value=mock_completion_response
-        )
-
-        # Test with temperature=0.0 (deterministic)
-        fake_openai_client.chat.completions.create(
-            model="gpt-5.4-mini",
-            messages=messages,
-            temperature=0.0
-        )
-        kwargs = mock_create.call_args.kwargs
-        assert kwargs["temperature"] == 0.0
-
-        # Test with temperature=2.0 (maximum creativity)
-        fake_openai_client.chat.completions.create(
-            model="gpt-5.4-mini",
-            messages=messages,
-            temperature=2.0
-        )
-        kwargs = mock_create.call_args.kwargs
-        assert kwargs["temperature"] == 2.0
 
     def test_model_variations(self, mocker, fake_openai_client, mock_completion_response):
         """Test different model name handling."""

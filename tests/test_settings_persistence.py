@@ -27,6 +27,37 @@ def test_settings_manager_save_single_setting_persists_canonical_value(tmp_path,
     assert manager.get_settings().translator_font_size == 32
 
 
+def test_legacy_temperature_settings_are_ignored_without_becoming_settings():
+    settings = Settings.model_validate({
+        "llm_temperature_translation": 0.2,
+        "llm_temperature_vision": 0.0,
+        "llm_temperature_stylist": 1.5,
+    })
+
+    assert not hasattr(settings, "llm_temperature_translation")
+    assert not hasattr(settings, "llm_temperature_vision")
+    assert not hasattr(settings, "llm_temperature_stylist")
+
+
+def test_settings_manager_loads_legacy_temperature_keys(tmp_path, mocker):
+    manager = SettingsManager()
+    settings_file = tmp_path / "settings.json"
+    settings_file.write_text(json.dumps({
+        "llm_temperature_translation": 0.2,
+        "llm_temperature_vision": 0.0,
+        "llm_temperature_stylist": 1.5,
+    }), encoding="utf-8")
+    mocker.patch.object(manager, "_get_settings_file", return_value=settings_file)
+    mocker.patch.object(manager, "_load_key", return_value=None)
+
+    settings = manager.load_settings()
+
+    assert isinstance(settings, Settings)
+    assert not hasattr(settings, "llm_temperature_translation")
+    assert not hasattr(settings, "llm_temperature_vision")
+    assert not hasattr(settings, "llm_temperature_stylist")
+
+
 def test_config_service_set_setting_uses_validated_value_for_cache_and_observers(tmp_path, mocker):
     """ConfigService should expose the canonical saved value to cache and observers."""
     manager = SettingsManager()
