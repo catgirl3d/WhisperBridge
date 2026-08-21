@@ -136,9 +136,7 @@ class TestInitialization:
         assert api_manager.is_initialized() is True
         assert api_manager.has_clients() is True
         
-        # Check if usage was cleared.
-        if APIProvider.OPENAI in api_manager._usage:
-            assert api_manager._usage[APIProvider.OPENAI].requests_count == 0
+        assert api_manager._usage == {}
 
 
 class TestMakeRequestSync:
