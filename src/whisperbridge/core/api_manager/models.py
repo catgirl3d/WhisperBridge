@@ -236,7 +236,11 @@ class ModelManager:
                     logger.debug(f"Using cached models for {provider.value}")
                     # Apply global filters to cached data to ensure any newly added exclusions take effect
                     filtered_models = self._filter_models_for_selection(provider, models)
-                    return filtered_models, ModelSource.CACHE.value
+                    if filtered_models:
+                        return filtered_models, ModelSource.CACHE.value
+                    logger.info(
+                        f"Cached models for {provider.value} became invalid after filtering; forcing fresh fetch."
+                    )
                 else:
                     logger.debug(f"Cache for {provider.value} is empty, forcing fresh fetch.")
 

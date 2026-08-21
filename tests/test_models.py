@@ -63,6 +63,23 @@ class TestGetAvailableModels:
         assert source == ModelSource.CACHE.value
         mock_cache.get.assert_called_once_with("openai")
 
+    def test_get_available_models_refreshes_fully_filtered_cache(
+        self, model_manager, mock_cache, mock_provider_registry, mocker
+    ):
+        """A cache invalidated by current filters must fall through to the API."""
+        mocker.patch.object(mock_cache, "get", return_value=(["gpt-5.3"], 1234567890.0))
+        mocker.patch.object(mock_cache, "cache_models_and_persist")
+        mock_provider_registry.is_provider_available.return_value = True
+        mock_client = mocker.Mock()
+        mock_client.models.list.return_value.data = [mocker.Mock(id="gpt-5.4-mini")]
+        mock_provider_registry.get_client.return_value = mock_client
+
+        result_models, source = model_manager.get_available_models(APIProvider.OPENAI)
+
+        assert result_models == ["gpt-5.4-mini"]
+        assert source == ModelSource.API.value
+        mock_client.models.list.assert_called_once_with()
+
     def test_get_available_models_from_api(self, model_manager, mock_cache, mock_provider_registry, mocker):
         """OpenAI API results retain only current models and cache those results."""
         mocker.patch.object(mock_cache, "get", return_value=None)
