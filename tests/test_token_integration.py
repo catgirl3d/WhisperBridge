@@ -2,7 +2,6 @@
 import pytest
 
 from whisperbridge.core.api_manager import APIManager, APIProvider
-from whisperbridge.core.config import get_deepl_identifier
 from whisperbridge.services.config_service import ConfigService
 
 
@@ -218,8 +217,16 @@ class TestAPIManagerHelperMethods:
 
     def test_resolve_model_deepl_fallback(self, api_manager, mocker):
         """Test that DeepL model resolution falls back to the configured pseudo-model."""
+        sentinel = "deepl-test-sentinel"
+        get_deepl_identifier = mocker.patch(
+            "whisperbridge.core.api_manager.manager.get_deepl_identifier",
+            return_value=sentinel,
+        )
+
         model = api_manager._resolve_model(None, APIProvider.DEEPL, missing_message="missing")
-        assert model == get_deepl_identifier()
+
+        assert model == sentinel
+        get_deepl_identifier.assert_called_once_with()
 
     def test_resolve_model_llm_missing_raises(self, api_manager):
         """Test that LLM model resolution raises when model selection is empty."""

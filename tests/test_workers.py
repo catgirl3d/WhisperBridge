@@ -8,6 +8,8 @@ from unittest.mock import Mock
 
 from whisperbridge.ui_qt.workers import ApiTestWorker
 from whisperbridge.services.config_workers import SettingsSaveWorker
+from whisperbridge.core.api_manager import APIProvider
+from whisperbridge.core.config import Settings
 
 # If run directly, execute pytest with very verbose output and no coverage
 if __name__ == "__main__":
@@ -28,6 +30,10 @@ class TestWorkers:
         with qtbot.waitSignal(worker.finished) as blocker:
             worker.run()
         assert blocker.args == [True, '', ['gpt-5.4-mini'], 'mock']
+        mock_api.get_available_models_sync.assert_called_once_with(
+            provider=APIProvider.OPENAI, temp_api_key='sk-test'
+        )
+        mock_api.initialize.assert_not_called()
 
     def test_api_test_worker_error(self, qtbot, mocker):
         """Test ApiTestWorker emits error on failure."""
@@ -41,6 +47,10 @@ class TestWorkers:
         with qtbot.waitSignal(worker.error) as blocker:
             worker.run()
         assert blocker.args == ['API error or invalid key']
+        mock_api.get_available_models_sync.assert_called_once_with(
+            provider=APIProvider.OPENAI, temp_api_key='sk-test'
+        )
+        mock_api.initialize.assert_not_called()
 
 
     def test_settings_save_worker_success(self, qtbot, mocker):
@@ -48,17 +58,21 @@ class TestWorkers:
         mock_sm = mocker.patch('whisperbridge.services.config_workers.settings_manager')
         mock_sm.save_settings.return_value = True
 
-        worker = SettingsSaveWorker(Mock())
+        settings = Settings()
+        worker = SettingsSaveWorker(settings)
         with qtbot.waitSignal(worker.finished) as blocker:
             worker.run()
         assert blocker.args == [True, "Settings saved successfully."]
+        mock_sm.save_settings.assert_called_once_with(settings)
 
     def test_settings_save_worker_error(self, qtbot, mocker):
         """Test SettingsSaveWorker emits error on failure."""
         mock_sm = mocker.patch('whisperbridge.services.config_workers.settings_manager')
         mock_sm.save_settings.return_value = False
 
-        worker = SettingsSaveWorker(Mock())
+        settings = Settings()
+        worker = SettingsSaveWorker(settings)
         with qtbot.waitSignal(worker.error) as blocker:
             worker.run()
         assert blocker.args == ["Failed to save settings."]
+        mock_sm.save_settings.assert_called_once_with(settings)

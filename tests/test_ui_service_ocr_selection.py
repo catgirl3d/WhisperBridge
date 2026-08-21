@@ -151,6 +151,16 @@ def test_on_selection_completed_uses_frozen_crop_before_live_capture(mocker):
 
     live_capture_mock.assert_not_called()
     capture_service.crop_captured_image.assert_called_once()
+    crop_kwargs = capture_service.crop_captured_image.call_args.kwargs
+    assert crop_kwargs["captured_image"] is frozen_image
+    assert crop_kwargs["captured_rectangle"] is frozen_rect
+    target_rectangle = crop_kwargs["target_rectangle"]
+    assert (target_rectangle.x, target_rectangle.y, target_rectangle.width, target_rectangle.height) == (
+        10,
+        20,
+        120,
+        50,
+    )
     start_worker_mock.assert_called_once_with(image=fake_image)
     assert ui._frozen_capture_image is None
     assert ui._frozen_capture_rect is None

@@ -43,6 +43,7 @@ def test_settings_manager_loads_legacy_temperature_keys(tmp_path, mocker):
     manager = SettingsManager()
     settings_file = tmp_path / "settings.json"
     settings_file.write_text(json.dumps({
+        "translator_font_size": 17,
         "llm_temperature_translation": 0.2,
         "llm_temperature_vision": 0.0,
         "llm_temperature_stylist": 1.5,
@@ -53,6 +54,7 @@ def test_settings_manager_loads_legacy_temperature_keys(tmp_path, mocker):
     settings = manager.load_settings()
 
     assert isinstance(settings, Settings)
+    assert settings.translator_font_size == 17
     assert not hasattr(settings, "llm_temperature_translation")
     assert not hasattr(settings, "llm_temperature_vision")
     assert not hasattr(settings, "llm_temperature_stylist")
@@ -83,6 +85,7 @@ def test_config_service_set_setting_uses_validated_value_for_cache_and_observers
 def test_config_service_update_settings_returns_false_on_save_failure(mocker):
     """update_settings should propagate save failures instead of reporting success."""
     config = ConfigService()
+    config._settings = Settings()
     mock_save_settings = mocker.patch.object(
         config,
         "save_settings",
@@ -97,3 +100,8 @@ def test_config_service_update_settings_returns_false_on_save_failure(mocker):
 
     assert not result
     mock_save_settings.assert_called_once()
+    saved_settings = mock_save_settings.call_args.args[0]
+    assert isinstance(saved_settings, Settings)
+    assert saved_settings.ui_source_language == "en"
+    assert saved_settings.ui_target_mode == "explicit"
+    assert saved_settings.ui_target_language == "ru"

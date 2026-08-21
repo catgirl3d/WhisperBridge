@@ -10,7 +10,7 @@ This module tests singleton functionality including:
 """
 
 import threading
-import sys
+import time
 
 import pytest
 
@@ -23,20 +23,17 @@ def reset_singleton(mocker):
     """Fixture to reset the singleton state before and after each test."""
     # Store original state
     orig_api_manager = api_manager_mod._api_manager
-    orig_manager_lock = api_manager_mod._manager_lock
     
     # Mock config_service dependency
     mocker.patch("whisperbridge.services.config_service.config_service", mocker.Mock())
     
     # Reset
     api_manager_mod._api_manager = None
-    api_manager_mod._manager_lock = None
     
     yield
     
     # Restore
     api_manager_mod._api_manager = orig_api_manager
-    api_manager_mod._manager_lock = orig_manager_lock
 
 
 class TestGetAPIManager:
@@ -48,8 +45,8 @@ class TestGetAPIManager:
         manager = get_api_manager()
 
         # Assert
-        assert manager is not None
-        assert api_manager_mod._api_manager is not None
+        assert isinstance(manager, api_manager_mod.APIManager)
+        assert api_manager_mod._api_manager is manager
 
     def test_get_api_manager_returns_same_instance(self, reset_singleton):
         """Test that repeated calls return same instance."""
@@ -76,33 +73,43 @@ class TestInitAPIManager:
         assert manager.is_initialized() is True
         assert api_manager_mod._api_manager is manager
 
-    def test_init_api_manager_thread_safety(self, reset_singleton):
-        """Test thread-safe creation of singleton."""
+    def test_get_api_manager_thread_safety(self, reset_singleton, mocker):
+        """Concurrent callers create exactly one shared singleton instance."""
         instances = []
         errors = []
+        factory_lock = threading.Lock()
+        factory_calls = 0
+
+        def slow_factory(config):
+            nonlocal factory_calls
+            with factory_lock:
+                factory_calls += 1
+            time.sleep(0.01)
+            return object()
+
+        mocker.patch.object(api_manager_mod, "APIManager", side_effect=slow_factory)
+        barrier = threading.Barrier(10)
 
         def get_manager():
             try:
+                barrier.wait()
                 manager = get_api_manager()
                 instances.append(manager)
             except Exception as e:
                 errors.append(e)
 
-        # Act - create multiple threads
-        threads = []
-        for _ in range(10):
-            t = threading.Thread(target=get_manager)
-            threads.append(t)
-            t.start()
+        threads = [threading.Thread(target=get_manager) for _ in range(10)]
+        for thread in threads:
+            thread.start()
 
         for t in threads:
             t.join()
 
         # Assert
         assert len(errors) == 0, f"Thread safety errors: {errors}"
-        # All instances should be same
         assert len(instances) == 10
         assert all(inst is instances[0] for inst in instances)
+        assert factory_calls == 1
 
     def test_init_api_manager_raises_on_failure(self, reset_singleton, mocker):
         """Test that RuntimeError is raised when initialization fails."""

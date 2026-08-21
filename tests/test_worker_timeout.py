@@ -11,7 +11,7 @@ from unittest.mock import Mock, AsyncMock
 
 # Import dependencies
 try:
-    from PySide6.QtCore import QTimer, QThread, Qt, Signal
+    from PySide6.QtCore import QMetaObject, QTimer, QThread, Qt, Signal, Slot
     from PySide6.QtWidgets import QApplication
     from PySide6.QtTest import QSignalSpy
     from whisperbridge.ui_qt.workers import (
@@ -28,6 +28,35 @@ except ImportError:
     QSignalSpy = None
     CaptureOcrTranslateWorker = None
     ApiTestWorker = None
+
+
+if BaseAsyncWorker is not None:
+    class ManualCompletionWorker(BaseAsyncWorker):
+        """Test-only worker for setup and cleanup without translation execution."""
+
+        def __init__(self, result="result", error_message="Some error"):
+            super().__init__()
+            self.result = result
+            self.error_message = error_message
+
+        def run(self):
+            pass
+
+        @Slot()
+        def complete_success(self):
+            self.finished.emit(True, self.result)
+
+        @Slot()
+        def complete_error(self):
+            self.error.emit(self.error_message)
+
+        @Slot()
+        def complete_both(self):
+            self.finished.emit(True, self.result)
+            self.error.emit(self.error_message)
+else:
+    ManualCompletionWorker = None
+
 
 # --- Non-Qt Tests (Unit Tests) ---
 
@@ -260,51 +289,38 @@ class TestQtIntegration:
     # --- Worker Thread Lifecycle Tests ---
 
     def test_worker_thread_lifecycle(self, qtbot, overlay):
-        """Verify the worker thread starts and stops with the worker."""
-        worker, thread = overlay._setup_worker(TranslationWorker, "test", "en", "ru")
+        """Verify a manually completed worker thread starts and stops."""
+        worker, thread = overlay._setup_worker(ManualCompletionWorker)
         
         # Verify thread is running
         assert thread.isRunning()
         
         # Cleanup
         with qtbot.waitSignal(thread.finished, timeout=1000):
-            worker.finished.emit(True, "")
+            assert QMetaObject.invokeMethod(worker, "complete_success", Qt.QueuedConnection)
         
         # Verify thread stopped
         assert not thread.isRunning()
 
     def test_watchdog_cleanup_on_success(self, qtbot, overlay):
-        """Verify watchdog cleans up when worker finishes successfully."""
-        worker, thread = overlay._setup_worker(TranslationWorker, "test", "en", "ru")
-        
-        # Count timers before
+        """Verify watchdog cleanup after a manual successful completion."""
         timers_before = len(overlay.findChildren(QTimer))
+        worker, thread = overlay._setup_worker(ManualCompletionWorker, "Translated text")
         
         with qtbot.waitSignal(thread.finished, timeout=1000):
-            worker.finished.emit(True, "Translated text")
+            assert QMetaObject.invokeMethod(worker, "complete_success", Qt.QueuedConnection)
         
-        # Wait for deleteLater to process
-        qtbot.wait(200)
-        QApplication.processEvents()
-        
-        # Count timers after - should not have leaked
-        timers_after = len(overlay.findChildren(QTimer))
-        assert timers_after <= timers_before
+        qtbot.waitUntil(lambda: len(overlay.findChildren(QTimer)) == timers_before, timeout=1000)
 
     def test_watchdog_cleanup_on_error(self, qtbot, overlay):
-        """Verify watchdog cleans up when worker fails."""
-        worker, thread = overlay._setup_worker(TranslationWorker, "test", "en", "ru")
-        
+        """Verify watchdog cleanup after a manual worker error."""
         timers_before = len(overlay.findChildren(QTimer))
+        worker, thread = overlay._setup_worker(ManualCompletionWorker, "result", "Some error")
         
         with qtbot.waitSignal(thread.finished, timeout=1000):
-            worker.error.emit("Some error")
-        
-        qtbot.wait(200)
-        QApplication.processEvents()
-        
-        timers_after = len(overlay.findChildren(QTimer))
-        assert timers_after <= timers_before
+            assert QMetaObject.invokeMethod(worker, "complete_error", Qt.QueuedConnection)
+
+        qtbot.waitUntil(lambda: len(overlay.findChildren(QTimer)) == timers_before, timeout=1000)
 
     def test_second_click_cancels_active_request(self, qtbot, overlay, mocker):
         """Second click should cancel the active request and restore button state."""
@@ -407,7 +423,7 @@ class TestQtIntegration:
         
         # Patch QTimer.start to capture the timeout value
         mock_start = mocker.patch('whisperbridge.ui_qt.overlay_window.QTimer.start')
-        worker, thread = overlay._setup_worker(TranslationWorker, "test", "en", "ru")
+        worker, thread = overlay._setup_worker(ManualCompletionWorker)
         
         # Verify QTimer.start was called with expected timeout (in ms)
         assert mock_start.called
@@ -418,7 +434,7 @@ class TestQtIntegration:
         
         # Cleanup
         with qtbot.waitSignal(thread.finished, timeout=1000):
-            worker.finished.emit(True, "")
+            assert QMetaObject.invokeMethod(worker, "complete_success", Qt.QueuedConnection)
 
     # --- Signal Emission Order Tests ---
 
@@ -453,22 +469,16 @@ class TestQtIntegration:
         assert finished_spy.count() == 0
 
     def test_signal_disconnection_after_cleanup(self, qtbot, overlay):
-        """Verify cleanup happens correctly and worker is deleted."""
-        worker, thread = overlay._setup_worker(TranslationWorker, "test", "en", "ru")
-        
+        """Verify signal-driven cleanup happens correctly."""
         # Count timers before
         timers_before = len(overlay.findChildren(QTimer))
+        worker, thread = overlay._setup_worker(ManualCompletionWorker)
         
         # Trigger cleanup
         with qtbot.waitSignal(thread.finished, timeout=1000):
-            worker.finished.emit(True, "result")
+            assert QMetaObject.invokeMethod(worker, "complete_success", Qt.QueuedConnection)
         
-        qtbot.wait(200)
-        QApplication.processEvents()
-        
-        # Verify cleanup happened - timers should not leak
-        timers_after = len(overlay.findChildren(QTimer))
-        assert timers_after <= timers_before
+        qtbot.waitUntil(lambda: len(overlay.findChildren(QTimer)) == timers_before, timeout=1000)
         
         # Thread may be deleted by now, so just verify test completed without crash
         # The fact we got here means cleanup worked
@@ -487,6 +497,9 @@ class TestQtIntegration:
         assert finished_spy.count() == 1
         assert finished_spy.at(0)[0] is True
         assert finished_spy.at(0)[1] == "Hola"
+        mock_service.translate_text_async.assert_awaited_once_with(
+            "Hello", ui_source_lang="en", ui_target_lang="es"
+        )
 
     def test_style_worker_integration(self, qtbot, mocker):
         """Integration test for StyleWorker."""
@@ -577,42 +590,35 @@ class TestQtIntegration:
     # --- Race Condition Scenarios ---
 
     def test_concurrent_cleanup_calls(self, qtbot, overlay):
-        """Verify multiple cleanup calls don't cause crash (idempotency)."""
-        worker, thread = overlay._setup_worker(TranslationWorker, "test", "en", "ru")
+        """Verify concurrent completion signals are cleanup-idempotent."""
+        worker, thread = overlay._setup_worker(ManualCompletionWorker, "result", "Fail")
         
         # Emit both finished and error signals (simulating race)
         # This should not crash
         with qtbot.waitSignal(thread.finished, timeout=1000):
-            worker.finished.emit(True, "Res")
-            worker.error.emit("Fail")
+            assert QMetaObject.invokeMethod(worker, "complete_both", Qt.QueuedConnection)
         
         # Verify thread stopped cleanly
         assert not thread.isRunning()
 
     def test_cleanup_before_thread_start(self, qtbot, overlay):
-        """Verify cleanup works even if signals fire rapidly after setup."""
-        worker, thread = overlay._setup_worker(TranslationWorker, "test", "en", "ru")
-        
+        """Verify cleanup works when signals fire immediately after setup."""
         timers_before = len(overlay.findChildren(QTimer))
+        worker, thread = overlay._setup_worker(ManualCompletionWorker, "result", "Immediate Fail")
         
         # Emit error immediately (before thread really starts)
         with qtbot.waitSignal(thread.finished, timeout=1000):
-            worker.error.emit("Immediate Fail")
+            assert QMetaObject.invokeMethod(worker, "complete_error", Qt.QueuedConnection)
         
-        qtbot.wait(200)
-        QApplication.processEvents()
-        
-        # Verify cleanup happened
-        timers_after = len(overlay.findChildren(QTimer))
-        assert timers_after <= timers_before
+        qtbot.waitUntil(lambda: len(overlay.findChildren(QTimer)) == timers_before, timeout=1000)
 
     def test_late_signal_after_cleanup_no_crash(self, qtbot, overlay):
-        """Verify late signals after cleanup are handled gracefully."""
-        worker, thread = overlay._setup_worker(TranslationWorker, "test", "en", "ru")
+        """Verify late lifecycle signals after cleanup do not crash."""
+        worker, thread = overlay._setup_worker(ManualCompletionWorker)
         
         # Trigger cleanup
         with qtbot.waitSignal(thread.finished, timeout=1000):
-            worker.finished.emit(True, "result")
+            assert QMetaObject.invokeMethod(worker, "complete_success", Qt.QueuedConnection)
         
         qtbot.wait(200)
         
@@ -642,11 +648,11 @@ class TestQtIntegration:
         mock_config_service[0] = 0.5
         
         # Create a worker that might complete right as watchdog fires
-        worker, thread = overlay._setup_worker(TranslationWorker, "test", "en", "ru")
+        worker, thread = overlay._setup_worker(ManualCompletionWorker)
         
         # Simulate completion happening
         with qtbot.waitSignal(thread.finished, timeout=1000):
-            worker.finished.emit(True, "result")
+            assert QMetaObject.invokeMethod(worker, "complete_success", Qt.QueuedConnection)
         
         # Verify thread stopped cleanly
         assert not thread.isRunning()
@@ -655,82 +661,58 @@ class TestQtIntegration:
 
     # --- Memory Leak Tests ---
 
-    def test_no_qtimer_leak(self, qtbot, overlay):
-        """Verify QTimer objects are properly cleaned up after multiple tasks."""
-        initial_timers = len(overlay.findChildren(QTimer))
-        
-        # Run 10 short tasks
-        for i in range(10):
-            worker, thread = overlay._setup_worker(TranslationWorker, f"test{i}", "en", "ru")
-            worker.finished.emit(True, f"result{i}")
-            qtbot.wait(100)  # Allow deleteLater() to process
-        
-        # Force Qt event loop to process deleteLater
-        QApplication.processEvents()
-        qtbot.wait(500)
-        
-        final_timers = len(overlay.findChildren(QTimer))
-        
-        # Should not have leaked timers (allow small slack for system timers)
-        assert final_timers - initial_timers < 3, \
-            f"QTimer leak detected: {final_timers - initial_timers} leaked timers"
-
     def test_no_worker_leak(self, qtbot, overlay):
-        """Verify worker objects are properly cleaned up."""
-        initial_workers = len(overlay.findChildren(BaseAsyncWorker))
-        
-        # Run 10 tasks
+        """Verify each manually completed worker is destroyed after cleanup."""
+        workers_and_threads = []
+        destroyed_spies = []
+
         for i in range(10):
-            worker, thread = overlay._setup_worker(TranslationWorker, f"test{i}", "en", "ru")
-            worker.finished.emit(True, f"result{i}")
-            qtbot.wait(100)
-        
-        QApplication.processEvents()
-        qtbot.wait(500)
-        
-        final_workers = len(overlay.findChildren(BaseAsyncWorker))
-        
-        # Workers should be deleted
-        assert final_workers - initial_workers < 3, \
-            f"Worker leak detected: {final_workers - initial_workers} leaked workers"
+            worker, thread = overlay._setup_worker(ManualCompletionWorker)
+            workers_and_threads.append((worker, thread))
+            destroyed_spy = QSignalSpy(worker.destroyed)
+            destroyed_spies.append(destroyed_spy)
+            with qtbot.waitSignal(thread.finished, timeout=1000):
+                assert QMetaObject.invokeMethod(worker, "complete_success", Qt.QueuedConnection)
+            qtbot.waitUntil(lambda: destroyed_spy.count() == 1, timeout=1000)
+
+        assert all(spy.count() == 1 for spy in destroyed_spies)
 
     def test_no_thread_leak(self, qtbot, overlay):
-        """Verify thread objects are properly cleaned up."""
-        initial_threads = len(overlay.findChildren(QThread))
-        
-        # Run 10 tasks
+        """Verify each created thread is naturally destroyed after completion."""
+        threads_and_spies = []
+
         for i in range(10):
-            worker, thread = overlay._setup_worker(TranslationWorker, f"test{i}", "en", "ru")
-            worker.finished.emit(True, f"result{i}")
-            qtbot.wait(100)
-        
-        QApplication.processEvents()
-        qtbot.wait(500)
-        
-        final_threads = len(overlay.findChildren(QThread))
-        
-        # Threads should be deleted
-        assert final_threads - initial_threads < 3, \
-            f"Thread leak detected: {final_threads - initial_threads} leaked threads"
+            worker, thread = overlay._setup_worker(ManualCompletionWorker)
+            destroyed_spy = QSignalSpy(thread.destroyed)
+            threads_and_spies.append(destroyed_spy)
+            with qtbot.waitSignal(thread.finished, timeout=1000):
+                assert QMetaObject.invokeMethod(worker, "complete_success", Qt.QueuedConnection)
+            qtbot.waitUntil(lambda: destroyed_spy.count() == 1, timeout=1000)
+
+        assert all(spy.count() == 1 for spy in threads_and_spies)
 
     # --- Stress Tests ---
 
-    def test_rapid_fire_requests(self, qtbot, overlay, mocker):
-        """Test that five rapid requests emit their results and clean up."""
-        mocker.patch.object(TranslationWorker, "run", autospec=True, return_value=None)
+    def test_rapid_fire_requests(self, qtbot, overlay):
+        """Test that five rapid manual completions emit results and clean up."""
         workers_and_threads = []
         finished_spies = []
         error_spies = []
 
         for i in range(5):
-            worker, thread = overlay._setup_worker(TranslationWorker, f"test{i}", "en", "ru")
+            worker, thread = overlay._setup_worker(ManualCompletionWorker, f"result{i}")
             workers_and_threads.append((worker, thread))
             finished_spies.append(QSignalSpy(worker.finished))
             error_spies.append(QSignalSpy(worker.error))
+            thread_spy = QSignalSpy(thread.finished)
+            workers_and_threads[-1] = (worker, thread, thread_spy)
 
-        for i, (worker, thread) in enumerate(workers_and_threads):
+        qtbot.waitUntil(lambda: all(thread.isRunning() for _, thread, _ in workers_and_threads), timeout=1000)
+        qtbot.wait(50)
+        for worker, thread, thread_spy in workers_and_threads:
             with qtbot.waitSignal(thread.finished, timeout=1000):
-                worker.finished.emit(True, f"result{i}")
+                assert QMetaObject.invokeMethod(worker, "complete_success", Qt.QueuedConnection)
+            assert thread_spy.count() == 1
 
         assert [
             (spy.at(0)[0], spy.at(0)[1]) for spy in finished_spies
@@ -739,43 +721,38 @@ class TestQtIntegration:
         assert [spy.count() for spy in finished_spies] == [1] * 5
 
     def test_many_workers_sequential(self, qtbot, overlay):
-        """Test that many sequential operations don't cause memory issues."""
+        """Test that many sequential lifecycle operations stay clean."""
         initial_timers = len(overlay.findChildren(QTimer))
+        workers_and_threads = []
         
         # Run 20 sequential operations
         for i in range(20):
-            worker, thread = overlay._setup_worker(TranslationWorker, f"test{i}", "en", "ru")
-            
+            worker, thread = overlay._setup_worker(ManualCompletionWorker, f"result{i}")
+            workers_and_threads.append((worker, thread))
             with qtbot.waitSignal(thread.finished, timeout=1000):
-                worker.finished.emit(True, f"result{i}")
-            
-            qtbot.wait(50)
-        
-        QApplication.processEvents()
-        qtbot.wait(500)
-        
-        final_timers = len(overlay.findChildren(QTimer))
-        
-        # Should not have significant memory leak
-        assert final_timers - initial_timers < 5, \
-            f"Memory leak detected after 20 operations: {final_timers - initial_timers} leaked objects"
+                assert QMetaObject.invokeMethod(worker, "complete_success", Qt.QueuedConnection)
 
-    def test_multiple_workers_concurrent(self, qtbot, overlay, mocker):
-        """Test that three concurrent workers emit results and finish cleanly."""
-        mocker.patch.object(TranslationWorker, "run", autospec=True, return_value=None)
+        qtbot.waitUntil(lambda: len(overlay.findChildren(QTimer)) == initial_timers, timeout=1000)
+
+    def test_multiple_workers_concurrent(self, qtbot, overlay):
+        """Test that three concurrent manual workers finish cleanly."""
         workers_and_threads = []
         finished_spies = []
         error_spies = []
 
         for i in range(3):
-            worker, thread = overlay._setup_worker(TranslationWorker, f"test{i}", "en", "ru")
+            worker, thread = overlay._setup_worker(ManualCompletionWorker, f"result{i}")
             workers_and_threads.append((worker, thread))
             finished_spies.append(QSignalSpy(worker.finished))
             error_spies.append(QSignalSpy(worker.error))
+            workers_and_threads[-1] = (worker, thread, QSignalSpy(thread.finished))
 
-        for i, (worker, thread) in enumerate(workers_and_threads):
+        qtbot.waitUntil(lambda: all(thread.isRunning() for _, thread, _ in workers_and_threads), timeout=1000)
+        qtbot.wait(50)
+        for worker, thread, thread_spy in workers_and_threads:
             with qtbot.waitSignal(thread.finished, timeout=1000):
-                worker.finished.emit(True, f"result{i}")
+                assert QMetaObject.invokeMethod(worker, "complete_success", Qt.QueuedConnection)
+            assert thread_spy.count() == 1
 
         assert [
             (spy.at(0)[0], spy.at(0)[1]) for spy in finished_spies
@@ -1193,9 +1170,9 @@ class TestErrorRecovery:
     def test_worker_recovery_after_exception(self, qtbot, overlay):
         """Test that a new worker can be created after previous one raised exception."""
         # First worker raises exception
-        worker1, thread1 = overlay._setup_worker(TranslationWorker, "test1", "en", "ru")
-        worker1.error.emit("Some error")
-        qtbot.wait(200)
+        worker1, thread1 = overlay._setup_worker(ManualCompletionWorker, "result", "Some error")
+        with qtbot.waitSignal(thread1.finished, timeout=1000):
+            assert QMetaObject.invokeMethod(worker1, "complete_error", Qt.QueuedConnection)
         
         # First thread may be deleted by Qt's deleteLater, so handle gracefully
         try:
@@ -1206,12 +1183,12 @@ class TestErrorRecovery:
             pass
         
         # Second worker should work normally
-        worker2, thread2 = overlay._setup_worker(TranslationWorker, "test2", "en", "ru")
+        worker2, thread2 = overlay._setup_worker(ManualCompletionWorker)
         assert thread2.isRunning()
         
         # Complete second worker
         with qtbot.waitSignal(thread2.finished, timeout=1000):
-            worker2.finished.emit(True, "result")
+            assert QMetaObject.invokeMethod(worker2, "complete_success", Qt.QueuedConnection)
         
         # Second thread may also be deleted, handle gracefully
         try:
@@ -1225,9 +1202,11 @@ class TestErrorRecovery:
         """Test that multiple consecutive worker failures don't break the system."""
         # Run 5 workers that all fail
         for i in range(5):
-            worker, thread = overlay._setup_worker(TranslationWorker, f"test{i}", "en", "ru")
-            worker.error.emit(f"Error {i}")
-            qtbot.wait(100)
+            worker, thread = overlay._setup_worker(
+                ManualCompletionWorker, "result", f"Error {i}"
+            )
+            with qtbot.waitSignal(thread.finished, timeout=1000):
+                assert QMetaObject.invokeMethod(worker, "complete_error", Qt.QueuedConnection)
             
             # Thread may be deleted by Qt's deleteLater, so handle gracefully
             try:
@@ -1238,12 +1217,12 @@ class TestErrorRecovery:
                 pass
         
         # Now run a successful worker
-        worker_success, thread_success = overlay._setup_worker(TranslationWorker, "success", "en", "ru")
+        worker_success, thread_success = overlay._setup_worker(ManualCompletionWorker)
         assert thread_success.isRunning()
         
         # Complete successfully
         with qtbot.waitSignal(thread_success.finished, timeout=1000):
-            worker_success.finished.emit(True, "success result")
+            assert QMetaObject.invokeMethod(worker_success, "complete_success", Qt.QueuedConnection)
         
         # Thread may be deleted, handle gracefully
         try:

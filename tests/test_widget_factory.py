@@ -11,6 +11,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication, QComboBox, QLineEdit, QListView, QPushButton
 
@@ -56,12 +57,21 @@ def test_create_widget_applies_common_keys(qapp):
 
 
 def test_apply_custom_dropdown_style_sets_list_view(qapp):
-    """apply_custom_dropdown_style should install a QListView as the combo view."""
+    """apply_custom_dropdown_style should configure a frameless translucent popup view."""
     combo = QComboBox()
+    original_view = combo.view()
+
     widget_factory.apply_custom_dropdown_style(combo)
 
     view = combo.view()
     assert isinstance(view, QListView)
+    assert view is not original_view
+
+    window_flags = view.window().windowFlags()
+    assert window_flags & Qt.WindowType.Popup
+    assert window_flags & Qt.WindowType.FramelessWindowHint
+    assert window_flags & Qt.WindowType.NoDropShadowWindowHint
+    assert view.window().testAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
 
 
 def test_settings_factory_creates_reasoning_effort_combo(qapp):
@@ -100,6 +110,8 @@ def test_settings_factory_creates_editable_openai_vision_combo(qapp):
 def test_reasoning_effort_restore_falls_back_to_not_set(qapp):
     """Unknown persisted reasoning values must leave a valid selection."""
     combo = SettingsUIFactory().create_combo("openaiReasoningEffortCombo")
+    combo.setCurrentIndex(combo.findData("high"))
+    assert combo.currentData() == "high"
 
     SettingsDialog._set_reasoning_effort_combo(combo, "removed-option")
 
@@ -121,6 +133,58 @@ def test_vision_model_restore_prefers_unsaved_combo_value(qapp, mocker):
     )
 
     assert dialog._get_openai_vision_model_to_select() == "gpt-5.6-luna"
+
+
+def test_apply_models_to_ui_restores_current_model_or_selects_first(qapp):
+    """The main model selector restores exact and partial matches and defaults otherwise."""
+    dialog = SettingsDialog.__new__(SettingsDialog)
+    dialog.model_combo = QComboBox()
+
+    dialog._apply_models_to_ui(["gpt-5.4-mini", "gpt-4-turbo"], "gpt-4-turbo", "api")
+    assert dialog.model_combo.currentText() == "gpt-4-turbo"
+
+    dialog._apply_models_to_ui(["gpt-4-turbo", "gpt-5.4-mini"], "gpt-4", "api")
+    assert [dialog.model_combo.itemText(i) for i in range(dialog.model_combo.count())] == [
+        "gpt-4-turbo",
+        "gpt-5.4-mini",
+    ]
+    assert dialog.model_combo.currentText() == "gpt-4-turbo"
+
+    dialog._apply_models_to_ui(["gpt-5.4-mini", "gpt-5.6-luna"], "removed-model", "api")
+    assert dialog.model_combo.currentText() == "gpt-5.4-mini"
+
+
+def test_apply_openai_vision_models_to_ui_populates_and_preserves_custom_model(qapp):
+    """The editable OpenAI vision selector keeps a typed model absent from the API list."""
+    dialog = SettingsDialog.__new__(SettingsDialog)
+    dialog.openai_vision_model_combo = SettingsUIFactory().create_combo("openaiVisionModelCombo")
+
+    dialog._apply_openai_vision_models_to_ui(
+        ["gpt-5.4-mini", "gpt-5.6-luna"],
+        "custom-vision-model",
+        "api",
+    )
+
+    assert [dialog.openai_vision_model_combo.itemText(i) for i in range(dialog.openai_vision_model_combo.count())] == [
+        "gpt-5.4-mini",
+        "gpt-5.6-luna",
+    ]
+    assert dialog.openai_vision_model_combo.currentText() == "custom-vision-model"
+
+
+def test_apply_available_models_to_ui_leaves_vision_combo_unchanged_for_non_openai(qapp):
+    """Applying another provider's models must not alter the OpenAI vision selector."""
+    dialog = SettingsDialog.__new__(SettingsDialog)
+    dialog.model_combo = QComboBox()
+    dialog.openai_vision_model_combo = SettingsUIFactory().create_combo("openaiVisionModelCombo")
+    dialog.openai_vision_model_combo.addItems(["gpt-5.4-mini", "custom-vision-model"])
+    dialog.openai_vision_model_combo.setCurrentText("custom-vision-model")
+    before = [dialog.openai_vision_model_combo.itemText(i) for i in range(dialog.openai_vision_model_combo.count())]
+
+    dialog._apply_available_models_to_ui(["gemini-2.5-flash"], None, "api", "google")
+
+    assert [dialog.openai_vision_model_combo.itemText(i) for i in range(dialog.openai_vision_model_combo.count())] == before
+    assert dialog.openai_vision_model_combo.currentText() == "custom-vision-model"
 
 
 def test_apply_available_models_to_ui_applies_openai_vision_models(mocker):
@@ -159,9 +223,10 @@ def test_apply_available_models_to_ui_skips_openai_vision_for_other_providers(mo
 
 
 def test_make_qta_icon_returns_qicon(qapp):
-    """make_qta_icon should return a QIcon (may be null depending on environment)."""
+    """make_qta_icon should return a usable QIcon for a valid qtawesome spec."""
     icon = widget_factory.make_qta_icon({"icon": "fa5s.times", "color": "black"})
     assert isinstance(icon, QIcon)
+    assert not icon.isNull()
 
 
 def test_make_icon_from_spec_asset_returns_qicon(qapp):
@@ -171,3 +236,20 @@ def test_make_icon_from_spec_asset_returns_qicon(qapp):
     assets_base = project_root / "src" / "whisperbridge" / "assets"
     icon = widget_factory.make_icon_from_spec({"asset": "translation-icon.png"}, assets_base)
     assert isinstance(icon, QIcon)
+    assert not icon.isNull()
+
+
+def test_make_icon_from_spec_returns_null_icon_for_invalid_asset(qapp):
+    """Missing image assets use the null-icon fallback."""
+    assets_base = Path(__file__).parent.parent / "src" / "whisperbridge" / "assets"
+
+    icon = widget_factory.make_icon_from_spec({"asset": "does-not-exist.png"}, assets_base)
+
+    assert icon.isNull()
+
+
+def test_make_qta_icon_returns_null_icon_for_invalid_spec(qapp):
+    """Invalid qtawesome specifications use the null-icon fallback."""
+    icon = widget_factory.make_qta_icon({"icon": "not-a-real-qtawesome-icon", "color": "black"})
+
+    assert icon.isNull()

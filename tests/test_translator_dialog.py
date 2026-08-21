@@ -238,7 +238,6 @@ def test_translator_font_size_changed_callback(qapp, mocker):
 
     mocker.patch('whisperbridge.ui_qt.overlay_ui_builder.config_service.get_settings',
                  return_value=mock_settings)
-    mocker.patch('whisperbridge.ui_qt.overlay_ui_builder.config_service.get_setting', return_value=14)
     mock_set_setting = mocker.patch('whisperbridge.ui_qt.overlay_ui_builder.config_service.set_setting')
 
     dialog = TranslatorSettingsDialog()
@@ -260,8 +259,7 @@ def test_translator_font_size_does_not_call_parent_directly(qapp, mocker):
 
     mocker.patch('whisperbridge.ui_qt.overlay_ui_builder.config_service.get_settings',
                  return_value=mock_settings)
-    mocker.patch('whisperbridge.ui_qt.overlay_ui_builder.config_service.get_setting', return_value=14)
-    mocker.patch('whisperbridge.ui_qt.overlay_ui_builder.config_service.set_setting')
+    mock_set_setting = mocker.patch('whisperbridge.ui_qt.overlay_ui_builder.config_service.set_setting')
 
     mock_parent = Mock(spec=['_apply_translator_font_size'])
     mock_parent._apply_translator_font_size = mocker.Mock()
@@ -270,6 +268,7 @@ def test_translator_font_size_does_not_call_parent_directly(qapp, mocker):
     dialog.parent = lambda: mock_parent
     dialog.translator_font_size_spinbox.setValue(19)
 
+    mock_set_setting.assert_called_once_with("translator_font_size", 19)
     mock_parent._apply_translator_font_size.assert_not_called()
     dialog.close()
 
@@ -286,7 +285,6 @@ def test_translator_font_size_rolls_back_when_save_fails(qapp, mocker):
 
     mocker.patch('whisperbridge.ui_qt.overlay_ui_builder.config_service.get_settings',
                  return_value=mock_settings)
-    mocker.patch('whisperbridge.ui_qt.overlay_ui_builder.config_service.get_setting', return_value=14)
     mock_set_setting = mocker.patch(
         'whisperbridge.ui_qt.overlay_ui_builder.config_service.set_setting',
         return_value=False,
@@ -421,7 +419,7 @@ def test_compact_view_triggers_parent_update_layout(qapp, mocker):
     mock_parent = Mock(spec=['_update_layout'])
     mock_parent._update_layout = mocker.Mock()
     
-    mocker.patch('whisperbridge.ui_qt.overlay_ui_builder.config_service.set_setting')
+    mock_set_setting = mocker.patch('whisperbridge.ui_qt.overlay_ui_builder.config_service.set_setting')
     
     dialog = TranslatorSettingsDialog(parent=None)
     dialog.parent = lambda: mock_parent  # Mock parent() method
@@ -429,7 +427,8 @@ def test_compact_view_triggers_parent_update_layout(qapp, mocker):
     dialog.compact_view_checkbox.setChecked(True)
     
     # Verify _update_layout was called
-    mock_parent._update_layout.assert_called_once()
+    mock_set_setting.assert_called_once_with("compact_view", True)
+    mock_parent._update_layout.assert_called_once_with()
     dialog.close()
 
 
@@ -450,14 +449,15 @@ def test_autohide_buttons_triggers_parent_update_layout(qapp, mocker):
     mock_parent = Mock(spec=['_update_layout'])
     mock_parent._update_layout = mocker.Mock()
     
-    mocker.patch('whisperbridge.ui_qt.overlay_ui_builder.config_service.set_setting')
+    mock_set_setting = mocker.patch('whisperbridge.ui_qt.overlay_ui_builder.config_service.set_setting')
     
     dialog = TranslatorSettingsDialog(parent=None)
     dialog.parent = lambda: mock_parent  # Mock parent() method
     
     dialog.autohide_buttons_checkbox.setChecked(True)
     
-    mock_parent._update_layout.assert_called_once()
+    mock_set_setting.assert_called_once_with("overlay_side_buttons_autohide", True)
+    mock_parent._update_layout.assert_called_once_with()
     dialog.close()
 
 
