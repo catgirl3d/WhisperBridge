@@ -109,12 +109,4 @@ HELP_TEXTS = {
         "tooltip": "Show system tray notifications for translation results.",
         "detailed": "<b>Notifications</b><br>When enabled, you'll see popups for completed translations and errors."
     },
-    "general.stylist_cache": {
-        "tooltip": "Cache Text Stylist results to avoid repeated API calls.",
-        "detailed": "<b>Stylist Cache</b><br>Speeds up repeated stylizing of the same text. Uses disk space but saves API costs."
-    },
-    "general.translation_cache": {
-        "tooltip": "Cache translation results to avoid repeated API calls.",
-        "detailed": "<b>Translation Cache</b><br>Speeds up repeated translations of the same text. Uses disk space but saves API costs."
-    },
 }

@@ -44,10 +44,6 @@ class SettingsManager:
         data.setdefault("api_timeout", API_TIMEOUT_DEFAULT)
         data.setdefault("max_retries", 3)
 
-        # Global caching settings (used by TranslationService; OCR cache removed)
-        data.setdefault("cache_enabled", True)
-        data.setdefault("max_cache_size", 100)
-
         return data
 
     def _migrate_from_1_1_0(self, data: Dict[str, Any]) -> Dict[str, Any]:

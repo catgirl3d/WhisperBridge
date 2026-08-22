@@ -2,14 +2,12 @@
 Translation Service for WhisperBridge.
 
 This module provides API integration for text translation with
-caching, error handling, and async processing.
+error handling and async processing.
 """
 
 import asyncio
-import hashlib
 import threading
-from collections import OrderedDict
-from typing import Any, Dict, Optional
+from typing import Optional
 
 from loguru import logger
 from tenacity import RetryError
@@ -29,73 +27,11 @@ from ..utils.translation_utils import (
 from ..core.config import get_deepl_identifier, requires_model_selection, is_llm_provider
 
 
-class TranslationCache:
-    """Thread-safe, in-memory, session-only LRU cache."""
-
-    def __init__(self, max_size: int = 100):
-        self._cache: OrderedDict[str, str] = OrderedDict()
-        self._max_size = max_size
-        self._lock = threading.RLock()
-
-    def _get_cache_key(self, text: str, source_lang: str, target_lang: str, model: str) -> str:
-        """Generate cache key from translation parameters."""
-        content = f"{text}|{source_lang}|{target_lang}|{model}"
-        return hashlib.md5(content.encode("utf-8")).hexdigest()
-
-    def _evict_oldest(self):
-        """Remove oldest cache entries when max size is reached."""
-        while len(self._cache) >= self._max_size:
-            key, _ = self._cache.popitem(last=False)
-            logger.debug(f"Evicted old cache entry: {key}")
-
-    def get(self, text: str, source_lang: str, target_lang: str, model: str) -> Optional[str]:
-        """Get cached translation result."""
-        with self._lock:
-            key = self._get_cache_key(text, source_lang, target_lang, model)
-
-            if key in self._cache:
-                self._cache.move_to_end(key)
-                logger.debug(f"Cache hit for key: {key}")
-                return self._cache[key]
-
-            return None
-
-    def put(
-        self,
-        text: str,
-        translated_text: str,
-        source_lang: str,
-        target_lang: str,
-        model: str,
-    ):
-        """Store translation result in cache."""
-        with self._lock:
-            key = self._get_cache_key(text, source_lang, target_lang, model)
-
-            self._cache[key] = translated_text
-            self._evict_oldest()
-            logger.debug(f"Cached translation for key: {key}")
-
-    def clear(self):
-        """Clear all cache entries."""
-        with self._lock:
-            self._cache.clear()
-            logger.info("Translation cache cleared")
-
-    def size(self) -> int:
-        """Get current cache size."""
-        with self._lock:
-            return len(self._cache)
-
-
 class TranslationService:
     """Main translation service with API integration."""
 
     def __init__(self):
         self._api_manager = get_api_manager()
-        self._cache = TranslationCache(
-            max_size=config_service.get_setting("max_cache_size"),
-        )
         self._is_initialized = False
 
     def initialize(self) -> bool:
@@ -139,7 +75,6 @@ class TranslationService:
         source_lang: Optional[str] = None,
         target_lang: Optional[str] = None,
         model: Optional[str] = None,
-        cached: bool = False,
         tokens_used: int = 0,
     ) -> TranslationResponse:
         """Create a standardized TranslationResponse."""
@@ -150,7 +85,6 @@ class TranslationService:
             source_lang=source_lang or "",
             target_lang=target_lang or "",
             model=model or "",
-            cached=cached,
             tokens_used=tokens_used,
         )
 
@@ -207,7 +141,6 @@ class TranslationService:
         text: str,
         ui_source_lang: Optional[str] = None,
         ui_target_lang: Optional[str] = None,
-        use_cache: bool = True,
     ) -> TranslationResponse:
         """Translate text asynchronously using API."""
 
@@ -219,25 +152,8 @@ class TranslationService:
             # Determine languages using the new helper
             source_lang, target_lang = await self._determine_languages(text, ui_source_lang, ui_target_lang)
 
-            # Get model and cache settings once
+            # Get the active model once
             intended_model = self._get_active_model()
-            cache_enabled = use_cache and config_service.get_setting("translation_cache_enabled")
-
-            # Check cache
-            if cache_enabled:
-                cached_result = self._cache.get(text, source_lang, target_lang, intended_model)
-                if cached_result:
-                    logger.info("Translation found in cache")
-                    return self._make_response(
-                        success=True,
-                        translated_text=cached_result,
-                        source_lang=source_lang,
-                        target_lang=target_lang,
-                        model=intended_model,
-                        cached=True,
-                    )
-                else:
-                    logger.info("Translation not found in cache.")
 
             # Prepare and execute translation request
             current_settings = config_service.get_settings()
@@ -255,16 +171,6 @@ class TranslationService:
             if not validate_translation_response(response):
                 logger.error(f"Invalid translation response format: {response}")
                 raise ValueError("Invalid translation response format")
-
-            # Cache successful result
-            if cache_enabled and response.success:
-                self._cache.put(
-                    text,
-                    response.translated_text,
-                    source_lang,
-                    target_lang,
-                    response.model,
-                )
 
             return response
 
@@ -293,15 +199,13 @@ class TranslationService:
         self,
         text: str,
         style_name: str,
-        use_cache: bool = True,
     ) -> TranslationResponse:
         """Rewrite text in a selected style using the same API pipeline as translation."""
         logger.info(f"Starting style rewrite for text: '{text[:30]}...' with style '{style_name}'")
 
         try:
-            # Get model and cache settings once
+            # Get the active model once
             intended_model = self._get_active_model()
-            stylist_cache_enabled = use_cache and config_service.get_setting("stylist_cache_enabled")
 
             # Resolve style preset
             settings = config_service.get_settings()
@@ -331,22 +235,6 @@ class TranslationService:
                 style_prompt=style_prompt,
                 model=intended_model,
             )
-
-            # Check cache
-            if stylist_cache_enabled:
-                cached_result = self._cache.get(text, f"style:{style_name}", "-", intended_model)
-                if cached_result:
-                    logger.info("Style result found in cache")
-                    return self._make_response(
-                        success=True,
-                        translated_text=cached_result,
-                        source_lang="style",
-                        target_lang=style_name,
-                        model=intended_model,
-                        cached=True,
-                    )
-                else:
-                    logger.info("Style result not found in cache.")
 
             if not self._api_manager.is_initialized():
                 raise RuntimeError("API manager not initialized")
@@ -385,16 +273,6 @@ class TranslationService:
 
             raw_text = response.choices[0].message.content
             styled_text = parse_gpt_response(raw_text).strip()
-
-            # Cache successful result (if we got here, the operation was successful)
-            if stylist_cache_enabled:
-                self._cache.put(
-                    text,
-                    styled_text,
-                    f"style:{style_name}",
-                    "-",  # target placeholder for styling flow
-                    final_model,
-                )
 
             return self._make_response(
                 success=True,
@@ -515,13 +393,12 @@ class TranslationService:
         text: str,
         source_lang: Optional[str] = None,
         target_lang: Optional[str] = None,
-        use_cache: bool = True,
     ) -> TranslationResponse:
         """Synchronous wrapper for translate_text_async."""
         try:
             # asyncio.run() handles the event loop management automatically.
             return asyncio.run(
-                self.translate_text_async(text, source_lang, target_lang, use_cache)
+                self.translate_text_async(text, source_lang, target_lang)
             )
         except Exception as e:
             logger.error(f"Synchronous translation failed: {e}")
@@ -536,11 +413,10 @@ class TranslationService:
         self,
         text: str,
         style_name: str,
-        use_cache: bool = True,
     ) -> TranslationResponse:
         """Synchronous wrapper for style_text_async."""
         try:
-            return asyncio.run(self.style_text_async(text, style_name, use_cache))
+            return asyncio.run(self.style_text_async(text, style_name))
         except Exception as e:
             logger.error(f"Synchronous styling failed: {e}")
             return self._make_response(
@@ -549,18 +425,6 @@ class TranslationService:
                 source_lang="style",
                 target_lang=style_name,
             )
-
-    def clear_cache(self):
-        """Clear translation cache."""
-        self._cache.clear()
-
-    def get_cache_stats(self) -> Dict[str, Any]:
-        """Get cache statistics."""
-        return {
-            "size": self._cache.size(),
-            "max_size": self._cache._max_size,
-            "enabled": config_service.get_setting("translation_cache_enabled"),
-        }
 
     def shutdown(self):
         """Shutdown the translation service."""

@@ -104,16 +104,6 @@ class TranslatorSettingsDialog(QDialog):
             'maximum': TRANSLATOR_FONT_SIZE_MAX,
             'single_step': 1,
         },
-        'stylist_cache_checkbox': {
-            'text': "Enable Text Stylist caching",
-            'tooltip': "Enable caching for Text Stylist mode (separate from general translation caching)",
-            'object_name': "stylist_cache_checkbox"
-        },
-        'translation_cache_checkbox': {
-            'text': "Enable translation caching",
-            'tooltip': "Enable caching for translation mode (separate from general caching)",
-            'object_name': "translation_cache_checkbox"
-        },
         'auto_copy_translated_checkbox': {
             'text': "Auto-copy translated text to clipboard",
             'tooltip': "Automatically copy translated text to clipboard after translation",
@@ -177,26 +167,6 @@ class TranslatorSettingsDialog(QDialog):
         display_layout.addLayout(font_size_row)
 
         layout.addWidget(display_group)
-
-        # Performance group
-        performance_group = QGroupBox("Performance")
-        performance_layout = QVBoxLayout(performance_group)
-
-        self.stylist_cache_checkbox, _ = _create_widget(
-            config_maps, "translator", "stylist_cache_checkbox", QCheckBox
-        )
-        self.stylist_cache_checkbox.setChecked(_resolve_bool_setting(settings, "stylist_cache_enabled"))
-        self.stylist_cache_checkbox.stateChanged.connect(self._on_stylist_cache_changed)
-        performance_layout.addWidget(self.stylist_cache_checkbox)
-
-        self.translation_cache_checkbox, _ = _create_widget(
-            config_maps, "translator", "translation_cache_checkbox", QCheckBox
-        )
-        self.translation_cache_checkbox.setChecked(_resolve_bool_setting(settings, "translation_cache_enabled"))
-        self.translation_cache_checkbox.stateChanged.connect(self._on_translation_cache_changed)
-        performance_layout.addWidget(self.translation_cache_checkbox)
-
-        layout.addWidget(performance_group)
 
         # Clipboard group
         clipboard_group = QGroupBox("Clipboard")
@@ -271,30 +241,6 @@ class TranslatorSettingsDialog(QDialog):
             logger.info(f"Translator font size updated: {font_size}")
         except Exception as e:
             logger.error(f"Failed to save translator font size setting: {e}")
-
-    def _on_stylist_cache_changed(self, state):
-        """Persist Text Stylist cache setting."""
-        try:
-            self._persist_checkbox_setting(
-                checkbox=self.stylist_cache_checkbox,
-                setting_key="stylist_cache_enabled",
-                state=state,
-                success_message="Text Stylist cache setting updated",
-            )
-        except Exception as e:
-            logger.error(f"Failed to save Text Stylist cache setting: {e}")
-
-    def _on_translation_cache_changed(self, state):
-        """Persist translation cache setting."""
-        try:
-            self._persist_checkbox_setting(
-                checkbox=self.translation_cache_checkbox,
-                setting_key="translation_cache_enabled",
-                state=state,
-                success_message="Translation cache setting updated",
-            )
-        except Exception as e:
-            logger.error(f"Failed to save translation cache setting: {e}")
 
     def _on_auto_copy_translated_changed(self, state):
         """Persist auto-copy translated text setting."""

@@ -34,7 +34,6 @@ class TranslationResponse:
     model: str = ""
     error_message: str = ""
     tokens_used: int = 0
-    cached: bool = False
 
 
 @dataclass

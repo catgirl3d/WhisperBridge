@@ -311,7 +311,6 @@ class StyleWorker(BaseAsyncWorker):
             coro = service.style_text_async(
                 self.text,
                 style_name=self.style_name,
-                use_cache=True,
             )
 
             resp = self._run_async_task(coro, "StyleWorker")

@@ -650,12 +650,6 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
                 self.tab_widget.setTabVisible(stylist_tab_index, is_visible)
                 logger.debug(f"Stylist tab visibility set to {is_visible} for provider {provider}")
 
-            # Also update the stylist cache checkbox visibility
-            if hasattr(self, 'stylist_cache_checkbox'):
-                visible = supports_stylist(provider)
-                self.stylist_cache_checkbox.setVisible(visible)
-                logger.debug(f"Stylist cache checkbox visibility set to {visible} for provider {provider}")
-
         elif control_type == "vision_model":
             # For vision models, we only need API key presence and OCR build flag
             # The initialize_ocr setting doesn't affect LLM OCR availability
@@ -753,11 +747,6 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
             self._load_text_styles(settings)
         except Exception as e:
             logger.warning(f"Failed to load text styles into UI: {e}")
-
-        # Update stylist cache checkbox visibility based on current provider
-        provider = self._get_current_provider()
-        if hasattr(self, 'stylist_cache_checkbox'):
-            self.stylist_cache_checkbox.setVisible(supports_stylist(provider))
 
         # Update DeepL plan controls visibility and value
         self._update_deepl_plan_controls()

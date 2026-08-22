@@ -37,15 +37,6 @@ def test_translator_dialog_factory_integration(qapp, mocker):
     assert isinstance(dialog.translator_font_size_spinbox, QSpinBox)
     assert dialog.translator_font_size_spinbox.objectName() == "translator_font_size_spinbox"
 
-    # Check that Performance widgets were created via factory
-    assert dialog.stylist_cache_checkbox is not None
-    assert isinstance(dialog.stylist_cache_checkbox, QCheckBox)
-    assert dialog.stylist_cache_checkbox.objectName() == "stylist_cache_checkbox"
-
-    assert dialog.translation_cache_checkbox is not None
-    assert isinstance(dialog.translation_cache_checkbox, QCheckBox)
-    assert dialog.translation_cache_checkbox.objectName() == "translation_cache_checkbox"
-
     # Check that Clipboard widgets were created via factory
     assert dialog.auto_copy_translated_checkbox is not None
     assert isinstance(dialog.auto_copy_translated_checkbox, QCheckBox)
@@ -55,11 +46,11 @@ def test_translator_dialog_factory_integration(qapp, mocker):
     # (close_button is local variable, but we can check the layout has it)
     layout = dialog.layout()
     assert layout is not None
-    # Layout contains: display_group, performance_group, clipboard_group, close_button
-    assert layout.count() == 4
+    # Layout contains: display_group, clipboard_group, close_button
+    assert layout.count() == 3
 
     # Check that the last item is the close button with correct objectName
-    close_item = layout.itemAt(3)
+    close_item = layout.itemAt(2)
     close_button = close_item.widget()
     assert isinstance(close_button, QPushButton)
     assert close_button.objectName() == "translatorCloseButton"
@@ -88,8 +79,6 @@ def test_translator_dialog_initialization_from_config(qapp, mocker):
     assert dialog.compact_view_checkbox.isChecked()
     assert not dialog.autohide_buttons_checkbox.isChecked()
     assert dialog.translator_font_size_spinbox.value() == 18
-    assert dialog.stylist_cache_checkbox.isChecked()
-    assert not dialog.translation_cache_checkbox.isChecked()
     assert dialog.auto_copy_translated_checkbox.isChecked()
     
     dialog.close()
@@ -109,8 +98,6 @@ def test_translator_dialog_initialization_with_defaults(qapp, mocker):
     assert not dialog.compact_view_checkbox.isChecked()
     assert not dialog.autohide_buttons_checkbox.isChecked()
     assert dialog.translator_font_size_spinbox.value() == 9
-    assert not dialog.stylist_cache_checkbox.isChecked()
-    assert not dialog.translation_cache_checkbox.isChecked()
     assert not dialog.auto_copy_translated_checkbox.isChecked()
     
     dialog.close()
@@ -302,48 +289,6 @@ def test_translator_font_size_rolls_back_when_save_fails(qapp, mocker):
     assert dialog.translator_font_size_spinbox.value() == 14
     mock_parent._apply_translator_font_size.assert_not_called()
     mock_log_info.assert_not_called()
-    dialog.close()
-
-
-def test_stylist_cache_changed_callback(qapp, mocker):
-    """Test saving stylist_cache_enabled setting when checkbox changes."""
-    # Mock config_service to return False for all settings
-    mock_settings = Mock()
-    mock_settings.compact_view = False
-    mock_settings.overlay_side_buttons_autohide = False
-    mock_settings.stylist_cache_enabled = False
-    mock_settings.translation_cache_enabled = False
-    mock_settings.auto_copy_translated_main_window = False
-    
-    mocker.patch('whisperbridge.ui_qt.overlay_ui_builder.config_service.get_settings',
-                 return_value=mock_settings)
-    mock_set_setting = mocker.patch('whisperbridge.ui_qt.overlay_ui_builder.config_service.set_setting')
-    
-    dialog = TranslatorSettingsDialog()
-    # Change to True first (default is False)
-    dialog.stylist_cache_checkbox.setChecked(True)
-    mock_set_setting.assert_called_with("stylist_cache_enabled", True)
-    dialog.close()
-
-
-def test_translation_cache_changed_callback(qapp, mocker):
-    """Test saving translation_cache_enabled setting when checkbox changes."""
-    # Mock config_service to return False for all settings
-    mock_settings = Mock()
-    mock_settings.compact_view = False
-    mock_settings.overlay_side_buttons_autohide = False
-    mock_settings.stylist_cache_enabled = False
-    mock_settings.translation_cache_enabled = False
-    mock_settings.auto_copy_translated_main_window = False
-    
-    mocker.patch('whisperbridge.ui_qt.overlay_ui_builder.config_service.get_settings',
-                 return_value=mock_settings)
-    mock_set_setting = mocker.patch('whisperbridge.ui_qt.overlay_ui_builder.config_service.set_setting')
-    
-    dialog = TranslatorSettingsDialog()
-    dialog.translation_cache_checkbox.setChecked(True)
-    
-    mock_set_setting.assert_called_with("translation_cache_enabled", True)
     dialog.close()
 
 
@@ -595,37 +540,8 @@ def test_dialog_has_all_groups(qapp, mocker):
             groups.append(widget.title())
     
     assert "Display Options" in groups
-    assert "Performance" in groups
     assert "Clipboard" in groups
-    assert len(groups) == 3  # Only 3 groups
-    
-    dialog.close()
-
-
-def test_error_handling_in_stylist_cache_callback(qapp, mocker, loguru_caplog):
-    """Test error handling when saving stylist_cache_enabled setting."""
-    # Mock config_service to return False for all settings
-    mock_settings = Mock()
-    mock_settings.compact_view = False
-    mock_settings.overlay_side_buttons_autohide = False
-    mock_settings.stylist_cache_enabled = False
-    mock_settings.translation_cache_enabled = False
-    mock_settings.auto_copy_translated_main_window = False
-    
-    mocker.patch('whisperbridge.ui_qt.overlay_ui_builder.config_service.get_settings',
-                 return_value=mock_settings)
-    mock_set_setting = mocker.patch(
-        'whisperbridge.ui_qt.overlay_ui_builder.config_service.set_setting',
-        side_effect=Exception("Config error"),
-    )
-    
-    dialog = TranslatorSettingsDialog()
-    # Should not raise exception, just log error
-    dialog.stylist_cache_checkbox.setChecked(True)
-
-    assert dialog.stylist_cache_checkbox.isChecked()
-    mock_set_setting.assert_called_once_with("stylist_cache_enabled", True)
-    assert any(record.message == "Failed to save Text Stylist cache setting: Config error" for record in loguru_caplog.records)
+    assert len(groups) == 2  # Display Options and Clipboard
     
     dialog.close()
 
@@ -654,13 +570,6 @@ def test_all_checkboxes_text_and_tooltips(qapp, mocker):
     assert dialog.autohide_buttons_checkbox.text() == "Hide right-side buttons (show on hover)"
     assert dialog.autohide_buttons_checkbox.toolTip() == "If enabled, the narrow buttons on the right appear only on hover"
     
-    # Performance
-    assert dialog.stylist_cache_checkbox.text() == "Enable Text Stylist caching"
-    assert dialog.stylist_cache_checkbox.toolTip() == "Enable caching for Text Stylist mode (separate from general translation caching)"
-    
-    assert dialog.translation_cache_checkbox.text() == "Enable translation caching"
-    assert dialog.translation_cache_checkbox.toolTip() == "Enable caching for translation mode (separate from general caching)"
-    
     # Clipboard
     assert dialog.auto_copy_translated_checkbox.text() == "Auto-copy translated text to clipboard"
     assert dialog.auto_copy_translated_checkbox.toolTip() == "Automatically copy translated text to clipboard after translation"
@@ -688,7 +597,7 @@ def test_close_button_functionality(qapp, qtbot, mocker):
     
     # Find close button
     layout = dialog.layout()
-    close_item = layout.itemAt(3)
+    close_item = layout.itemAt(2)
     close_button = close_item.widget()
     
     # Click the button

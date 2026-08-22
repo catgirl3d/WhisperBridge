@@ -255,10 +255,6 @@ class Settings(BaseSettings):
     # General Settings
     show_notifications: bool = Field(default=True, description="Show notifications")
 
-    # Performance Settings
-    cache_enabled: bool = Field(default=True, description="Enable caching")
-    max_cache_size: int = Field(default=100, description="Maximum cache size")
-
     # Logging Settings
     log_level: str = Field(default="INFO", description="Logging level")
     log_to_file: bool = Field(default=True, description="Log to file")
@@ -273,18 +269,6 @@ class Settings(BaseSettings):
             {"name": "Shorten", "prompt": "Make the following text shorter and more concise, preserving key meaning. Only return the shortened text."},
         ],
         description="Preset styles for text rewriting (Text Stylist mode).",
-    )
-
-    # Text Stylist caching
-    stylist_cache_enabled: bool = Field(
-        default=False,
-        description="Enable caching for Text Stylist mode (separate from general translation caching).",
-    )
-
-    # Translation caching
-    translation_cache_enabled: bool = Field(
-        default=False,
-        description="Enable caching for translation mode (separate from general caching).",
     )
 
     model_config = SettingsConfigDict(
