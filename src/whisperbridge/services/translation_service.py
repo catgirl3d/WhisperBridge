@@ -459,8 +459,3 @@ def get_translation_service(initialize: bool = False) -> TranslationService:
                 raise RuntimeError("Failed to initialize translation service")
         
         return _translation_service
-
-
-def init_translation_service() -> TranslationService:
-    """Initialize and return the translation service instance (legacy wrapper)."""
-    return get_translation_service(initialize=True)

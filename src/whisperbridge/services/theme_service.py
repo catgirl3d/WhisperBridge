@@ -153,7 +153,3 @@ class ThemeService(QObject, SettingsObserver):
         new_theme = self.get_theme_from_settings()
         if new_theme != self._current_theme:
             self.apply_theme(new_theme)
-
-    def on_settings_loaded(self, settings):
-        """Called when settings are loaded."""
-        pass

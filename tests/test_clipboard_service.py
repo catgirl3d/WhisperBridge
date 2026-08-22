@@ -6,7 +6,6 @@ Verifies:
 - copy_text error handling
 - get_clipboard_text success and error handling
 - get_clipboard_service singleton behavior and missing dependency handling
-- shutdown method compatibility
 """
 
 import pytest
@@ -87,11 +86,6 @@ class TestClipboardService:
         result = service.get_clipboard_text()
 
         assert result is None
-
-    def test_shutdown_is_safe_noop(self):
-        service = ClipboardService()
-        # Should execute cleanly without error
-        service.shutdown()
 
     def test_init_raises_if_pyperclip_unavailable(self, mocker):
         mocker.patch.object(cs_module, "PYPERCLIP_AVAILABLE", False)

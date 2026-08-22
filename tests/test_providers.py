@@ -162,7 +162,6 @@ class TestProviderClearing:
         registry = ProviderRegistry(mock_config_service)
         registry.initialize_all()
         assert registry.has_any_clients() is True
-
         # Act
         registry.clear()
 
@@ -253,45 +252,3 @@ class TestSimultaneousInitialization:
         assert registry.is_provider_available(APIProvider.GOOGLE) is True
         assert registry.is_provider_available(APIProvider.DEEPL) is True
         assert registry.has_any_clients() is True
-
-
-class TestGetAllProviders:
-    """Tests for getting all providers."""
-
-    def test_get_all_providers(self, mock_config_service, mocker):
-        """Test getting all registered providers."""
-        # Arrange
-        mock_config_service.get_setting.side_effect = lambda key: {
-            "openai_api_key": "sk-test123",
-            "google_api_key": "AIzatest123",
-            "api_timeout": 30,
-        }.get(key)
-
-        # Mock validate_api_key_format to return True
-        mocker.patch(
-            "whisperbridge.core.api_manager.providers.validate_api_key_format",
-            return_value=True
-        )
-
-        mock_openai_client = mocker.Mock()
-        mock_google_client = mocker.Mock()
-        mocker.patch(
-            "whisperbridge.core.api_manager.providers.OpenAIChatClientAdapter",
-            return_value=mock_openai_client
-        )
-        mocker.patch(
-            "whisperbridge.core.api_manager.providers.GoogleChatClientAdapter",
-            return_value=mock_google_client
-        )
-
-        registry = ProviderRegistry(mock_config_service)
-        registry.initialize_all()
-
-        # Act
-        all_providers = registry.get_all_providers()
-
-        # Assert
-        assert APIProvider.OPENAI in all_providers
-        assert APIProvider.GOOGLE in all_providers
-        assert all_providers[APIProvider.OPENAI] == mock_openai_client
-        assert all_providers[APIProvider.GOOGLE] == mock_google_client

@@ -60,15 +60,6 @@ class ClipboardService:
             logger.warning(f"Failed to access clipboard: {e}")
             return None
 
-    def start(self) -> bool:
-        """Compatibility no-op start."""
-        return True
-
-    def shutdown(self) -> None:
-        """Compatibility no-op shutdown."""
-        pass
-
-
 # Singleton accessor for ClipboardService
 _clipboard_service_instance: Optional[ClipboardService] = None
 

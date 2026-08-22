@@ -429,22 +429,6 @@ def ensure_config_dir() -> Path:
 
 
 
-def delete_api_key(provider: str = "openai") -> bool:
-    """Delete API key for the given provider from keyring."""
-    try:
-        if provider.lower() == "google":
-            keyring.delete_password("whisperbridge", "google_api_key")
-        elif provider.lower() == "deepl":
-            keyring.delete_password("whisperbridge", "deepl_api_key")
-        else:
-            keyring.delete_password("whisperbridge", "openai_api_key")
-        logger.info(f"{provider.capitalize()} API key deleted from keyring")
-        return True
-    except Exception as e:
-        logger.error(f"Failed to delete {provider} API key from keyring: {e}")
-        return False
-
-
 def validate_api_key_format(api_key: str, provider: Optional[str] = "openai") -> bool:
     """Validate API key format for supported providers.
 

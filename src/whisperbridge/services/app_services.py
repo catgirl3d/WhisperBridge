@@ -13,7 +13,6 @@ from .notification_service import get_notification_service
 from .copy_translate_service import CopyTranslateService
 from .config_service import config_service
 
-from .ocr_service import get_ocr_service
 from .translation_service import get_translation_service
 from ..core.api_manager import init_api_manager
 from .clipboard_service import get_clipboard_service
@@ -125,10 +124,6 @@ class AppServices(QObject):
         self.initialize_translation_service()
 
         logger.info("AppServices: services setup completed")
-
-    def initialize_ocr_async(self):
-        """Deprecated: OCR service (LLM) does not require initialization."""
-        pass
 
     def initialize_translation_service(self):
         try:

@@ -176,15 +176,6 @@ class ProviderRegistry:
         """Clear all registered providers."""
         self._clients.clear()
 
-    def get_all_providers(self) -> Dict[APIProvider, Any]:
-        """
-        Get all registered providers.
-
-        Returns:
-            Dictionary of provider to client mappings.
-        """
-        return self._clients.copy()
-
 
 __all__ = [
     "APIProvider",

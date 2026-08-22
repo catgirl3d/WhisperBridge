@@ -241,14 +241,6 @@ class QtApp(QObject, SettingsObserver):
         self._handle_ocr_setting_change(key, old_value, new_value)
         self._handle_notification_setting_change(key, old_value, new_value)
         
-    def on_settings_loaded(self, settings):
-        """Called when settings are loaded."""
-        pass
-
-    def on_settings_saved(self, settings):
-        """Called when settings are saved."""
-        pass
-
     def _on_translate_hotkey(self):
         """Handle main translation hotkey press."""
         logger.info("Main translation hotkey pressed")

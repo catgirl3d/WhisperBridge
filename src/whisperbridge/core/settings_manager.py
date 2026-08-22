@@ -42,7 +42,6 @@ class SettingsManager:
         # Add new fields with defaults
         data.setdefault("system_prompt", "You are a professional translator...")
         data.setdefault("api_timeout", API_TIMEOUT_DEFAULT)
-        data.setdefault("max_retries", 3)
 
         return data
 
@@ -51,7 +50,6 @@ class SettingsManager:
         logger.info("Migrating settings from version 1.1.0")
 
         # Add newer fields
-        data.setdefault("supported_languages", ["en", "ru", "es", "fr", "de"])
         data.setdefault("log_to_file", True)
 
         return data
@@ -61,7 +59,6 @@ class SettingsManager:
         logger.info("Migrating settings from version 1.2.1")
 
         # Add UI backend field
-        data.setdefault("ui_backend", "qt")
         data.setdefault("copy_translate_hotkey", "ctrl+shift+j")
 
         return data
@@ -335,26 +332,6 @@ class SettingsManager:
             if self._settings is None:
                 return self.load_settings()
             return self._settings
-
-    def update_settings(self, updates: Dict[str, Any]) -> bool:
-        """Update specific settings fields."""
-        with self._lock:
-            try:
-                current = self.get_settings()
-
-                # Create updated settings
-                updated_data = current.model_dump()
-                updated_data.update(updates)
-
-                # Validate new settings
-                new_settings = Settings(**updated_data)
-
-                # Save if valid
-                return self.save_settings(new_settings)
-
-            except Exception as e:
-                logger.error(f"Failed to update settings: {e}")
-                return False
 
 # Global settings manager instance
 settings_manager = SettingsManager()

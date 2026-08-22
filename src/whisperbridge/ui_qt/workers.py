@@ -120,12 +120,6 @@ class CaptureOcrTranslateWorker(QObject):
             logger.error(f"Error in worker run: {e}", exc_info=True)
             self.error.emit(str(e))
 
-    def process_and_emit(self, text):
-        """Backward compatibility method for existing callers in _process_selection."""
-        self.ocr_finished.emit(text)
-        self.finished.emit(text, "", "", "")
-
-
 class ApiTestWorker(QObject):
     """Worker for testing API key asynchronously."""
 

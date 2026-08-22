@@ -36,15 +36,6 @@ from loguru import logger
 
 from ..utils.screen_utils import Rectangle, ScreenUtils
 
-# Minimal types and stub to avoid undefined names in non-UI context
-
-
-@dataclass
-class SelectionResult:
-    rectangle: Optional[Rectangle] = None
-    cancelled: bool = True
-
-
 @dataclass
 class CaptureResult:
     """Result of screen capture operation."""
@@ -535,18 +526,3 @@ def get_capture_service() -> ScreenCaptureService:
         _capture_service = ScreenCaptureService()
 
     return _capture_service
-
-
-def capture_area(
-    rectangle: Rectangle, options: Optional[CaptureOptions] = None
-) -> CaptureResult:
-    """Capture a specific screen area.
-
-    Args:
-        rectangle: Area to capture
-        options: Capture options
-
-    Returns:
-        CaptureResult: Capture result
-    """
-    return get_capture_service().capture_area(rectangle, options)

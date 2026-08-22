@@ -58,13 +58,6 @@ class _OverlaySettingsObserver(SettingsObserver):
         except Exception as e:
             logger.debug(f"Overlay observer change handler error: {e}")
 
-    def on_settings_loaded(self, settings):
-        self.on_settings_changed("loaded", None, None)
-
-    def on_settings_saved(self, settings):
-        self.on_settings_changed("saved", None, None)
-
-
 class OverlayWindow(StyledOverlayWindow):
     """Overlay window for displaying translation results."""
 
