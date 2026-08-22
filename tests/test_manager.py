@@ -328,6 +328,7 @@ class TestTranslationRequests:
             messages=messages,
             model_hint="test-deepl-model",
             target_lang="DE",
+            source_lang=None,
         )
 
         # Assert

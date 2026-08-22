@@ -232,16 +232,3 @@ class TestAPIManagerHelperMethods:
         """Test that LLM model resolution raises when model selection is empty."""
         with pytest.raises(ValueError):
             api_manager._resolve_model("", APIProvider.OPENAI, missing_message="missing")
-
-    def test_build_deepl_params_filters_none(self, api_manager):
-        """Test that DeepL request params omit provider kwargs with None values."""
-        params = api_manager._request_builder.build_deepl_params(
-            model="deepl-model",
-            messages=[{"role": "user", "content": "Hello"}],
-            api_kwargs={"target_lang": "EN", "source_lang": None},
-        )
-
-        assert params["model"] == "deepl-model"
-        assert params["messages"]
-        assert params["target_lang"] == "EN"
-        assert "source_lang" not in params

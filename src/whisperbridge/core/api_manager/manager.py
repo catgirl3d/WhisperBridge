@@ -19,12 +19,12 @@ from tenacity import (
 )
 
 from ..config import ensure_config_dir, get_deepl_identifier
+from ..model_limits import get_model_max_completion_tokens
 from ...services.config_service import ConfigService
 from .cache import ModelCache
 from .errors import APIError, APIErrorType, RetryableAPIError, classify_error, log_network_diagnostics, requires_initialization
 from .models import ModelManager
 from .providers import APIProvider, ProviderRegistry
-from .requests import RequestBuilder
 from .types import APIUsage
 
 
@@ -33,8 +33,7 @@ class APIManager:
     Centralized API manager for handling authentication and requests.
 
     This class acts as a thin orchestrator that delegates to specialized
-    components for provider management, caching, request building, and
-    model listing.
+    components for provider management, caching, and model listing.
     """
 
     def __init__(self, config_service: ConfigService):
@@ -53,7 +52,6 @@ class APIManager:
         config_dir = ensure_config_dir()
         self._cache = ModelCache(config_dir)
         self._providers = ProviderRegistry(config_service)
-        self._request_builder = RequestBuilder(config_service)
         self._model_manager = ModelManager(self._cache, config_service, self._providers)
 
         # Usage tracking per provider
@@ -171,6 +169,14 @@ class APIManager:
             raise ValueError(missing_message)
         return final_model
 
+    def _build_llm_params(self, model: str, messages: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Build common parameters for an LLM chat-completion request."""
+        return {
+            "model": model,
+            "messages": messages,
+            "max_completion_tokens": get_model_max_completion_tokens(model),
+        }
+
     @requires_initialization
     @retry(
         stop=stop_after_attempt(3),
@@ -279,20 +285,16 @@ class APIManager:
         )
 
         if selected_provider == APIProvider.DEEPL:
-            api_params = self._request_builder.build_deepl_params(
-                model=final_model,
-                messages=messages,
-                api_kwargs=api_kwargs,
+            api_params = {"model": final_model, "messages": messages}
+            api_params.update(
+                {key: value for key, value in api_kwargs.items() if value is not None}
             )
             logger.debug(f"Final API parameters for {selected_provider.value}: {api_params}")
             response = self.make_request_sync(selected_provider, **api_params)
             return response, final_model
 
         # 3. Prepare API call parameters for LLM providers
-        api_params = self._request_builder.build_llm_params(
-            model=final_model,
-            messages=messages,
-        )
+        api_params = self._build_llm_params(final_model, messages)
 
         # Reasoning effort is intentionally limited to text translation;
         # vision/OCR requests use make_vision_request and do not inherit it.
@@ -356,10 +358,7 @@ class APIManager:
         logger.debug(f"Vision request: provider={selected_provider.value}, model={final_model}")
 
         # 4. Build LLM params
-        api_params = self._request_builder.build_llm_params(
-            model=final_model,
-            messages=messages,
-        )
+        api_params = self._build_llm_params(final_model, messages)
 
         # 5. Route to adapter (both providers now use the same path)
         response = self.make_request_sync(
