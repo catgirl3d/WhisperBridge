@@ -22,7 +22,6 @@ from ..utils.translation_utils import (
     format_translation_prompt,
     format_style_prompt,
     parse_gpt_response,
-    validate_translation_response,
 )
 from ..core.config import get_deepl_identifier, requires_model_selection, is_llm_provider
 
@@ -168,7 +167,7 @@ class TranslationService:
             response = await self._call_gpt_api_async(request)
 
             # Validate response
-            if not validate_translation_response(response):
+            if not response.success:
                 logger.error(f"Invalid translation response format: {response}")
                 raise ValueError("Invalid translation response format")
 

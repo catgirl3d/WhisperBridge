@@ -134,14 +134,6 @@ class SettingsUIFactory:
             'object_name': 'showNotificationsCheck',
             'text': 'Show notifications'
         },
-        'stylistCacheCheck': {
-            'object_name': 'stylistCacheCheck',
-            'text': 'Enable caching for Text Stylist mode'
-        },
-        'translationCacheCheck': {
-            'object_name': 'translationCacheCheck',
-            'text': 'Enable caching for translations'
-        },
         'textStylistTable': {
             'object_name': 'textStylistTable',
             'columns': 2,

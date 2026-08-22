@@ -1,13 +1,10 @@
 """Translation utilities for WhisperBridge.
 
-Prompt formatting, GPT response parsing, translation response validation,
-and token estimation helpers.
+Prompt formatting, GPT response parsing, and token estimation helpers.
 """
 
 import re
 from dataclasses import dataclass
-
-from loguru import logger
 
 from .language_utils import detect_language, get_language_name
 
@@ -76,24 +73,6 @@ def format_style_prompt(request: StyleRequest) -> str:
     return f"""Text to rewrite:
 {request.text}
 """
-
-
-def validate_translation_response(response: TranslationResponse) -> bool:
-    """Validate translation API response.
-    
-    Empty responses are considered valid if success=True, allowing the UI
-    to handle them gracefully (e.g., display 'Model returned empty response').
-    """
-    if not response.success:
-        return False
-
-    # Allow empty responses - the UI will handle them appropriately
-    if not response.translated_text or not response.translated_text.strip():
-        logger.warning("Empty translation response from model")
-        # Return True to let the UI handle empty responses gracefully
-        return True
-
-    return True
 
 
 def parse_gpt_response(response_text: str) -> str:
