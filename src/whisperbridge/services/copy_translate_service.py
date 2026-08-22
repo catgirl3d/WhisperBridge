@@ -10,7 +10,6 @@ and error handling.
 
 from PySide6.QtCore import QObject, Signal
 
-from ..core.provider_catalog import APIProvider
 from ..services.clipboard_service import get_clipboard_service
 from ..services.config_service import config_service as _config_service
 from ..services.translation_service import get_translation_service
@@ -253,30 +252,14 @@ class CopyTranslateService(QObject):
                 log.info(f"Copy-translate performance: clipboard=0ms, translation=0ms, total={(t_end - t_start) * 1000:.0f}ms")
                 return
 
-            # Check for API key presence before attempting translation
-            provider = (self.config_service.get_setting("api_provider") or APIProvider.OPENAI.value).strip().lower()
-            try:
-                provider = APIProvider(provider).value
-            except ValueError:
-                has_api_key = False
-                log.warning("Copy-translate encountered unsupported API provider: {}", provider)
-            else:
-                has_api_key = bool(self.config_service.get_setting(f"{provider}_api_key"))
-            log.debug(
-                "Copy-translate configuration: provider={} has_api_key={}",
-                provider,
-                has_api_key,
-            )
-            if not has_api_key:
-                log.info("No API key configured for the selected provider, showing original text only")
-                # Emit overlay with original text only (no translation attempt)
-                # Performance summary: compute clipboard time, translation=0
+            # Translate only when the currently configured provider is usable
+            if not self.translation_service.is_available:
+                log.info("Translation unavailable for the configured provider; showing original text only")
                 clipboard_ms = ((t_after_poll_success - (t_after_sim or t_start)) * 1000) if t_after_poll_success and t_after_sim else 0
                 t_end = time.perf_counter()
                 total_ms = (t_end - t_start) * 1000
                 log.info(f"Copy-translate performance: clipboard={clipboard_ms:.0f}ms, translation=0ms, total={total_ms:.0f}ms")
                 self.result_ready.emit(text_to_translate, "", False)
-                log.info("Copy-translate overlay shown (original text only) due to missing API key")
                 return
 
             # TranslationService owns detection and EN/RU auto-swap policy.

@@ -507,14 +507,9 @@ class OverlayWindow(StyledOverlayWindow):
             if not key:
                 return False, f"{provider.capitalize()} API key is not configured"
 
-            try:
-                if validate_api_key_format(key, provider):
-                    return True, ""
-                else:
-                    return False, f"{provider.capitalize()} API key format is invalid"
-            except Exception:
-                # Conservative fallback: consider presence sufficient if validator fails
+            if validate_api_key_format(key, provider):
                 return True, ""
+            return False, f"{provider.capitalize()} API key format is invalid"
         except Exception as e:
             logger.debug(f"API readiness check failed: {e}")
             return False, "API key is not configured"

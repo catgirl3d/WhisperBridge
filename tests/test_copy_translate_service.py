@@ -87,15 +87,13 @@ def _build_service(qapp, mocker):
     )
 
 
-def test_run_emits_original_text_when_api_key_is_missing(qapp, mocker):
+def test_run_emits_original_text_when_translation_is_unavailable(qapp, mocker):
     ctx = _build_service(qapp, mocker)
+    ctx.translation_service.is_available = False
     ctx.clipboard_service.get_clipboard_text.side_effect = ["old text", "selected text"]
     ctx.config_service.get_setting.side_effect = _make_get_setting(
         {
             "clipboard_poll_timeout_ms": 200,
-            "api_provider": "openai",
-            "openai_api_key": None,
-            "google_api_key": None,
         }
     )
 
@@ -110,36 +108,13 @@ def test_run_emits_original_text_when_api_key_is_missing(qapp, mocker):
     ctx.notification_service.error.assert_not_called()
 
 
-def test_run_emits_original_text_for_google_provider_without_google_key(qapp, mocker):
-    """A stale OpenAI key must not make the Google provider look configured."""
-    ctx = _build_service(qapp, mocker)
-    ctx.clipboard_service.get_clipboard_text.side_effect = ["old text", "selected text"]
-    ctx.config_service.get_setting.side_effect = _make_get_setting(
-        {
-            "clipboard_poll_timeout_ms": 200,
-            "api_provider": "google",
-            "openai_api_key": "sk-test",
-            "google_api_key": None,
-        }
-    )
-
-    ctx.service.run()
-
-    assert ctx.emitted == [("selected text", "", False)]
-    ctx.translation_service.detect_language_sync.assert_not_called()
-    ctx.translation_service.translate_text_sync.assert_not_called()
-    ctx.notification_service.error.assert_not_called()
-
-
 def test_run_translates_with_auto_swap_and_auto_copy(qapp, mocker):
     ctx = _build_service(qapp, mocker)
+    ctx.translation_service.is_available = True
     ctx.clipboard_service.get_clipboard_text.side_effect = ["old text", "selected text"]
     ctx.config_service.get_setting.side_effect = _make_get_setting(
         {
             "clipboard_poll_timeout_ms": 200,
-            "api_provider": "openai",
-            "openai_api_key": "sk-test",
-            "google_api_key": None,
             "auto_copy_translated": True,
         }
     )
@@ -171,16 +146,13 @@ def test_run_translates_with_auto_swap_and_auto_copy(qapp, mocker):
     ctx.notification_service.error.assert_not_called()
 
 
-def test_run_translates_with_deepl_key(qapp, mocker):
+def test_run_translates_and_emits_result_without_auto_copy(qapp, mocker):
     ctx = _build_service(qapp, mocker)
+    ctx.translation_service.is_available = True
     ctx.clipboard_service.get_clipboard_text.side_effect = ["old text", "selected text"]
     ctx.config_service.get_setting.side_effect = _make_get_setting(
         {
             "clipboard_poll_timeout_ms": 200,
-            "api_provider": "deepl",
-            "openai_api_key": None,
-            "google_api_key": None,
-            "deepl_api_key": "deepl-test-key",
         }
     )
     ctx.translation_service.translate_text_sync.return_value = SimpleNamespace(
@@ -197,25 +169,6 @@ def test_run_translates_with_deepl_key(qapp, mocker):
     assert ctx.emitted == [("selected text", "Переклад", False)]
 
 
-def test_run_emits_original_text_when_deepl_key_is_missing(qapp, mocker):
-    ctx = _build_service(qapp, mocker)
-    ctx.clipboard_service.get_clipboard_text.side_effect = ["old text", "selected text"]
-    ctx.config_service.get_setting.side_effect = _make_get_setting(
-        {
-            "clipboard_poll_timeout_ms": 200,
-            "api_provider": "deepl",
-            "openai_api_key": None,
-            "google_api_key": None,
-            "deepl_api_key": "",
-        }
-    )
-
-    ctx.service.run()
-
-    assert ctx.emitted == [("selected text", "", False)]
-    ctx.translation_service.translate_text_sync.assert_not_called()
-
-
 def test_run_never_stringifies_failed_translation_response(qapp, mocker):
     """A failed TranslationResponse must not leak its repr into the overlay."""
     ctx = _build_service(qapp, mocker)
@@ -223,9 +176,6 @@ def test_run_never_stringifies_failed_translation_response(qapp, mocker):
     ctx.config_service.get_setting.side_effect = _make_get_setting(
         {
             "clipboard_poll_timeout_ms": 200,
-            "api_provider": "openai",
-            "openai_api_key": "sk-test",
-            "google_api_key": None,
         }
     )
     ctx.translation_service.translate_text_sync.return_value = SimpleNamespace(
@@ -263,9 +213,6 @@ def test_run_falls_back_to_default_translation_when_ui_settings_fail(qapp, mocke
     ctx.config_service.get_setting.side_effect = _make_get_setting(
         {
             "clipboard_poll_timeout_ms": 200,
-            "api_provider": "openai",
-            "openai_api_key": "sk-test",
-            "google_api_key": None,
             "auto_copy_translated": RuntimeError("config read failed"),
         }
     )

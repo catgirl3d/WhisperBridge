@@ -95,6 +95,29 @@ class TestInitialization:
         assert api_manager.is_initialized() is True
         assert api_manager.has_clients() is False
 
+    def test_has_current_provider_is_true_when_configured_provider_client_exists(
+        self, api_manager, config_openai, mock_openai_client
+    ):
+        api_manager.initialize()
+
+        assert api_manager.has_current_provider() is True
+
+    def test_has_current_provider_is_false_when_configured_provider_has_no_key(
+        self, api_manager, mock_config_service
+    ):
+        mock_config_service.get_setting.side_effect = lambda key: "google" if key == "api_provider" else None
+
+        api_manager.initialize()
+
+        assert api_manager.has_current_provider() is False
+
+    def test_has_current_provider_is_false_for_unsupported_provider(
+        self, api_manager, mock_config_service
+    ):
+        mock_config_service.get_setting.side_effect = lambda key: "not-a-provider" if key == "api_provider" else None
+
+        assert api_manager.has_current_provider() is False
+
     def test_reinitialize_clears_state(self, api_manager, mock_config_service, mocker):
         """Test that reinitialize clears all state."""
         # Arrange

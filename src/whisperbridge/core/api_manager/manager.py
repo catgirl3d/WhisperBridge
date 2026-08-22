@@ -114,6 +114,14 @@ class APIManager:
         """Check if any API clients are configured."""
         return self._providers.has_any_clients()
 
+    def has_current_provider(self) -> bool:
+        """Check whether a client exists for the currently configured provider."""
+        try:
+            self._resolve_provider()
+            return True
+        except RuntimeError:
+            return False
+
     def _resolve_provider(self, provider_name: Optional[str] = None) -> APIProvider:
         """
         Resolve and validate the configured API provider.

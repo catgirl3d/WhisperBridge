@@ -34,8 +34,8 @@ class TranslationService:
 
     @property
     def is_available(self) -> bool:
-        """Check if translation is available (API manager has clients)."""
-        return self._api_manager.has_clients()
+        """Check if translation is available for the currently configured provider."""
+        return self._api_manager.has_current_provider()
 
     def _make_response(
         self,
