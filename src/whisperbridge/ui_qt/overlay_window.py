@@ -177,11 +177,6 @@ class OverlayWindow(StyledOverlayWindow):
             config_service.add_observer(self._settings_observer)
         except Exception as e:
             logger.debug(f"Failed to add settings observer: {e}")
-        try:
-            # Re-check UI state after async settings saves
-            config_service.saved_async_result.connect(lambda *_: self._update_api_state_and_ui())
-        except Exception as e:
-            logger.debug(f"Failed to connect saved_async_result: {e}")
 
         # Initial API state check for button/status
         self._update_api_state_and_ui()
@@ -424,37 +419,17 @@ class OverlayWindow(StyledOverlayWindow):
 
 
     def _open_stylist_settings(self):
-        """Open the main settings dialog and navigate to the Stylist tab."""
+        """Open the main settings dialog on the Stylist tab via UIService."""
         try:
-            from .settings_dialog import SettingsDialog
-            from .app import get_qt_app
-            
-            app = get_qt_app()
-            if not app:
-                logger.warning("Qt app not available")
+            from ..services.ui_service import get_ui_service
+
+            ui_service = get_ui_service()
+            if ui_service is None:
+                logger.warning("UIService is not available; cannot open Stylist settings")
                 return
-            
-            # Create settings dialog if needed
-            if not hasattr(app, '_main_settings_dialog') or app._main_settings_dialog is None:
-                app._main_settings_dialog = SettingsDialog(app, parent=None)
-            
-            dialog = app._main_settings_dialog
-            
-            # Find and select the Stylist tab
-            if hasattr(dialog, 'tab_widget'):
-                for i in range(dialog.tab_widget.count()):
-                    if dialog.tab_widget.tabText(i) == "Stylist":
-                        dialog.tab_widget.setCurrentIndex(i)
-                        logger.debug("Switched to Stylist tab")
-                        break
-            
-            # Show the dialog
-            if dialog.isHidden():
-                dialog.show()
-            dialog.raise_()
-            dialog.activateWindow()
+
+            ui_service.open_settings(tab_title="Stylist")
             logger.info("Opened settings dialog on Stylist tab")
-                
         except Exception as e:
             logger.error(f"Failed to open stylist settings: {e}", exc_info=True)
 

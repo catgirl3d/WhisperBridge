@@ -105,3 +105,28 @@ def test_config_service_update_settings_returns_false_on_save_failure(mocker):
     assert saved_settings.ui_source_language == "en"
     assert saved_settings.ui_target_mode == "explicit"
     assert saved_settings.ui_target_language == "ru"
+
+
+def test_update_settings_preserves_unrelated_external_changes(tmp_path, mocker):
+    """A patch-save must keep unrelated fields that changed after the form snapshot."""
+    manager = SettingsManager()
+    settings_file = tmp_path / "settings.json"
+    mocker.patch.object(manager, "_get_settings_file", return_value=settings_file)
+    manager._settings = Settings()
+
+    config = ConfigService()
+    config._settings_manager = manager
+    config._settings = manager.get_settings()
+
+    # External change while the settings dialog is open (e.g., from the overlay)
+    assert config.set_setting("system_prompt", "external prompt")
+
+    # Dialog-style patch touches only another field
+    assert config.update_settings({"api_timeout": 45})
+
+    assert config.get_settings().system_prompt == "external prompt"
+    assert config.get_settings().api_timeout == 45
+
+    persisted_data = json.loads(settings_file.read_text(encoding="utf-8"))
+    assert persisted_data["system_prompt"] == "external prompt"
+    assert persisted_data["api_timeout"] == 45

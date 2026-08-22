@@ -165,12 +165,6 @@ class QtApp(QObject, SettingsObserver):
             except Exception as e:
                 logger.debug(f"Failed to connect theme_changed signal: {e}")
 
-            # Connect async settings save result from ConfigService to show notifications
-            try:
-                config_service.saved_async_result.connect(self._on_settings_async_result)
-            except Exception as e:
-                logger.debug(f"Failed to connect saved_async_result signal: {e}")
-
             self.is_running = True
             logger.info(f"Qt-based WhisperBridge application initialized successfully in {time.time() - init_start:.3f}s")
 
@@ -193,18 +187,6 @@ class QtApp(QObject, SettingsObserver):
                 self.ui.on_theme_changed(theme)
         except Exception as e:
             logger.debug(f"Error handling theme_changed in QtApp: {e}")
-
-    @Slot(bool, str)
-    def _on_settings_async_result(self, success: bool, message: str):
-        """Handle async settings save result (main thread)."""
-        try:
-            if self.notifier:
-                if success:
-                    self.notifier.info(message, "WhisperBridge")
-                else:
-                    self.notifier.error(f"Error: {message}", "WhisperBridge")
-        except Exception as e:
-            logger.debug(f"Failed to show async save notification: {e}")
 
     def _handle_hotkey_setting_change(self, key: str, old_value, new_value):
         """Handle changes to hotkey settings."""

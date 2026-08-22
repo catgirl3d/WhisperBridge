@@ -11,7 +11,7 @@ Key Principles:
 5. Separation of Concerns: Python handles logic, QSS handles appearance
 """
 from pathlib import Path
-from typing import Optional, Union
+from typing import Any, Dict, Optional, Union
 from PySide6.QtWidgets import (
     QDialog,
     QVBoxLayout,
@@ -55,7 +55,12 @@ from .settings_ui_factory import SettingsUIFactory
 
 
 class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
-    """Settings dialog with tabbed interface for configuration."""
+    """Settings dialog with tabbed interface for configuration.
+
+    Save contract: ``_form_baseline`` is the source of truth for diff-based
+    saving. It is snapshotted only in ``_load_settings`` (after the form is
+    filled) and must never be refreshed anywhere else.
+    """
 
     # Class-level factory instance
     factory = SettingsUIFactory()
@@ -83,6 +88,8 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
 
         # Initialize current settings first from config service
         self.current_settings = config_service.get_settings()
+        # Model values auto-selected at load time (not user changes)
+        self._loaded_model_defaults: Dict[str, str] = {}
 
         # Apply proper color scheme for visibility
         # self._apply_proper_colors()  # Commented out to use stylesheet instead
@@ -140,6 +147,22 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
     def dismiss(self):
         """Dismiss the settings dialog by hiding it."""
         self.hide()
+
+    def select_tab_by_title(self, title: str) -> bool:
+        """Select a tab by its visible title.
+
+        Keeps the current tab when the title is unknown or the tab is hidden.
+        Returns True only when the tab was found and selected.
+        """
+        for i in range(self.tab_widget.count()):
+            if self.tab_widget.tabText(i) == title:
+                if not self.tab_widget.isTabVisible(i):
+                    logger.warning(f"Tab '{title}' exists but is hidden; keeping current tab")
+                    return False
+                self.tab_widget.setCurrentIndex(i)
+                return True
+        logger.warning(f"Tab '{title}' not found; keeping current tab")
+        return False
 
     def _init_settings_map(self):
         """Initialize the map between settings and widgets."""
@@ -690,10 +713,15 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
         self._update_control_visibility("reasoning_effort")
 
     def _load_settings(self, settings=None):
-        """Load current settings into the UI."""
+        """Load current settings into the UI.
+
+        ``_form_baseline`` (the deep copy stored at the end of this method)
+        is the only source of truth for the next diff-based save; it is
+        refreshed nowhere else.
+        """
         if settings is None:
-            # Force reload from disk to avoid race conditions with async saves
-            settings = config_service.load_settings()
+            # Read the authoritative in-memory state; no forced disk reload
+            settings = config_service.get_settings()
         self.current_settings = settings
         # logger.debug(f"Loading settings - theme: '{settings.theme}'")
 
@@ -735,55 +763,108 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
         self._update_deepl_plan_controls()
         self._update_reasoning_effort_visibility()
 
-    def _on_save(self):
-        """Handle save button click."""
+        # Snapshot the loaded state as the immutable baseline for the next patch save
+        self._form_baseline = settings.model_copy(deep=True)
+
+    @staticmethod
+    def _normalize_stored_str(value: Any) -> Any:
+        """Strip stored strings so UI-side stripping never creates a false diff."""
+        return value.strip() if isinstance(value, str) else value
+
+    @classmethod
+    def _normalize_baseline_text_styles(cls, styles) -> list:
+        """Mirror the table roundtrip normalization for stored text styles.
+
+        Incomplete entries (empty name or prompt) are dropped exactly like
+        ``_collect_text_styles_from_ui`` drops them, so stored junk never
+        produces a false diff.
+        """
+        normalized = []
+        for style in styles or []:
+            if isinstance(style, dict):
+                name = (style.get("name") or "").strip()
+                prompt = (style.get("prompt") or "").strip()
+            else:
+                name = str(style).strip()
+                prompt = ""
+            if name and prompt:
+                normalized.append({"name": name, "prompt": prompt})
+        return normalized
+
+    def _build_settings_patch(self) -> Dict[str, Any]:
+        """Collect form values that differ from the load-time baseline snapshot.
+
+        Raises:
+            RuntimeError: when the baseline was never initialized; saving
+                against live settings could silently revert external changes.
+        """
+        baseline = self._form_baseline
+        if baseline is None:
+            raise RuntimeError(
+                "Form baseline is not initialized; refusing to build a settings patch."
+            )
+
+        patch: Dict[str, Any] = {}
+
+        # Simple mapped fields: include only values that differ from the baseline
+        for key, (widget, getter, _) in self.settings_map.items():
+            value = getter(widget) if callable(getter) else getattr(widget, getter)()
+            if isinstance(value, str):
+                value = value.strip()
+            if value != self._normalize_stored_str(getattr(baseline, key, None)):
+                patch[key] = value
+
+        # API keys: normalized ("" -> None), included only when changed
+        for provider, edit in self.api_key_edits.items():
+            key_name = f"{provider}_api_key"
+            api_key = edit.text().strip() or None
+            if api_key != self._normalize_stored_str(getattr(baseline, key_name, None)):
+                patch[key_name] = api_key
+                logger.debug(f"API key changed for {provider}: {'****' if api_key else 'None'}")
+
+        # Model selection: only for providers that require a model, never a placeholder.
+        # A load-time fallback default counts as baseline until the user changes it.
+        provider = self._get_current_provider()
+        model_text = self.model_combo.currentText().strip()
+        if requires_model_selection(provider) and model_text not in self.MODEL_PLACEHOLDERS:
+            model_key = f"{provider}_model"
+            effective_baseline = self._loaded_model_defaults.get(
+                model_key, getattr(baseline, model_key, None)
+            )
+            if model_text != self._normalize_stored_str(effective_baseline):
+                patch[model_key] = model_text
+
+        # Text Stylist presets: included only when actually changed
         try:
-            settings_to_save = config_service.get_settings().model_copy(deep=True)
+            styles = self._collect_text_styles_from_ui()
+            baseline_styles = list(getattr(baseline, "text_styles", []) or [])
+            if styles != self._normalize_baseline_text_styles(baseline_styles):
+                patch["text_styles"] = styles
+        except Exception as e:
+            logger.warning(f"Failed to collect text styles from UI: {e}")
 
-            for key, (widget, getter, _) in self.settings_map.items():
-                if callable(getter):
-                    value = getter(widget)
-                else:
-                    value = getattr(widget, getter)()
-                if isinstance(value, str):
-                    value = value.strip()
+        return patch
 
-                setattr(settings_to_save, key, value)
+    def _on_save(self):
+        """Apply only the changed values via ConfigService and close on success."""
+        try:
+            patch = self._build_settings_patch()
 
-            # Save API keys from all provider fields
-            for provider, edit in self.api_key_edits.items():
-                api_key_text = edit.text().strip() or None
-                setattr(settings_to_save, f"{provider}_api_key", api_key_text)
-                logger.debug(f"Saved API key for {provider}: {'****' if api_key_text else 'None'}")
+            if not patch:
+                logger.debug("No settings changed; closing dialog without saving.")
+                self.accept()
+                return
 
-            # Special handling for provider-specific fields
-            provider = self._get_current_provider()
-            model_text = self.model_combo.currentText().strip()
+            logger.debug(f"Saving settings patch with keys: {sorted(patch.keys())}")
 
-            if requires_model_selection(provider):
-                # Do not save placeholder text as a model name.
-                if model_text not in self.MODEL_PLACEHOLDERS:
-                    setattr(settings_to_save, f"{provider}_model", model_text)
-                else:
-                    # If a placeholder is selected, we don't save it.
-                    # This preserves the last known valid model in the settings file.
-                    logger.debug(f"Ignoring model placeholder '{model_text}' during save to prevent corrupting settings.")
-
-            # Collect Text Stylist presets from UI
-            try:
-                styles = self._collect_text_styles_from_ui()
-                setattr(settings_to_save, "text_styles", styles)
-            except Exception as e:
-                logger.warning(f"Failed to collect text styles from UI: {e}")
-
-            # logger.debug(f"Saving settings with theme: '{settings_to_save.theme}'")
-
-            # Save settings asynchronously
-            config_service.save_settings_async(settings_to_save)
-
-            # Assume success and close the dialog immediately
-            # The user will be notified of the result via a tray notification
-            self.accept()
+            if config_service.update_settings(patch):
+                self.accept()
+            else:
+                QMessageBox.critical(
+                    self,
+                    "Save Error",
+                    "Failed to save settings. Please check the logs and try again.",
+                )
 
         except Exception as e:
             QMessageBox.critical(
@@ -977,7 +1058,19 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
         provider: str,
     ) -> None:
         """Apply available models to the relevant model selectors."""
-        self._apply_models_to_ui(models, model_to_select, source)
+        selected_model = self._apply_models_to_ui(models, model_to_select, source)
+
+        # Track load-time fallbacks so dialog-generated defaults are not saved as user changes
+        model_key = f"{provider}_model"
+        if (
+            selected_model
+            and selected_model not in self.MODEL_PLACEHOLDERS
+            and selected_model != (self._normalize_stored_str(model_to_select) or "")
+        ):
+            self._loaded_model_defaults[model_key] = selected_model
+        else:
+            self._loaded_model_defaults.pop(model_key, None)
+
         if provider == "openai":
             self._apply_openai_vision_models_to_ui(
                 models,
@@ -985,8 +1078,8 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
                 source,
             )
 
-    def _apply_models_to_ui(self, models: list, current_model: Optional[str], source: str = "unknown"):
-        """Apply models to the UI combo box."""
+    def _apply_models_to_ui(self, models: list, current_model: Optional[str], source: str = "unknown") -> str:
+        """Apply models to the UI combo box and return the final selected text."""
         logger.debug(f"Applying {len(models)} models to UI from source '{source}': {models}")
 
         self.model_combo.clear()
@@ -1025,7 +1118,9 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
                 self.model_combo.addItem("No models available")
                 logger.debug(f"❌ No models available to select (source: {source})")
 
-        logger.debug(f"Final combo box current text: '{self.model_combo.currentText()}'")
+        final_text = self.model_combo.currentText().strip()
+        logger.debug(f"Final combo box current text: '{final_text}'")
+        return final_text
 
     def _get_openai_vision_model_to_select(self) -> Optional[str]:
         """Return the current OpenAI vision model for combo restoration."""

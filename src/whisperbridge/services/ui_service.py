@@ -56,7 +56,7 @@ class UIService:
     Public methods:
       - show_main_window()
       - hide_main_window_to_tray()
-      - open_settings()
+      - open_settings(tab_title=None)
       - show_overlay_window(original_text, translated_text, position=None, overlay_id="main")
       - hide_overlay_window(overlay_id="main")
       - handle_worker_finished(original_text, translated_text, overlay_id)
@@ -219,9 +219,13 @@ class UIService:
     # --- Settings dialog ------------------------------------------------------
 
     @main_thread_only
-    def open_settings(self):
-        """Open (or create) the settings dialog with fresh state and bring it to front."""
-        self.logger.info("UIService: open_settings() called")
+    def open_settings(self, tab_title: Optional[str] = None):
+        """Open (or create) the settings dialog with fresh state and bring it to front.
+
+        Args:
+            tab_title: Optional tab title to select after values are refreshed.
+        """
+        self.logger.info(f"UIService: open_settings() called, tab_title={tab_title!r}")
         try:
             # Create dialog if it doesn't exist or was closed
             if self.settings_dialog is None:
@@ -239,12 +243,22 @@ class UIService:
                     notification_service.error(f"Failed to open settings: {e}", "WhisperBridge")
                     return
 
-            # Force reload all settings to ensure fresh state
+            # Refresh dialog state from the authoritative in-memory settings.
+            # This does not trigger an observer cascade and cannot read a stale file mid-save.
             try:
-                self.settings_dialog._load_settings()
+                from .config_service import config_service
+
+                self.settings_dialog._load_settings(settings=config_service.get_settings())
                 self.logger.debug("UIService: SettingsDialog state refreshed before showing")
             except Exception as e:
                 self.logger.warning(f"UIService: Failed to refresh SettingsDialog state: {e}")
+
+            # Select the requested tab; keep the current one for the plain tray path
+            if tab_title:
+                try:
+                    self.settings_dialog.select_tab_by_title(tab_title)
+                except Exception as e:
+                    self.logger.warning(f"UIService: Failed to select tab '{tab_title}': {e}")
 
             # Show and activate dialog
             try:

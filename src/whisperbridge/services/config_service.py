@@ -11,7 +11,7 @@ from typing import Any, Dict, Optional
 from weakref import WeakSet
 
 from loguru import logger
-from PySide6.QtCore import QObject, QThread, Slot, Signal
+from PySide6.QtCore import QObject
 
 from ..core.config import Settings
 from ..core.settings_manager import settings_manager
@@ -35,8 +35,6 @@ class SettingsObserver:
 
 class ConfigService(QObject):
     """Centralized configuration service with observer pattern and caching."""
-    # Emitted on async save completion (main thread): success, message
-    saved_async_result = Signal(bool, str)
 
     def __init__(self):
         super().__init__()
@@ -49,8 +47,6 @@ class ConfigService(QObject):
         self._observers: WeakSet[SettingsObserver] = WeakSet()
         self._lock = threading.RLock()
         self._cache_ttl = 300  # 5 minutes default
-        self._worker_threads: list = []  # Holds (thread, worker) pairs to prevent garbage collection
-        self._last_saved_settings: Optional[Settings] = None  # Track settings sent to async save
 
     def _notify_observers(self, event: str, *args, **kwargs):
         """Notify all observers of an event."""
@@ -282,69 +278,6 @@ class ConfigService(QObject):
 
         except Exception as e:
             logger.error(f"Failed to reinitialize API manager after settings change: {e}")
-
-    def save_settings_async(self, settings: Optional[Settings] = None):
-        """
-        Save settings asynchronously using a worker thread.
-        This method is non-blocking.
-        """
-        with self._lock:
-            if settings is None:
-                settings = self._settings
-                if settings is None:
-                    logger.warning("No settings to save asynchronously.")
-                    return
-
-            logger.info("Starting asynchronous settings save from ConfigService.")
-
-            # Create a copy to avoid threading issues
-            settings_copy = settings.model_copy()
-
-            # Store the settings being saved for use in callback
-            self._last_saved_settings = settings_copy
-
-            from .config_workers import SettingsSaveWorker
-            from ..ui_qt.app import get_qt_app
-            worker = SettingsSaveWorker(settings_copy)
-            app = get_qt_app()
-            app.create_and_run_worker(worker, self._on_async_save_finished, lambda: None)
-
-    @Slot(bool, str)
-    def _on_async_save_finished(self, success: bool, message: str):
-        """Handle the result of the asynchronous settings save."""
-        with self._lock:
-            if success:
-                logger.info(f"Async save successful: {message}")
-                # Take a copy of old settings for correct diff-notification
-                old_settings = self._settings.model_copy() if self._settings else None
-
-                # Update in-memory state with the settings that were successfully saved
-                # This avoids unnecessary file I/O and potential race conditions
-                if self._last_saved_settings:
-                    self._settings = self._last_saved_settings
-                    self._invalidate_cache()  # Clear cache since settings changed
-
-                # Notify 'saved' and separately changes to keys
-                new_settings = self.get_settings()
-                self._notify_observers("saved", new_settings)
-                if old_settings:
-                    self._notify_setting_changes(old_settings, new_settings)
-            else:
-                logger.error(f"Async save failed: {message}")
-    
-        # Emit result signal on the main thread so UI can notify the user
-        try:
-            self.saved_async_result.emit(success, message)
-        except Exception as e:
-            logger.debug(f"Failed to emit saved_async_result: {e}")
-    
-        # Cleanup of completed threads (optional, for long-lived applications)
-        self._worker_threads = [
-            (t, w) for t, w in self._worker_threads if t.isRunning()
-        ]
-
-
-
 
 
 
