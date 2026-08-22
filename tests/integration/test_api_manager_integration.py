@@ -4,7 +4,6 @@ Integration tests for APIManager.
 
 import threading
 import pytest
-from whisperbridge.core.config import OPENAI_MODEL_POLICY
 from whisperbridge.core.provider_catalog import APIProvider
 
 pytestmark = pytest.mark.integration
@@ -125,8 +124,8 @@ class TestAPIManagerIntegration:
         # 1. Session 1: Fetch and cache
         mock_config_service.get_setting.return_value = "sk-test"
         mock_client = mocker.Mock()
-        fallback_model = OPENAI_MODEL_POLICY.fallback_models[0]
-        mock_model = mocker.Mock(id=fallback_model)
+        api_model = "gpt-5.4-mini"
+        mock_model = mocker.Mock(id=api_model)
         mock_client.models.list.return_value = mocker.Mock(data=[mock_model])
         mocker.patch("whisperbridge.core.api_manager.providers.OpenAIChatClientAdapter", return_value=mock_client)
 
@@ -134,7 +133,7 @@ class TestAPIManagerIntegration:
         manager1.initialize()
         models, source = manager1.get_available_models_sync(APIProvider.OPENAI)
         assert source == "api"
-        assert fallback_model in models
+        assert api_model in models
         manager1.shutdown()
 
         # 2. Session 2: Load from cache
@@ -144,7 +143,7 @@ class TestAPIManagerIntegration:
         manager2.initialize()
         models2, source2 = manager2.get_available_models_sync(APIProvider.OPENAI)
         
-        assert fallback_model in models2
+        assert api_model in models2
         assert source2 == "cache"
 
     def test_concurrent_translation_requests(self, api_manager, config_openai, mock_openai_client):

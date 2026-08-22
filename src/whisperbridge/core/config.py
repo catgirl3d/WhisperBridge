@@ -78,13 +78,11 @@ class OpenAIModelPolicy:
 
     minimum_version: tuple[int, int]
     default_model: str
-    fallback_models: tuple[str, ...]
 
 
 OPENAI_MODEL_POLICY = OpenAIModelPolicy(
     minimum_version=(5, 4),
     default_model="gpt-5.4-mini",
-    fallback_models=("gpt-5.4-mini",),
 )
 
 
@@ -184,10 +182,6 @@ class Settings(BaseSettings):
     )
     google_model: str = Field(default="gemini-2.5-flash", description="Default Google model")
     api_timeout: int = Field(default=API_TIMEOUT_DEFAULT, description="API request timeout in seconds")
-    default_models: Optional[List[str]] = Field(
-        default=None, description="Custom default models list (overrides built-in default)"
-    )
-
     # Overlay UI-specific language selections (do not affect core behavior)
     # - ui_source_language: "auto" or explicit ISO code
     # - ui_target_mode: "auto_swap" or "explicit"

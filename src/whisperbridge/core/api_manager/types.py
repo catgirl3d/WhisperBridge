@@ -15,7 +15,6 @@ class ModelSource(str, Enum):
     API = "api"
     API_TEMP_KEY = "api_temp_key"
     UNCONFIGURED = "unconfigured"
-    FALLBACK = "fallback"
     ERROR = "error"
 
 

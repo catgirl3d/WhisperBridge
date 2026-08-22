@@ -16,7 +16,6 @@ from whisperbridge.core.api_manager.cache import ModelCache
 from whisperbridge.core.api_manager.models import ModelManager
 from whisperbridge.core.provider_catalog import APIProvider
 from whisperbridge.core.api_manager.types import ModelSource
-from whisperbridge.core.config import OPENAI_MODEL_POLICY
 
 
 @pytest.fixture
@@ -360,90 +359,6 @@ class TestApplyFilters:
         result = model_manager.apply_filters(APIProvider.OPENAI, models)
 
         assert result == ["gpt-5.6-luna", "gpt-5.4-mini", "gpt-5.7-latest"]
-
-
-class TestGetDefaultModels:
-    """Tests for get_default_models method."""
-
-    def test_get_default_models_from_config(self, model_manager, mock_config_service):
-        """Test getting custom default models from config."""
-        # Arrange
-        custom_models = ["custom-model-1", "custom-model-2"]
-        mock_config_service.get_setting.side_effect = (
-            lambda key: custom_models if key == "default_models" else None
-        )
-
-        # Act
-        result = model_manager.get_default_models()
-
-        # Assert
-        assert result == custom_models
-        mock_config_service.get_setting.assert_called_once_with("default_models")
-
-    def test_get_default_models_builtin_fallback(self, model_manager, mock_config_service):
-        """Test fallback to built-in models when config is None."""
-        # Arrange
-        mock_config_service.get_setting.side_effect = (
-            lambda key: None if key == "default_models" else ["unexpected-model"]
-        )
-
-        # Act
-        result = model_manager.get_default_models()
-
-        # Assert
-        assert result == list(OPENAI_MODEL_POLICY.fallback_models)
-        mock_config_service.get_setting.assert_called_once_with("default_models")
-
-
-class TestGetFallbackModels:
-    """Tests for get_fallback_models method."""
-
-    def test_get_fallback_models_openai(self, model_manager, mock_cache, mocker):
-        """Test fallback models for OpenAI."""
-        # Arrange
-        mocker.patch.object(mock_cache, "cache_models_and_persist")
-
-        # Act
-        models, source = model_manager.get_fallback_models(APIProvider.OPENAI)
-
-        # Assert
-        assert models == list(OPENAI_MODEL_POLICY.fallback_models)
-        assert source == ModelSource.FALLBACK.value
-        mock_cache.cache_models_and_persist.assert_called_once_with(
-            "openai", list(OPENAI_MODEL_POLICY.fallback_models)
-        )
-
-    def test_get_fallback_models_google(self, model_manager, mock_cache, mocker):
-        """Test fallback models for Google."""
-        # Arrange
-        mocker.patch.object(mock_cache, "cache_models_and_persist")
-
-        # Act
-        models, source = model_manager.get_fallback_models(APIProvider.GOOGLE)
-
-        # Assert
-        assert models == ["gemini-2.5-flash", "gemini-1.5-flash"]
-        assert source == ModelSource.FALLBACK.value
-        mock_cache.cache_models_and_persist.assert_called_once_with(
-            "google", ["gemini-2.5-flash", "gemini-1.5-flash"]
-        )
-
-    def test_get_fallback_models_deepl(self, model_manager, mock_cache, mocker):
-        """Test fallback model for DeepL."""
-        # Arrange
-        mocker.patch.object(mock_cache, "cache_models_and_persist")
-        mocker.patch(
-            "whisperbridge.core.api_manager.models.get_deepl_identifier",
-            return_value="deepl-translate"
-        )
-
-        # Act
-        models, source = model_manager.get_fallback_models(APIProvider.DEEPL)
-
-        # Assert
-        assert models == ["deepl-translate"]
-        assert source == ModelSource.FALLBACK.value
-        mock_cache.cache_models_and_persist.assert_called_once()
 
 
 class TestCacheInvalidation:

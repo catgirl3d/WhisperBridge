@@ -12,7 +12,6 @@ from typing import Any, Dict, List, Optional, Tuple
 from loguru import logger
 
 from ..config import (
-    OPENAI_MODEL_POLICY,
     filter_openai_model_selection,
     get_deepl_identifier,
     get_google_model_excludes,
@@ -30,8 +29,8 @@ class ModelManager:
     """
     Manager for listing and filtering available models.
 
-    This class handles fetching models from API providers with caching,
-    filtering, and fallback support.
+    This class handles fetching models from API providers with caching
+    and filtering.
     """
 
     def __init__(self, cache: ModelCache, config_service, provider_registry):
@@ -46,46 +45,6 @@ class ModelManager:
         self._cache = cache
         self._config = config_service
         self._providers = provider_registry
-
-    def get_default_models(self) -> List[str]:
-        """
-        Get default model list with optional configuration override.
-
-        Returns:
-            List of default model names.
-        """
-        try:
-            # Check for custom models in configuration
-            custom_models = self._config.get_setting("default_models")
-            if custom_models and isinstance(custom_models, list) and ModelCache.validate_model_list(custom_models):
-                logger.debug(f"Using custom default models from config: {custom_models}")
-                return custom_models.copy()
-        except Exception as e:
-            logger.warning(f"Failed to get custom default models from config: {e}")
-
-        # Fallback to built-in default models
-        fallback_models = list(OPENAI_MODEL_POLICY.fallback_models)
-        logger.debug(f"Using built-in default models: {fallback_models}")
-        return fallback_models
-
-    def get_fallback_models(self, provider: APIProvider) -> Tuple[List[str], str]:
-        """
-        Get fallback models with caching.
-
-        Args:
-            provider: The API provider.
-
-        Returns:
-            Tuple of (models_list, source).
-        """
-        if provider == APIProvider.GOOGLE:
-            fallback_models = ["gemini-2.5-flash", "gemini-1.5-flash"]
-        elif provider == APIProvider.DEEPL:
-            fallback_models = [get_deepl_identifier()]
-        else:
-            fallback_models = self.get_default_models()
-        self._cache.cache_models_and_persist(provider.value, fallback_models)
-        return fallback_models, ModelSource.FALLBACK.value
 
     def _get_exclude_terms(self, provider: APIProvider) -> Optional[List[str]]:
         if provider == APIProvider.OPENAI:

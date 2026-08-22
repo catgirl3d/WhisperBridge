@@ -11,13 +11,7 @@ import openai
 from loguru import logger
 from openai.types.chat import ChatCompletionMessageParam
 
-from ..core.config import OPENAI_MODEL_POLICY
-
-__all__ = ["OpenAIChatClientAdapter", "DEFAULT_GPT_MODELS"]
-
-# Default GPT models list
-# Compatibility alias derived from the central model policy.
-DEFAULT_GPT_MODELS = list(OPENAI_MODEL_POLICY.fallback_models)
+__all__ = ["OpenAIChatClientAdapter"]
 
 
 class OpenAIChatClientAdapter:

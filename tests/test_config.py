@@ -43,11 +43,10 @@ def test_api_timeout_uses_canonical_range():
         Settings(api_timeout=61)
 
 
-def test_openai_model_policy_has_selected_defaults_and_fallbacks():
-    """OpenAI defaults and fallback must come from one policy."""
+def test_openai_model_policy_has_selected_defaults():
+    """OpenAI selection defaults must come from one policy."""
     assert OPENAI_MODEL_POLICY.minimum_version == (5, 4)
     assert OPENAI_MODEL_POLICY.default_model == "gpt-5.4-mini"
-    assert OPENAI_MODEL_POLICY.fallback_models == ("gpt-5.4-mini",)
 
 
 def test_openai_reasoning_effort_accepts_supported_values():
