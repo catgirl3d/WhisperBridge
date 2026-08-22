@@ -171,7 +171,7 @@ class CopyTranslateService(QObject):
             # Poll clipboard for changed content using exponential backoff and configurable timeout.
             # Read timeout from config (milliseconds) and convert to seconds.
             try:
-                timeout_ms = self.config_service.get_setting("clipboard_poll_timeout_ms", use_cache=False)
+                timeout_ms = self.config_service.get_setting("clipboard_poll_timeout_ms")
                 timeout_ms = int(timeout_ms) if timeout_ms is not None else 2000
             except Exception as e:
                 log.debug(f"Failed to read clipboard_poll_timeout_ms from config; using default 2000ms: {e}")
@@ -253,9 +253,9 @@ class CopyTranslateService(QObject):
                 return
 
             # Check for API key presence before attempting translation
-            provider = (self.config_service.get_setting("api_provider", use_cache=False) or "openai").strip().lower()
-            openai_key = self.config_service.get_setting("openai_api_key", use_cache=False)
-            google_key = self.config_service.get_setting("google_api_key", use_cache=False)
+            provider = (self.config_service.get_setting("api_provider") or "openai").strip().lower()
+            openai_key = self.config_service.get_setting("openai_api_key")
+            google_key = self.config_service.get_setting("google_api_key")
             has_openai_key = bool(openai_key)
             has_google_key = bool(google_key)
             log.debug(
@@ -310,7 +310,7 @@ class CopyTranslateService(QObject):
 
             # Read auto_copy_translated setting live and set pending flag so main thread can copy AFTER overlay is shown
             try:
-                auto_copy = bool(self.config_service.get_setting("auto_copy_translated", use_cache=False))
+                auto_copy = bool(self.config_service.get_setting("auto_copy_translated"))
                 log.debug("Auto-copy setting resolved to {}", auto_copy)
             except Exception as e:
                 log.debug(f"Failed to read auto_copy_translated setting: {e}")

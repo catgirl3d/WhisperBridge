@@ -20,9 +20,9 @@ def setup_logging(config_service: ConfigService):
     logger.remove()  # Remove default handler
 
     # Read settings with safe fallbacks
-    log_level = (config_service.get_setting("log_level", use_cache=False) or "INFO").upper()
-    log_to_file = bool(config_service.get_setting("log_to_file", use_cache=False) or False)
-    max_log_size = int(config_service.get_setting("max_log_size", use_cache=False) or 10)
+    log_level = (config_service.get_setting("log_level") or "INFO").upper()
+    log_to_file = bool(config_service.get_setting("log_to_file") or False)
+    max_log_size = int(config_service.get_setting("max_log_size") or 10)
 
     # Check if console is available (not None in windowed builds)
     console_available = sys.stderr is not None

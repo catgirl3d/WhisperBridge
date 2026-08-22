@@ -60,8 +60,8 @@ def test_settings_manager_loads_legacy_temperature_keys(tmp_path, mocker):
     assert not hasattr(settings, "llm_temperature_stylist")
 
 
-def test_config_service_set_setting_uses_validated_value_for_cache_and_observers(tmp_path, mocker):
-    """ConfigService should expose the canonical saved value to cache and observers."""
+def test_config_service_set_setting_uses_validated_value_for_settings_and_observers(tmp_path, mocker):
+    """ConfigService should expose the canonical saved value to callers and observers."""
     manager = SettingsManager()
     settings_file = tmp_path / "settings.json"
     mocker.patch.object(manager, "_get_settings_file", return_value=settings_file)
@@ -80,6 +80,18 @@ def test_config_service_set_setting_uses_validated_value_for_cache_and_observers
 
     persisted_data = json.loads(settings_file.read_text(encoding="utf-8"))
     assert persisted_data["translator_font_size"] == 32
+
+
+def test_config_service_reads_current_settings_model_without_ttl_cache():
+    """A changed in-memory Settings model is visible on the next read."""
+    config = ConfigService()
+    config._settings = Settings()
+
+    assert config.get_setting("api_timeout") == config._settings.api_timeout
+
+    config._settings = config._settings.model_copy(update={"api_timeout": 45})
+
+    assert config.get_setting("api_timeout") == 45
 
 
 def test_config_service_update_settings_returns_false_on_save_failure(mocker):

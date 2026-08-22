@@ -41,7 +41,7 @@ class ThemeService(QObject, SettingsObserver):
     def get_theme_from_settings(self) -> str:
         """Get theme from settings."""
         # Get theme from config service to ensure we have the latest saved value
-        current_theme = self.config_service.get_setting("theme", use_cache=False)
+        current_theme = self.config_service.get_setting("theme")
         self.logger.debug(
             f"Retrieved theme from config service: '{current_theme}' (type: {type(current_theme)})"
         )

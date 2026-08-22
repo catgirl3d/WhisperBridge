@@ -253,7 +253,7 @@ class QtApp(QObject, SettingsObserver):
     def _on_translate_hotkey(self):
         """Handle main translation hotkey press."""
         logger.info("Main translation hotkey pressed")
-        translate_hotkey = config_service.get_setting("translate_hotkey", use_cache=False)
+        translate_hotkey = config_service.get_setting("translate_hotkey")
         logger.debug(f"Hotkey: {translate_hotkey}")
 
         # Check OCR service readiness
@@ -265,7 +265,7 @@ class QtApp(QObject, SettingsObserver):
     def _on_quick_translate_hotkey(self):
         """Handle quick translation hotkey press - shows overlay translator window."""
         logger.info("Quick translation hotkey pressed - showing overlay translator")
-        quick_translate_hotkey = config_service.get_setting("quick_translate_hotkey", use_cache=False)
+        quick_translate_hotkey = config_service.get_setting("quick_translate_hotkey")
         logger.debug(f"Hotkey: {quick_translate_hotkey}")
         self.toggle_overlay_signal.emit()
 

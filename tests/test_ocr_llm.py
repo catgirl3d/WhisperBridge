@@ -25,7 +25,7 @@ class FakeConfigService:
     def __init__(self):
         self.settings = {}
 
-    def get_setting(self, key, use_cache=True):
+    def get_setting(self, key):
         return self.settings.get(key)
 
 

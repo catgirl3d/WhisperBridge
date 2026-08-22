@@ -77,7 +77,7 @@ class AppServices(QObject):
         
         # Apply initial 'show_notifications' setting
         try:
-            show = bool(config_service.get_setting("show_notifications", use_cache=False))
+            show = bool(config_service.get_setting("show_notifications"))
             if show:
                 self.notification_service.enable()
             else:

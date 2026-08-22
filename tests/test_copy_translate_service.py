@@ -5,7 +5,7 @@ from whisperbridge.services.copy_translate_service import CopyTranslateService
 
 
 def _make_get_setting(values):
-    def _get_setting(key, use_cache=False):
+    def _get_setting(key):
         value = values.get(key)
         if isinstance(value, Exception):
             raise value

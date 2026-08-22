@@ -370,9 +370,7 @@ class TestGetDefaultModels:
         # Arrange
         custom_models = ["custom-model-1", "custom-model-2"]
         mock_config_service.get_setting.side_effect = (
-            lambda key, use_cache=True: custom_models
-            if key == "default_models" and not use_cache
-            else None
+            lambda key: custom_models if key == "default_models" else None
         )
 
         # Act
@@ -380,17 +378,13 @@ class TestGetDefaultModels:
 
         # Assert
         assert result == custom_models
-        mock_config_service.get_setting.assert_called_once_with(
-            "default_models", use_cache=False
-        )
+        mock_config_service.get_setting.assert_called_once_with("default_models")
 
     def test_get_default_models_builtin_fallback(self, model_manager, mock_config_service):
         """Test fallback to built-in models when config is None."""
         # Arrange
         mock_config_service.get_setting.side_effect = (
-            lambda key, use_cache=True: None
-            if key == "default_models" and not use_cache
-            else ["unexpected-model"]
+            lambda key: None if key == "default_models" else ["unexpected-model"]
         )
 
         # Act
@@ -398,9 +392,7 @@ class TestGetDefaultModels:
 
         # Assert
         assert result == list(OPENAI_MODEL_POLICY.fallback_models)
-        mock_config_service.get_setting.assert_called_once_with(
-            "default_models", use_cache=False
-        )
+        mock_config_service.get_setting.assert_called_once_with("default_models")
 
 
 class TestGetFallbackModels:

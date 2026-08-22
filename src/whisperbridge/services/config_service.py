@@ -2,11 +2,10 @@
 Configuration Service for WhisperBridge.
 
 This module provides a centralized configuration service with
-observer pattern for change notifications, caching, and validation.
+observer pattern for change notifications and validation.
 """
 
 import threading
-import time
 from typing import Any, Dict, Optional
 from weakref import WeakSet
 
@@ -34,7 +33,7 @@ class SettingsObserver:
 
 
 class ConfigService(QObject):
-    """Centralized configuration service with observer pattern and caching."""
+    """Centralized configuration service with observer notifications."""
 
     def __init__(self):
         super().__init__()
@@ -42,11 +41,8 @@ class ConfigService(QObject):
         # which can cause conflicting reads/writes on startup.
         self._settings_manager = settings_manager
         self._settings: Optional[Settings] = None
-        self._cache: Dict[str, Any] = {}
-        self._cache_timestamps: Dict[str, float] = {}
         self._observers: WeakSet[SettingsObserver] = WeakSet()
         self._lock = threading.RLock()
-        self._cache_ttl = 300  # 5 minutes default
 
     def _notify_observers(self, event: str, *args, **kwargs):
         """Notify all observers of an event."""
@@ -61,34 +57,6 @@ class ConfigService(QObject):
             except Exception as e:
                 logger.warning(f"Observer notification failed: {e}")
 
-    def _invalidate_cache(self, key: Optional[str] = None):
-        """Invalidate cache for a specific key or all keys."""
-        with self._lock:
-            if key:
-                self._cache.pop(key, None)
-                self._cache_timestamps.pop(key, None)
-            else:
-                self._cache.clear()
-                self._cache_timestamps.clear()
-
-    def _is_cache_valid(self, key: str) -> bool:
-        """Check if cached value is still valid."""
-        if key not in self._cache_timestamps:
-            return False
-
-        return (time.time() - self._cache_timestamps[key]) < self._cache_ttl
-
-    def _get_cached_value(self, key: str) -> Any:
-        """Get value from cache if valid."""
-        if self._is_cache_valid(key):
-            return self._cache[key]
-        return None
-
-    def _set_cached_value(self, key: str, value: Any):
-        """Set value in cache with timestamp."""
-        self._cache[key] = value
-        self._cache_timestamps[key] = time.time()
-
     def add_observer(self, observer: SettingsObserver):
         """Add an observer for settings changes."""
         with self._lock:
@@ -101,7 +69,6 @@ class ConfigService(QObject):
         with self._lock:
             try:
                 self._settings = self._settings_manager.load_settings()
-                self._invalidate_cache()  # Clear cache on reload
                 self._notify_observers("loaded", self._settings)
                 logger.info("Settings loaded via config service")
                 return self._settings
@@ -129,7 +96,6 @@ class ConfigService(QObject):
 
                 if success:
                     self._settings = settings
-                    self._invalidate_cache()  # Clear cache on save
                     self._notify_observers("saved", self._settings)
 
                     # Notify about individual changes
@@ -173,24 +139,10 @@ class ConfigService(QObject):
                 return self.load_settings()
             return self._settings
 
-    def get_setting(self, key: str, use_cache: bool = True) -> Any:
-        """Get a specific setting value with optional caching."""
+    def get_setting(self, key: str) -> Any:
+        """Get a setting from the current model."""
         with self._lock:
-            # Try cache first
-            if use_cache:
-                cached_value = self._get_cached_value(key)
-                if cached_value is not None:
-                    return cached_value
-
-            # Get from settings
-            settings = self.get_settings()
-            value = getattr(settings, key, None)
-
-            # Cache the value
-            if use_cache and value is not None:
-                self._set_cached_value(key, value)
-
-            return value
+            return getattr(self.get_settings(), key, None)
 
     def set_setting(self, key: str, value: Any) -> bool:
         """Set a specific setting value."""
@@ -206,8 +158,6 @@ class ConfigService(QObject):
                     validated_settings = self._settings_manager.get_settings()
                     validated_value = getattr(validated_settings, key, value)
                     self._settings = validated_settings
-
-                    self._set_cached_value(key, validated_value)
 
                     if old_value != validated_value:
                         self._notify_observers("changed", key, old_value, validated_value)

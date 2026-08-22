@@ -56,7 +56,7 @@ class ModelManager:
         """
         try:
             # Check for custom models in configuration
-            custom_models = self._config.get_setting("default_models", use_cache=False)
+            custom_models = self._config.get_setting("default_models")
             if custom_models and isinstance(custom_models, list) and ModelCache.validate_model_list(custom_models):
                 logger.debug(f"Using custom default models from config: {custom_models}")
                 return custom_models.copy()
