@@ -5,7 +5,6 @@ Integration tests for APIManager.
 import threading
 import pytest
 from whisperbridge.core.api_manager.providers import APIProvider
-from whisperbridge.core.api_manager.types import APIUsage
 from whisperbridge.core.config import OPENAI_MODEL_POLICY
 
 pytestmark = pytest.mark.integration
@@ -151,7 +150,6 @@ class TestAPIManagerIntegration:
     def test_concurrent_translation_requests(self, api_manager, config_openai, mock_openai_client):
         """Test handling multiple concurrent requests."""
         api_manager.initialize()
-        api_manager._usage[APIProvider.OPENAI] = APIUsage()
         
         results = []
         errors = []
@@ -172,5 +170,3 @@ class TestAPIManagerIntegration:
         assert len(errors) == 0, f"Concurrent errors: {errors}"
         assert len(results) == 5
         assert mock_openai_client.chat.completions.create.call_count == 5
-        stats = api_manager.get_usage_stats(APIProvider.OPENAI)
-        assert stats["requests_count"] == 5

@@ -7,7 +7,6 @@ of the API management system.
 
 import threading
 import time
-from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 from loguru import logger
@@ -25,7 +24,6 @@ from .cache import ModelCache
 from .errors import APIError, APIErrorType, RetryableAPIError, classify_error, log_network_diagnostics, requires_initialization
 from .models import ModelManager
 from .providers import APIProvider, ProviderRegistry
-from .types import APIUsage
 
 
 class APIManager:
@@ -54,9 +52,6 @@ class APIManager:
         self._providers = ProviderRegistry(config_service)
         self._model_manager = ModelManager(self._cache, config_service, self._providers)
 
-        # Usage tracking per provider
-        self._usage: Dict[APIProvider, APIUsage] = {}
-
     def initialize(self) -> bool:
         """
         Initialize API manager with configured providers.
@@ -81,10 +76,9 @@ class APIManager:
         """
         Reinitialize API manager using the latest configuration values.
 
-        Clears existing clients and usage statistics, then re-runs the standard
-        initialization workflow so the manager picks up refreshed credentials or
-        provider settings. Model cache is cleared to ensure fresh API calls with
-        new credentials.
+        Clears existing clients, then re-runs the standard initialization workflow
+        so the manager picks up refreshed credentials or provider settings. Model
+        cache is cleared to ensure fresh API calls with new credentials.
 
         Returns:
             True if reinitialization succeeded, False otherwise.
@@ -92,7 +86,6 @@ class APIManager:
         logger.info("Reinitializing API manager with updated settings")
         with self._lock:
             self._providers.clear()
-            self._usage.clear()
             self._cache.clear(delete_persisted=True)
             self._is_initialized = False
 
@@ -205,8 +198,6 @@ class APIManager:
         if not client:
             raise ValueError(f"Provider {provider.value} not configured. Please set up your API key in settings.")
 
-        usage = self._usage.get(provider, APIUsage())
-
         try:
             logger.debug(f"Making API request to provider '{provider.value}' with args: {kwargs}")
             if not self._diag_logged:
@@ -217,24 +208,11 @@ class APIManager:
             request_time = time.time() - start_time
             logger.debug(f"Raw API response: {response}")
 
-            with self._lock:
-                usage.requests_count += 1
-                usage.successful_requests += 1
-                usage.last_request_time = datetime.now()
-                if hasattr(response, "usage") and response.usage:
-                    usage.tokens_used += response.usage.total_tokens
-
             logger.debug(f"API request completed in {request_time:.2f}s")
             return response
 
         except Exception as e:
             api_error = classify_error(e, provider.value)
-
-            with self._lock:
-                usage.requests_count += 1
-                usage.failed_requests += 1
-                if api_error.error_type == APIErrorType.RATE_LIMIT:
-                    usage.rate_limit_hits += 1
 
             logger.error(f"API request failed: {api_error.error_type.value} - {api_error.message}")
 
@@ -418,63 +396,6 @@ class APIManager:
         return ""
 
     @requires_initialization
-    def get_usage_stats(self, provider: Optional[APIProvider] = None) -> Dict[str, Any]:
-        """
-        Get API usage statistics.
-
-        Args:
-            provider: Optional provider to get stats for. If None, returns stats for all providers.
-
-        Returns:
-            Dictionary of usage statistics.
-        """
-        with self._lock:
-            if provider:
-                usage = self._usage.get(provider, APIUsage())
-                return {
-                    "provider": provider.value,
-                    "requests_count": usage.requests_count,
-                    "tokens_used": usage.tokens_used,
-                    "successful_requests": usage.successful_requests,
-                    "failed_requests": usage.failed_requests,
-                    "success_rate": (usage.successful_requests / usage.requests_count * 100) if usage.requests_count > 0 else 0,
-                    "last_request_time": usage.last_request_time.isoformat() if usage.last_request_time else None,
-                    "rate_limit_hits": usage.rate_limit_hits,
-                }
-            else:
-                # Return stats for all providers
-                stats = {}
-                for prov, usage in self._usage.items():
-                    stats[prov.value] = self.get_usage_stats(prov)
-                return stats
-
-    @requires_initialization
-    def is_rate_limited(self, provider: APIProvider) -> bool:
-        """
-        Check if provider is currently rate limited.
-
-        Args:
-            provider: The API provider to check.
-
-        Returns:
-            True if rate limited, False otherwise.
-        """
-        usage = self._usage.get(provider, APIUsage())
-
-        # Simple rate limiting check based on recent failures
-        if usage.rate_limit_hits > 5:
-            # Check if we should reset the counter (after some time)
-            if usage.last_request_time:
-                time_since_last = datetime.now() - usage.last_request_time
-                if time_since_last > timedelta(minutes=5):
-                    with self._lock:
-                        usage.rate_limit_hits = 0
-                    return False
-            return True
-
-        return False
-
-    @requires_initialization
     def get_available_models_sync(self, provider: APIProvider, temp_api_key: Optional[str] = None) -> tuple[List[str], str]:
         """
         Get list of available models from API provider.
@@ -493,7 +414,6 @@ class APIManager:
         """Shutdown API manager and cleanup resources."""
         with self._lock:
             self._providers.clear()
-            self._usage.clear()
             self._cache.clear()
             self._is_initialized = False
             logger.info("API manager shutdown")

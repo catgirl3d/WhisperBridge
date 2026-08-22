@@ -2,12 +2,12 @@
 API Manager package for WhisperBridge.
 
 Provides centralized API management with authentication,
-error handling, retry logic, and usage monitoring.
+error handling, and retry logic.
 """
 
 import threading
 
-from .types import APIUsage, ModelSource
+from .types import ModelSource
 from .errors import APIError, APIErrorType, RetryableAPIError
 from .providers import APIProvider
 from .manager import APIManager
@@ -62,7 +62,6 @@ __all__ = [
     "APIError",
     "APIErrorType",
     "RetryableAPIError",
-    "APIUsage",
     "ModelSource",
     "get_api_manager",
     "init_api_manager",

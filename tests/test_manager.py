@@ -7,19 +7,13 @@ This module tests API manager integration functionality including:
 - Translation requests
 - Vision requests
 - Response text extraction
-- Usage statistics
-- Rate limiting
 - Shutdown
 """
 
-from datetime import datetime, timedelta
-
 import pytest
-from freezegun import freeze_time
 
 from whisperbridge.core.api_manager.manager import APIManager
 from whisperbridge.core.api_manager.providers import APIProvider
-from whisperbridge.core.api_manager.types import APIUsage
 
 
 # ============================================================================
@@ -28,26 +22,23 @@ from whisperbridge.core.api_manager.types import APIUsage
 
 @pytest.fixture
 def initialized_openai_manager(api_manager, config_openai, mock_openai_client):
-    """API manager with initialized OpenAI provider and usage tracking."""
+    """API manager with an initialized OpenAI provider."""
     api_manager.initialize()
-    api_manager._usage[APIProvider.OPENAI] = APIUsage()
     return api_manager
 
 
 @pytest.fixture
 def initialized_google_manager(api_manager, config_google, mock_google_client):
-    """API manager with initialized Google provider and usage tracking."""
+    """API manager with an initialized Google provider."""
     api_manager.initialize()
-    api_manager._usage[APIProvider.GOOGLE] = APIUsage()
     return api_manager
 
 
 @pytest.fixture
 def initialized_deepl_manager(api_manager, config_deepl, mock_deepl_client):
-    """API manager with initialized DeepL provider and usage tracking."""
+    """API manager with an initialized DeepL provider."""
     # mock_deepl_client.client ensures the patch is applied
     api_manager.initialize()
-    api_manager._usage[APIProvider.DEEPL] = APIUsage()
     return api_manager
 
 
@@ -119,14 +110,8 @@ class TestInitialization:
             return_value=mock_openai_client
         )
 
-        # Initialize and make some requests
+        # Initialize with valid provider state
         api_manager.initialize()
-        api_manager._usage[APIProvider.OPENAI] = APIUsage(
-            requests_count=5,
-            successful_requests=3,
-            failed_requests=2,
-            tokens_used=1000,
-        )
 
         # Act
         api_manager.reinitialize()
@@ -135,8 +120,6 @@ class TestInitialization:
         assert api_manager.is_initialized() is True
         assert api_manager.has_clients() is True
         
-        assert api_manager._usage == {}
-
     def test_reinitialize_removes_persistent_model_cache(
         self, api_manager, mock_config_service, mocker, tmp_path
     ):
@@ -175,7 +158,6 @@ class TestMakeRequestSync:
 
         # Assert
         assert result is not None
-        assert initialized_openai_manager._usage[APIProvider.OPENAI].successful_requests == 1
 
     def test_make_request_sync_rejects_temperature_before_client_call(self, initialized_openai_manager):
         client = initialized_openai_manager._providers.get_client(APIProvider.OPENAI)
@@ -204,10 +186,6 @@ class TestMakeRequestSync:
         mock_response = mocker.Mock()
         mock_response.choices = [mocker.Mock()]
         mock_response.choices[0].message.content = "Test response"
-        # Mock usage to avoid TypeError in stats update
-        mock_response.usage = mocker.Mock()
-        mock_response.usage.total_tokens = 50
-
         mock_client = mocker.Mock()
         mock_client.chat.completions.create.side_effect = [error, error, mock_response]
 
@@ -217,7 +195,6 @@ class TestMakeRequestSync:
         )
 
         api_manager.initialize()
-        api_manager._usage[APIProvider.OPENAI] = APIUsage()
 
         # Act
         # Note: tenancy retry will wait, so this test might take a few seconds
@@ -233,7 +210,6 @@ class TestMakeRequestSync:
         # Assert
         assert result is not None
         assert mock_client.chat.completions.create.call_count == 3
-        assert api_manager._usage[APIProvider.OPENAI].rate_limit_hits == 2
 
     def test_make_request_sync_no_retry_on_auth_error(self, api_manager, mock_config_service, mocker):
         """Test that auth errors are not retried."""
@@ -254,7 +230,6 @@ class TestMakeRequestSync:
         )
 
         api_manager.initialize()
-        api_manager._usage[APIProvider.OPENAI] = APIUsage()
 
         # Act & Assert
         with pytest.raises(Exception, match="unauthorized"):
@@ -339,12 +314,6 @@ class TestTranslationRequests:
             messages=messages,
             target_lang="DE",
         )
-        usage = initialized_deepl_manager._usage[APIProvider.DEEPL]
-        assert usage.requests_count == 1
-        assert usage.successful_requests == 1
-        assert usage.failed_requests == 0
-
-
 class TestVisionRequests:
     """Tests for make_vision_request method."""
 
@@ -480,119 +449,12 @@ class TestExtractTextFromResponse:
         )
 
 
-class TestUsageStats:
-    """Tests for get_usage_stats method."""
-
-    def test_get_usage_stats_single_provider(self, initialized_openai_manager):
-        """Test getting usage stats for a single provider."""
-        # Set up some usage data
-        initialized_openai_manager._usage[APIProvider.OPENAI] = APIUsage(
-            requests_count=10,
-            successful_requests=8,
-            failed_requests=2,
-            tokens_used=5000,
-            last_request_time=datetime.now(),
-            rate_limit_hits=3,
-        )
-
-        # Act
-        stats = initialized_openai_manager.get_usage_stats(APIProvider.OPENAI)
-
-        # Assert
-        assert stats["provider"] == "openai"
-        assert stats["requests_count"] == 10
-        assert stats["tokens_used"] == 5000
-        assert stats["successful_requests"] == 8
-        assert stats["failed_requests"] == 2
-        assert stats["rate_limit_hits"] == 3
-        assert stats["success_rate"] == 80.0
-
-    def test_get_usage_stats_all_providers(self, api_manager, mock_config_service, mocker):
-        """Test getting usage stats for all providers."""
-        # Arrange
-        mock_config_service.get_setting.side_effect = lambda key: {
-            "openai_api_key": "sk-test123",
-            "google_api_key": "AIzatest123",
-            "api_provider": "openai",
-            "api_timeout": 30,
-        }.get(key)
-
-        mocker.patch("whisperbridge.core.api_manager.providers.OpenAIChatClientAdapter")
-        mocker.patch("whisperbridge.core.api_manager.providers.GoogleChatClientAdapter")
-
-        api_manager.initialize()
-
-        # Set up usage data for multiple providers
-        api_manager._usage[APIProvider.OPENAI] = APIUsage(
-            requests_count=5,
-            successful_requests=5,
-            failed_requests=0,
-            tokens_used=1000,
-        )
-        api_manager._usage[APIProvider.GOOGLE] = APIUsage(
-            requests_count=3,
-            successful_requests=2,
-            failed_requests=1,
-            tokens_used=500,
-        )
-
-        # Act
-        stats = api_manager.get_usage_stats()
-
-        # Assert
-        assert "openai" in stats
-        assert "google" in stats
-        assert stats["openai"]["requests_count"] == 5
-        assert stats["google"]["requests_count"] == 3
-
-
-class TestRateLimiting:
-    """Tests for is_rate_limited method."""
-
-    def test_is_rate_limited_true(self, initialized_openai_manager):
-        """Test detection of rate limit state."""
-        # Simulate 6 rate limit hits
-        initialized_openai_manager._usage[APIProvider.OPENAI] = APIUsage(
-            requests_count=10,
-            successful_requests=4,
-            failed_requests=6,
-            rate_limit_hits=6,
-            last_request_time=datetime.now(),
-        )
-
-        # Act
-        result = initialized_openai_manager.is_rate_limited(APIProvider.OPENAI)
-
-        # Assert
-        assert result is True
-
-    def test_is_rate_limited_reset_after_timeout(self, initialized_openai_manager):
-        """Test that rate limit counter resets after timeout."""
-        # Simulate 6 rate limit hits 7 minutes ago
-        old_time = datetime.now() - timedelta(minutes=7)
-        initialized_openai_manager._usage[APIProvider.OPENAI] = APIUsage(
-            requests_count=10,
-            successful_requests=4,
-            failed_requests=6,
-            rate_limit_hits=6,
-            last_request_time=old_time,
-        )
-
-        # Act
-        result = initialized_openai_manager.is_rate_limited(APIProvider.OPENAI)
-
-        # Assert
-        assert result is False
-        assert initialized_openai_manager._usage[APIProvider.OPENAI].rate_limit_hits == 0
-
-
 class TestShutdown:
     """Tests for shutdown method."""
 
     def test_shutdown_clears_all_state(self, initialized_openai_manager):
         """Test that shutdown clears all resources."""
         # Add some state
-        initialized_openai_manager._usage[APIProvider.OPENAI] = APIUsage(requests_count=5)
         initialized_openai_manager._cache.set("openai", ["gpt-5.4-mini"])
 
         # Act
@@ -600,7 +462,6 @@ class TestShutdown:
 
         # Assert
         assert initialized_openai_manager.is_initialized() is False
-        assert initialized_openai_manager._usage == {}
         assert not initialized_openai_manager._cache.is_cached("openai")
 
 
