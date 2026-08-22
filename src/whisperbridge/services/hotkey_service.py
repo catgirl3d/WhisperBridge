@@ -53,6 +53,7 @@ class HotkeyService:
         self._paused = False
         self._running = False
         self._listener: Optional[keyboard.Listener] = None
+        self._generation = 0
 
         self._executor = QThreadPool()
         self._executor.setMaxThreadCount(4)
@@ -83,12 +84,18 @@ class HotkeyService:
     def clear_hotkeys(self):
         """Remove all registered application hotkeys."""
         with self._lock:
+            self._generation += 1
             self._hotkeys.clear()
+            self._vk_hotkeys.clear()
+            self._current_vks.clear()
+            self._triggered_combinations.clear()
             logger.info("All hotkeys cleared")
 
     def set_paused(self, paused: bool):
         """Pause or resume hotkey triggering."""
         with self._lock:
+            if paused and not self._paused:
+                self._generation += 1
             self._paused = paused
             if paused:
                 self._current_vks.clear()
@@ -125,6 +132,7 @@ class HotkeyService:
         """Stop the global keyboard listener."""
         with self._lock:
             if not self._running:
+                self._do_cleanup()
                 return
 
             logger.info("Stopping hotkey service...")
@@ -172,6 +180,7 @@ class HotkeyService:
 
     def _do_cleanup(self):
         """Release listener resources and transient key state."""
+        self._generation += 1
         if self._listener:
             self._listener.stop()
             self._listener = None
@@ -181,15 +190,15 @@ class HotkeyService:
 
     def _on_press_raw(self, key):
         """Track a raw key press and trigger matching callbacks once."""
-        if self._paused:
-            return
-
         vk = self._get_vk_from_key(key)
         if vk is None:
             logger.trace(f"HotkeyService: Ignored press of unknown key: {key}")
             return
 
         with self._lock:
+            if self._paused:
+                return
+
             self._current_vks.add(vk)
             logger.trace(f"HotkeyService: [PRESS] VK={vk} | Active VKS: {self._current_vks}")
 
@@ -197,7 +206,23 @@ class HotkeyService:
                 if vks.issubset(self._current_vks) and combination not in self._triggered_combinations:
                     logger.info(f"Hotkey TRIGGERED: {combination} (VKS match: {vks})")
                     self._triggered_combinations.add(combination)
-                    self._executor.start(HotkeyRunnable(callback, combination))
+                    generation = self._generation
+                    self._executor.start(
+                        HotkeyRunnable(
+                            lambda callback=callback, combination=combination, generation=generation: self._run_hotkey_callback(
+                                callback, combination, generation
+                            ),
+                            combination,
+                        )
+                    )
+
+    def _run_hotkey_callback(self, callback, combination: str, generation: int):
+        """Run a callback only while its registration generation is current."""
+        with self._lock:
+            if generation != self._generation:
+                logger.debug(f"Skipped stale hotkey callback: {combination}")
+                return
+        callback()
 
     def _on_release_raw(self, key):
         """Track a raw key release and re-arm released combinations."""
@@ -238,19 +263,26 @@ class HotkeyService:
 
             try:
                 self._do_cleanup()
+                self._running = False
                 self._register_all_hotkeys()
 
-                if self._vk_hotkeys:
-                    self._listener = keyboard.Listener(
-                        on_press=self._on_press_raw,
-                        on_release=self._on_release_raw,
-                    )
-                    self._listener.start()
+                if not self._vk_hotkeys:
+                    logger.warning("No valid hotkeys to reload")
+                    return False
+
+                self._listener = keyboard.Listener(
+                    on_press=self._on_press_raw,
+                    on_release=self._on_release_raw,
+                )
+                self._listener.start()
+                self._running = True
 
                 logger.info("Hotkeys reloaded (VK-based)")
                 return True
             except Exception as e:
                 logger.error(f"Failed to reload hotkeys: {e}")
+                self._running = False
+                self._do_cleanup()
                 return False
 
     def is_running(self) -> bool:
@@ -264,4 +296,5 @@ class HotkeyService:
 
     def __del__(self):
         """Ensure listener cleanup during object destruction."""
-        self.stop()
+        if getattr(self, "_running", False) or getattr(self, "_listener", None):
+            self.stop()

@@ -165,11 +165,10 @@ class AppServices(QObject):
                 on_copy_translate=self.on_copy_translate
             )
 
-            if not self.hotkey_service.is_running():
-                logger.warning("AppServices: Hotkey service not running")
-                return
-
-            success = self.hotkey_service.reload_hotkeys()
+            if self.hotkey_service.is_running():
+                success = self.hotkey_service.reload_hotkeys()
+            else:
+                success = self.hotkey_service.start()
             if success:
                 logger.info("AppServices: Hotkeys reloaded successfully")
             else:
