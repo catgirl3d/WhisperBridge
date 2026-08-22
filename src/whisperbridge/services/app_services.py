@@ -9,7 +9,6 @@ from PySide6.QtCore import QObject, Slot
 
 from .ui_service import UIService
 from .hotkey_service import HotkeyService
-from ..core.keyboard_manager import KeyboardManager
 from .notification_service import get_notification_service
 from .copy_translate_service import CopyTranslateService
 from .config_service import config_service
@@ -28,7 +27,6 @@ class AppServices(QObject):
         self.ui_service: Optional[UIService] = None
         self.notification_service = None
         self.copy_translate_service: Optional[CopyTranslateService] = None
-        self.keyboard_manager: Optional[KeyboardManager] = None
         self.hotkey_service: Optional[HotkeyService] = None
 
         # Hotkey callbacks
@@ -89,9 +87,8 @@ class AppServices(QObject):
             logger.debug(f"AppServices: Failed to apply show_notifications setting: {e}")
         
         # Keyboard / hotkeys
-        self.keyboard_manager = KeyboardManager()
         try:
-            self.hotkey_service = HotkeyService(self.keyboard_manager)
+            self.hotkey_service = HotkeyService()
         except Exception as e:
             logger.warning(f"AppServices: Hotkey service not available: {e}")
             self.hotkey_service = None
@@ -155,12 +152,12 @@ class AppServices(QObject):
 
     def reload_hotkeys(self):
         """Reload hotkeys after settings change."""
-        if not self.keyboard_manager or not self.hotkey_service:
+        if not self.hotkey_service:
             logger.warning("AppServices: Cannot reload hotkeys - services not available")
             return
 
         try:
-            self.keyboard_manager.clear_all_hotkeys()
+            self.hotkey_service.clear_hotkeys()
             self.hotkey_service.register_application_hotkeys(
                 config_service=config_service,
                 on_translate=self.on_translate,
