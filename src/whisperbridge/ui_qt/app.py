@@ -25,10 +25,10 @@ class RunnableWorker(Protocol):
 
 
 from ..services.config_service import SettingsObserver, config_service
-from ..services.ocr_service import get_ocr_service
 from ..services.theme_service import ThemeService
 from ..services.translation_service import get_translation_service
 from ..core.api_manager import get_api_manager
+from ..core.config import BUILD_OCR_ENABLED
 
 # UI service extracted to manage window/overlay lifecycle
 from ..services.app_services import AppServices
@@ -203,7 +203,7 @@ class QtApp(QObject, SettingsObserver):
 
     def _handle_ocr_setting_change(self, key: str, old_value, new_value):
         """Handle changes to OCR settings."""
-        if key not in ["ocr_engine"]:
+        if key not in ["ocr_enabled"]:
             return
             
         try:
@@ -212,9 +212,8 @@ class QtApp(QObject, SettingsObserver):
             logger.error(f"Error handling OCR setting change for key '{key}': {e}", exc_info=True)
 
     def _update_ocr_state(self):
-        """Update OCR state, including tray menu and service initialization."""
-        ocr_service = get_ocr_service()
-        is_available = ocr_service.is_ocr_available()
+        """Update OCR state, including the tray menu action."""
+        is_available = BUILD_OCR_ENABLED and config_service.get_settings().ocr_enabled
 
         if self.ui and self.ui.tray_manager:
             self.ui.tray_manager.update_ocr_action_state()
@@ -255,10 +254,6 @@ class QtApp(QObject, SettingsObserver):
         logger.info("Main translation hotkey pressed")
         translate_hotkey = config_service.get_setting("translate_hotkey")
         logger.debug(f"Hotkey: {translate_hotkey}")
-
-        # Check OCR service readiness
-        ocr_service = get_ocr_service()
-        logger.debug(f"OCR service engine available: {ocr_service.is_ocr_engine_ready()}")
 
         self.activate_ocr_signal.emit()
 
@@ -469,7 +464,6 @@ class QtApp(QObject, SettingsObserver):
 
         # Shutdown global singleton services
         global_services = [
-            (get_ocr_service(), "OCR service"),
             (get_translation_service(), "translation service"),
             (get_api_manager(), "API manager"),
         ]

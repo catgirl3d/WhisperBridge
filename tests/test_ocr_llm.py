@@ -14,7 +14,7 @@ from unittest.mock import AsyncMock, MagicMock
 from PIL import Image
 
 from whisperbridge.core.api_manager import APIManager, APIProvider
-from whisperbridge.services.ocr_service import OCRService, OCREngine, OCRRequest
+from whisperbridge.services.ocr_service import OCRService, OCRRequest
 from whisperbridge.services.ocr_translation_service import OCRTranslationCoordinator
 from whisperbridge.services.translation_service import TranslationService
 
@@ -44,18 +44,6 @@ def openai_api_manager(fake_config):
     api_manager._diag_logged = True
     api_manager._providers._clients[APIProvider.OPENAI] = external_client
     return api_manager, external_client
-
-
-def test_ensure_ready_returns_true(fake_config):
-    """Test ensure_ready returns True for LLM engine."""
-    # Setup
-    service = OCRService(fake_config)
-    
-    # Action
-    result = service.ensure_ready()
-
-    # Assertions
-    assert result is True
 
 
 def test_llm_success_path_preserves_valid_image_payload_and_returns_result(
@@ -89,7 +77,7 @@ def test_llm_success_path_preserves_valid_image_payload_and_returns_result(
     result = service.process_image(request)
 
     # Assertions
-    assert result.engine == OCREngine.LLM
+    assert result.engine == "llm"
     assert result.text == "Hello LLM"
     assert result.success is True
     external_client.chat.completions.create.assert_called_once()

@@ -15,9 +15,6 @@ from ..services.config_service import config_service
 from ..core.config import BUILD_OCR_ENABLED
 
 
-from ..services.ocr_service import get_ocr_service
-
-
 class TrayManager(QObject):
     """Manager for system tray functionality."""
 
@@ -156,17 +153,11 @@ class TrayManager(QObject):
             self.activate_ocr_action = QAction("Activate OCR", self)
             self.activate_ocr_action.triggered.connect(self._on_activate_ocr)
             
-            # Set visibility and enabled state based on build flag and OCR engine availability
+            # Set visibility and enabled state from build and user settings.
             try:
-                # Use BUILD_OCR_ENABLED constant instead of user setting for visibility
                 self.activate_ocr_action.setVisible(BUILD_OCR_ENABLED)
-                
-                if BUILD_OCR_ENABLED:
-                    ocr_service = get_ocr_service()
-                    is_available = ocr_service.is_ocr_available()
-                    self.activate_ocr_action.setEnabled(is_available)
-                else:
-                    self.activate_ocr_action.setEnabled(False)
+                is_available = BUILD_OCR_ENABLED and config_service.get_settings().ocr_enabled
+                self.activate_ocr_action.setEnabled(is_available)
                     
             except Exception as e:
                 logger.error(f"Failed to set initial OCR action state: {e}")
@@ -234,8 +225,8 @@ class TrayManager(QObject):
         """Update the enabled state of the OCR activation menu action."""
         try:
             if hasattr(self, "activate_ocr_action"):
-                ocr_service = get_ocr_service()
-                is_available = ocr_service.is_ocr_available()
+                is_available = BUILD_OCR_ENABLED and config_service.get_settings().ocr_enabled
+                self.activate_ocr_action.setVisible(BUILD_OCR_ENABLED)
                 self.activate_ocr_action.setEnabled(is_available)
                 logger.debug(f"Tray: OCR menu action enabled state updated to: {is_available}")
         except Exception as e:

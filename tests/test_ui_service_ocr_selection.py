@@ -2,6 +2,8 @@
 
 from unittest.mock import Mock
 
+import pytest
+
 from whisperbridge.services.ui_service import UIService
 
 
@@ -123,6 +125,26 @@ def test_activate_ocr_starts_selection_with_frozen_frame_when_capture_succeeds(m
         frozen_image=frozen_image,
         frozen_rect=frozen_rect,
     )
+
+
+@pytest.mark.parametrize(
+    ("build_enabled", "ocr_enabled"),
+    [(False, True), (True, False)],
+)
+def test_activate_ocr_respects_build_and_settings_gates(
+    mocker, build_enabled, ocr_enabled
+):
+    """OCR activation must require both the build flag and user setting."""
+    ui = _build_ui_service(mocker)
+    ui.selection_overlay = Mock()
+
+    mocker.patch("whisperbridge.services.ui_service.BUILD_OCR_ENABLED", build_enabled)
+    config_service_mock = mocker.patch("whisperbridge.services.config_service.config_service")
+    config_service_mock.get_settings.return_value = Mock(ocr_enabled=ocr_enabled)
+
+    ui.activate_ocr()
+
+    ui.selection_overlay.start.assert_not_called()
 
 
 def test_on_selection_completed_uses_frozen_crop_before_live_capture(mocker):

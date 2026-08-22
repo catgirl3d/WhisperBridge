@@ -14,7 +14,6 @@ from ..core.api_manager import get_api_manager, APIProvider
 from ..core.config import API_TIMEOUT_DEFAULT, API_TIMEOUT_MAX, API_TIMEOUT_MIN, Settings
 from ..core.settings_manager import settings_manager
 from ..services.config_service import config_service
-from ..services.ocr_service import get_ocr_service
 from ..services.ocr_translation_service import get_ocr_translation_coordinator
 from ..providers.deepl_adapter import DeepLClientAdapter
 from ..core.config import get_deepl_identifier
@@ -46,13 +45,6 @@ class CaptureOcrTranslateWorker(QObject):
             self.started.emit()
 
             if self._cancel_requested:
-                return
-
-            # OCR + Translation processing using centralized ensure_ready in worker thread
-            ocr_service = get_ocr_service()
-            ready = ocr_service.ensure_ready(timeout=15.0)
-            if not ready:
-                self.error.emit("OCR service not ready or initialization timed out")
                 return
 
             logger.debug("Processing pre-captured image")

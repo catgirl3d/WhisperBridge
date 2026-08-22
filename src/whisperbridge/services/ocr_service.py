@@ -6,22 +6,14 @@ This module provides the main OCR service using LLM vision capabilities.
 
 import time
 from dataclasses import dataclass
-from enum import Enum
 from time import perf_counter
-from typing import Optional
+from typing import Literal, Optional
 
 from loguru import logger
 from PIL import Image
 
 from ..core.api_manager import get_api_manager
-from ..services.config_service import config_service
 from ..utils.image_utils import to_data_url_jpeg
-
-
-class OCREngine(Enum):
-    """Supported OCR engines."""
-
-    LLM = "llm"
 
 
 @dataclass
@@ -30,7 +22,7 @@ class OCRResult:
 
     text: str
     confidence: float
-    engine: OCREngine
+    engine: Literal["llm"]
     processing_time: float
     error_message: Optional[str] = None
     success: bool = True
@@ -65,7 +57,7 @@ class OCRService:
         return OCRResult(
             text="",
             confidence=0.0,
-            engine=OCREngine.LLM,
+            engine="llm",
             processing_time=processing_time,
             error_message=error_msg,
             success=False,
@@ -127,7 +119,7 @@ class OCRService:
             result = OCRResult(
                 text=extracted_text,
                 confidence=0.90 if success else 0.0,
-                engine=OCREngine.LLM,
+                engine="llm",
                 processing_time=processing_time,
                 success=success,
                 error_message=None if success else "Empty OCR text from LLM"
@@ -142,45 +134,11 @@ class OCRService:
             return OCRResult(
                 text="",
                 confidence=0.0,
-                engine=OCREngine.LLM,
+                engine="llm",
                 processing_time=processing_time,
                 error_message=str(e),
                 success=False,
             )
-
-    def initialize(self, on_complete=None) -> None:
-        """Initialize OCR engine.
-
-        For LLM-only mode, this is a no-op as no background initialization is needed.
-        The callback is called immediately.
-
-        Args:
-            on_complete: Optional callback invoked when initialization completes.
-        """
-        if on_complete:
-            on_complete()
-        return None
-
-    def ensure_ready(self, timeout: Optional[float] = 15.0) -> bool:
-        """Ensure OCR engine is initialized and ready for use.
-
-        For LLM-only mode, this always returns True as no initialization is needed.
-
-        Args:
-            timeout: Ignored in LLM-only mode.
-
-        Returns:
-            True always.
-        """
-        return True
-
-    def is_ocr_engine_ready(self) -> bool:
-        """Check if OCR engine is ready (compatibility method)."""
-        return True
-
-    def is_ocr_available(self) -> bool:
-        """Check if OCR is available (compatibility method)."""
-        return True
 
     def process_image(self, request: OCRRequest) -> OCRResult:
         """Process image with OCR using LLM vision API."""
@@ -207,11 +165,6 @@ class OCRService:
 
         except Exception as e:
             return self._handle_ocr_error(e, start_time, "process_image")
-
-    def shutdown(self):
-        """Shutdown OCR service."""
-        logger.info("Shutting down OCR service")
-
 
 # Global OCR service instance
 _ocr_service: Optional[OCRService] = None
