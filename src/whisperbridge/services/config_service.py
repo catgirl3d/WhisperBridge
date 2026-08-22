@@ -150,6 +150,7 @@ class ConfigService(QObject):
         with self._lock:
             try:
                 settings = self.get_settings()
+                previous_settings = settings.model_copy()
                 old_value = getattr(settings, key, None)
 
                 # Use the new method to save only one setting
@@ -159,6 +160,8 @@ class ConfigService(QObject):
                     validated_settings = self._settings_manager.get_settings()
                     validated_value = getattr(validated_settings, key, value)
                     self._settings = validated_settings
+
+                    self._check_and_reinitialize_api_manager(previous_settings, validated_settings)
 
                     if old_value != validated_value:
                         self._notify_observers("changed", key, old_value, validated_value)

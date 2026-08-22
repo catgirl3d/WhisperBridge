@@ -885,13 +885,6 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
                     # Clear the field for the current provider
                     self.api_key_edits[provider].setText("")
 
-                    # Reinitialize API manager to reflect the updated config.
-                    try:
-                        get_api_manager().reinitialize()
-                        logger.info(f"API manager reinitialized after deleting {provider} key.")
-                    except Exception as e:
-                        logger.error(f"Failed to reinitialize API manager after key deletion: {e}")
-
                     # Reload models to update the UI, which will now show the unconfigured state
                     try:
                         self._load_models(provider_name=self._get_current_provider())

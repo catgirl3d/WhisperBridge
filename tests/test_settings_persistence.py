@@ -82,6 +82,40 @@ def test_config_service_set_setting_uses_validated_value_for_settings_and_observ
     assert persisted_data["translator_font_size"] == 32
 
 
+def test_config_service_reinitializes_api_manager_when_provider_changes(tmp_path, mocker):
+    manager = SettingsManager()
+    settings_file = tmp_path / "settings.json"
+    mocker.patch.object(manager, "_get_settings_file", return_value=settings_file)
+    manager._settings = Settings()
+    config = ConfigService()
+    config._settings_manager = manager
+    config._settings = manager.get_settings()
+    api_manager = mocker.patch(
+        "whisperbridge.core.api_manager.get_api_manager"
+    ).return_value
+
+    assert config.set_setting("api_provider", "google")
+
+    api_manager.reinitialize.assert_called_once_with()
+
+
+def test_config_service_does_not_reinitialize_api_manager_for_unrelated_setting(tmp_path, mocker):
+    manager = SettingsManager()
+    settings_file = tmp_path / "settings.json"
+    mocker.patch.object(manager, "_get_settings_file", return_value=settings_file)
+    manager._settings = Settings()
+    config = ConfigService()
+    config._settings_manager = manager
+    config._settings = manager.get_settings()
+    api_manager = mocker.patch(
+        "whisperbridge.core.api_manager.get_api_manager"
+    ).return_value
+
+    assert config.set_setting("theme", "dark")
+
+    api_manager.reinitialize.assert_not_called()
+
+
 def test_config_service_reads_current_settings_model_without_ttl_cache():
     """A changed in-memory Settings model is visible on the next read."""
     config = ConfigService()

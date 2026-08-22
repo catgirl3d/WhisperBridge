@@ -4,10 +4,10 @@ import whisperbridge.ui_qt.settings_dialog as settings_dialog_module
 from unittest.mock import Mock
 
 import pytest
-from PySide6.QtWidgets import QDialog
+from PySide6.QtWidgets import QDialog, QMessageBox
 
 from whisperbridge.core.config import Settings
-from whisperbridge.services.config_service import config_service
+from whisperbridge.services.config_service import ConfigService, config_service
 from whisperbridge.services.ui_service import UIService
 from whisperbridge.ui_qt.overlay_window import OverlayWindow
 from whisperbridge.ui_qt.settings_dialog import SettingsDialog
@@ -249,3 +249,33 @@ def test_failed_save_keeps_dialog_open(dialog, mocker):
         {"api_timeout": 45}
     )
     assert dialog.isVisible()
+
+
+def test_deleting_api_key_reinitializes_once_across_service_and_dialog(dialog, mocker):
+    service = ConfigService()
+    actual_manager = mocker.Mock()
+    mocker.patch(
+        "whisperbridge.core.api_manager.get_api_manager",
+        return_value=actual_manager,
+    )
+
+    settings_manager = mocker.Mock()
+    settings_manager._settings = Settings(openai_api_key="existing-key")
+    settings_manager.save_single_setting.side_effect = lambda key, value: setattr(
+        settings_manager._settings, key, ""
+    ) or True
+    settings_manager.get_settings.return_value = settings_manager._settings
+    service._settings_manager = settings_manager
+    service._settings = settings_manager._settings
+    settings_dialog_module.config_service.set_setting.side_effect = service.set_setting
+
+    dialog._load_models = mocker.Mock()
+    mocker.patch.object(
+        settings_dialog_module.QMessageBox,
+        "question",
+        return_value=QMessageBox.StandardButton.Yes,
+    )
+    mocker.patch.object(settings_dialog_module.QMessageBox, "information")
+    dialog._on_delete_api_key()
+
+    actual_manager.reinitialize.assert_called_once_with()
