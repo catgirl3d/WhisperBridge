@@ -14,7 +14,7 @@ import pytest
 
 from whisperbridge.core.api_manager.cache import ModelCache
 from whisperbridge.core.api_manager.models import ModelManager
-from whisperbridge.core.api_manager.providers import APIProvider
+from whisperbridge.core.provider_catalog import APIProvider
 from whisperbridge.core.api_manager.types import ModelSource
 from whisperbridge.core.config import OPENAI_MODEL_POLICY
 

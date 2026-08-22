@@ -17,6 +17,8 @@ from loguru import logger
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from .provider_catalog import APIProvider, get_supported_provider_values
+
 # Build-time flag to enable/disable OCR features globally
 # This controls whether OCR code is reachable/UI elements are shown.
 # It is distinct from the user's "ocr_enabled" setting which toggles the feature at runtime.
@@ -38,8 +40,8 @@ except Exception:
 
     BUILD_OCR_ENABLED = str(_raw).strip().lower() in ("1", "true", "yes", "y", "on")
 
-# Supported API Providers (centralized constant)
-SUPPORTED_PROVIDERS: List[str] = ["openai", "google", "deepl"]
+# Supported API providers, derived from the catalog.
+SUPPORTED_PROVIDERS: List[str] = get_supported_provider_values()
 
 TRANSLATOR_FONT_SIZE_DEFAULT = 9
 TRANSLATOR_FONT_SIZE_MIN = 8
@@ -322,16 +324,21 @@ class Settings(BaseSettings):
             )
         return v
 
-    @field_validator("api_provider")
+    @field_validator("api_provider", mode="before")
     @classmethod
-    def validate_api_provider(cls, v: str) -> str:
-        """Validate API provider format."""
-        if not v or not isinstance(v, str) or not v.strip():
-            raise ValueError("API provider must be a non-empty string.")
-        # Allow any provider name, removing the hardcoded list.
-        # The system will dynamically handle the provider as long as
-        # a corresponding '{provider}_model' setting exists.
-        return v.strip().lower()
+    def validate_api_provider(cls, v: Any) -> str:
+        """Normalize invalid provider settings to the safe default."""
+        normalized = v.strip().lower() if isinstance(v, str) else ""
+        if normalized in SUPPORTED_PROVIDERS:
+            return normalized
+
+        default_provider = APIProvider.OPENAI.value
+        logger.warning(
+            "Invalid API provider {!r}; normalized to {!r}.",
+            v,
+            default_provider,
+        )
+        return default_provider
 
     @field_validator("clipboard_poll_timeout_ms")
     @classmethod

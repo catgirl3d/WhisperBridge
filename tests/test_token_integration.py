@@ -1,7 +1,8 @@
 """Integration-style tests for token management across API manager paths."""
 import pytest
 
-from whisperbridge.core.api_manager import APIManager, APIProvider
+from whisperbridge.core.api_manager import APIManager
+from whisperbridge.core.provider_catalog import APIProvider
 from whisperbridge.services.config_service import ConfigService
 
 

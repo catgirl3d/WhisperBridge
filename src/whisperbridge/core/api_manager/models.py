@@ -22,7 +22,7 @@ from ...providers.deepl_adapter import DeepLClientAdapter
 from ...providers.google_chat_adapter import GoogleChatClientAdapter
 from ...providers.openai_adapter import OpenAIChatClientAdapter
 from .cache import ModelCache
-from .providers import APIProvider
+from ..provider_catalog import APIProvider
 from .types import ModelSource
 
 

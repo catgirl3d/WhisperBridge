@@ -11,7 +11,8 @@ This module tests provider management functionality including:
 
 import pytest
 
-from whisperbridge.core.api_manager.providers import APIProvider, ProviderRegistry
+from whisperbridge.core.api_manager.providers import ProviderRegistry
+from whisperbridge.core.provider_catalog import APIProvider
 
 
 class TestProviderInitialization:

@@ -2,7 +2,8 @@
 
 import pytest
 
-from whisperbridge.core.api_manager import APIManager, APIProvider
+from whisperbridge.core.api_manager import APIManager
+from whisperbridge.core.provider_catalog import APIProvider
 from whisperbridge.providers.deepl_adapter import DeepLClientAdapter
 from whisperbridge.services.config_service import ConfigService
 

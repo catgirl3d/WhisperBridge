@@ -13,6 +13,7 @@ from loguru import logger
 from PySide6.QtCore import QObject
 
 from ..core.config import Settings
+from ..core.provider_catalog import get_supported_provider_values
 from ..core.settings_manager import settings_manager
 
 
@@ -202,8 +203,7 @@ class ConfigService(QObject):
 
             # Check if any API key changed
             if not must_reinit:
-                providers = ["openai", "google", "deepl"]
-                for provider in providers:
+                for provider in get_supported_provider_values():
                     old_key = getattr(old_settings, f"{provider}_api_key", None) or ""
                     new_key = getattr(new_settings, f"{provider}_api_key", None) or ""
                     if old_key != new_key:

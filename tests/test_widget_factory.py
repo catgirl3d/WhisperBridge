@@ -18,6 +18,7 @@ from PySide6.QtWidgets import QApplication, QComboBox, QLineEdit, QListView, QPu
 from whisperbridge.ui_qt import widget_factory
 from whisperbridge.ui_qt.settings_dialog import SettingsDialog
 from whisperbridge.ui_qt.settings_ui_factory import SettingsUIFactory
+from whisperbridge.core.provider_catalog import get_supported_provider_values
 
 
 def test_create_widget_applies_common_keys(qapp):
@@ -54,6 +55,12 @@ def test_create_widget_applies_common_keys(qapp):
     assert edit.objectName() == "myEdit"
     assert edit.placeholderText() == "Type here"
     assert edit.minimumWidth() == 123
+
+
+def test_settings_factory_uses_provider_catalog(qapp):
+    combo = SettingsUIFactory().create_combo("apiProviderCombo")
+
+    assert [combo.itemText(index) for index in range(combo.count())] == get_supported_provider_values()
 
 
 def test_apply_custom_dropdown_style_sets_list_view(qapp):

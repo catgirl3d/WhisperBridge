@@ -4,8 +4,8 @@ Integration tests for APIManager.
 
 import threading
 import pytest
-from whisperbridge.core.api_manager.providers import APIProvider
 from whisperbridge.core.config import OPENAI_MODEL_POLICY
+from whisperbridge.core.provider_catalog import APIProvider
 
 pytestmark = pytest.mark.integration
 

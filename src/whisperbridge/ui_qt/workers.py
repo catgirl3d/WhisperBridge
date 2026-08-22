@@ -10,8 +10,9 @@ from typing import Any, Coroutine, Optional
 from loguru import logger
 from PySide6.QtCore import QObject, Signal
 
-from ..core.api_manager import get_api_manager, APIProvider
+from ..core.api_manager import get_api_manager
 from ..core.config import API_TIMEOUT_DEFAULT, API_TIMEOUT_MAX, API_TIMEOUT_MIN, Settings
+from ..core.provider_catalog import APIProvider
 from ..core.settings_manager import settings_manager
 from ..services.config_service import config_service
 from ..services.notification_service import get_notification_service

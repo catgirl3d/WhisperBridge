@@ -6,7 +6,6 @@ This module provides:
 - ProviderRegistry class for managing API provider clients
 """
 
-from enum import Enum
 from typing import Any, Dict, Optional
 
 from loguru import logger
@@ -15,14 +14,7 @@ from ..config import validate_api_key_format
 from ...providers.deepl_adapter import DeepLClientAdapter
 from ...providers.google_chat_adapter import GoogleChatClientAdapter
 from ...providers.openai_adapter import OpenAIChatClientAdapter
-
-
-class APIProvider(str, Enum):
-    """Supported API providers."""
-
-    OPENAI = "openai"
-    GOOGLE = "google"
-    DEEPL = "deepl"
+from ..provider_catalog import APIProvider
 
 
 class ProviderRegistry:
@@ -178,6 +170,5 @@ class ProviderRegistry:
 
 
 __all__ = [
-    "APIProvider",
     "ProviderRegistry",
 ]

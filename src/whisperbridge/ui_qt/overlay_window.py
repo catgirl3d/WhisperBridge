@@ -29,10 +29,10 @@ from ..core.config import (
     API_TIMEOUT_DEFAULT,
     API_TIMEOUT_MAX,
     API_TIMEOUT_MIN,
-    SUPPORTED_PROVIDERS,
     TRANSLATOR_FONT_SIZE_DEFAULT,
     validate_api_key_format,
 )
+from ..core.provider_catalog import APIProvider
 from .styled_overlay_base import StyledOverlayWindow
 from .workers import TranslationWorker, StyleWorker
 from .overlay_ui_builder import OverlayUIBuilder, TranslatorSettingsDialog
@@ -497,9 +497,11 @@ class OverlayWindow(StyledOverlayWindow):
     def _is_api_ready(self) -> tuple[bool, str]:
         """Check whether API calls can proceed given current provider/key settings."""
         try:
-            provider = (config_service.get_setting("api_provider") or "openai").strip().lower()
-            if provider not in SUPPORTED_PROVIDERS:
-                provider = "openai"
+            provider = (config_service.get_setting("api_provider") or APIProvider.OPENAI.value).strip().lower()
+            try:
+                provider = APIProvider(provider).value
+            except ValueError:
+                return False, f"Unsupported API provider: {provider}"
 
             key = config_service.get_setting(f"{provider}_api_key")
             if not key:
@@ -568,17 +570,20 @@ class OverlayWindow(StyledOverlayWindow):
             if not hasattr(self, "provider_badge") or not self.provider_badge:
                 return
 
-            provider = (config_service.get_setting("api_provider") or "openai").strip().lower()
-            if provider not in SUPPORTED_PROVIDERS:
-                provider = "openai"
+            provider = (config_service.get_setting("api_provider") or APIProvider.OPENAI.value).strip().lower()
+            try:
+                provider_enum = APIProvider(provider)
+            except ValueError:
+                return
 
             # Map provider to display name and property
             provider_map = {
-                "openai": ("OpenAI", "openai"),
-                "google": ("Google", "google"),
-                "deepl": ("DeepL", "deepl")
+                APIProvider.OPENAI: "OpenAI",
+                APIProvider.GOOGLE: "Google",
+                APIProvider.DEEPL: "DeepL",
             }
-            display_name, prop_value = provider_map[provider]
+            display_name = provider_map[provider_enum]
+            prop_value = provider_enum.value
 
             self.provider_badge.setText(display_name)
             self.provider_badge.setProperty("provider", prop_value)
@@ -604,20 +609,15 @@ class OverlayWindow(StyledOverlayWindow):
             # Remove standard window frame/shadow to allow QSS control (matches ComboBox dropdowns)
             menu.setWindowFlags(menu.windowFlags() | Qt.WindowType.FramelessWindowHint | Qt.WindowType.NoDropShadowWindowHint)
             
-            # OpenAI Action
-            openai_action = QAction("OpenAI", self)
-            openai_action.triggered.connect(lambda: self._switch_provider("openai"))
-            menu.addAction(openai_action)
-
-            # Google Action
-            google_action = QAction("Google", self)
-            google_action.triggered.connect(lambda: self._switch_provider("google"))
-            menu.addAction(google_action)
-
-            # DeepL Action
-            deepl_action = QAction("DeepL", self)
-            deepl_action.triggered.connect(lambda: self._switch_provider("deepl"))
-            menu.addAction(deepl_action)
+            provider_labels = {
+                APIProvider.OPENAI: "OpenAI",
+                APIProvider.GOOGLE: "Google",
+                APIProvider.DEEPL: "DeepL",
+            }
+            for provider, label in provider_labels.items():
+                action = QAction(label, self)
+                action.triggered.connect(lambda checked=False, value=provider.value: self._switch_provider(value))
+                menu.addAction(action)
 
             self.provider_badge.setMenu(menu)
             logger.debug("Provider menu setup completed")
@@ -662,7 +662,7 @@ class OverlayWindow(StyledOverlayWindow):
 
             # Enforce provider capabilities (disable Style mode for DeepL)
             try:
-                provider = (config_service.get_setting("api_provider") or "openai").strip().lower()
+                provider = (config_service.get_setting("api_provider") or APIProvider.OPENAI.value).strip().lower()
                 if hasattr(self, "mode_combo") and self.mode_combo:
                     style_idx = self._find_index_by_text(self.mode_combo, "Style")
                     if provider == "deepl":

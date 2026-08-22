@@ -13,7 +13,7 @@ This module tests API manager integration functionality including:
 import pytest
 
 from whisperbridge.core.api_manager.manager import APIManager
-from whisperbridge.core.api_manager.providers import APIProvider
+from whisperbridge.core.provider_catalog import APIProvider
 
 
 # ============================================================================

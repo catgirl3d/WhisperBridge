@@ -1,6 +1,7 @@
 """Tests for Settings configuration and validation."""
 
 import pytest
+from whisperbridge.core.provider_catalog import get_supported_provider_values
 from whisperbridge.core.config import (
     API_TIMEOUT_DEFAULT,
     OPENAI_MODEL_POLICY,
@@ -16,6 +17,21 @@ def test_settings_initialization():
     assert settings.openai_vision_model == OPENAI_MODEL_POLICY.default_model
     assert settings.openai_reasoning_effort == "not_set"
     assert settings.api_timeout == API_TIMEOUT_DEFAULT
+
+
+def test_api_provider_is_normalized_to_catalog_default(loguru_caplog):
+    """Unknown and empty provider settings fall back without rejecting the config."""
+    assert Settings(api_provider="unknown").api_provider == "openai"
+    assert Settings(api_provider=" ").api_provider == "openai"
+
+    assert sum("Invalid API provider" in record.message for record in loguru_caplog.records) == 2
+
+
+def test_supported_provider_values_follow_catalog():
+    """The public config list is derived from the provider enum catalog."""
+    from whisperbridge.core.config import SUPPORTED_PROVIDERS
+
+    assert SUPPORTED_PROVIDERS == get_supported_provider_values()
 
 
 def test_api_timeout_uses_canonical_range():

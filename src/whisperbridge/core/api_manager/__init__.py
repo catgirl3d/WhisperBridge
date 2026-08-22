@@ -9,7 +9,6 @@ import threading
 
 from .types import ModelSource
 from .errors import APIError, APIErrorType, RetryableAPIError
-from .providers import APIProvider
 from .manager import APIManager
 
 # Singleton management
@@ -58,7 +57,6 @@ def init_api_manager() -> APIManager:
 
 __all__ = [
     "APIManager",
-    "APIProvider",
     "APIError",
     "APIErrorType",
     "RetryableAPIError",

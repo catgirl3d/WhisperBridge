@@ -23,7 +23,8 @@ from ...services.config_service import ConfigService
 from .cache import ModelCache
 from .errors import APIError, APIErrorType, RetryableAPIError, classify_error, log_network_diagnostics, requires_initialization
 from .models import ModelManager
-from .providers import APIProvider, ProviderRegistry
+from .providers import ProviderRegistry
+from ..provider_catalog import APIProvider
 
 
 class APIManager:

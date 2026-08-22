@@ -8,6 +8,7 @@ following the UI configuration guidelines.
 from PySide6.QtWidgets import QComboBox, QLineEdit, QSpinBox, QPushButton, QCheckBox, QTextEdit, QDoubleSpinBox, QTableWidget, QLabel, QToolButton, QGroupBox, QWidget, QTabWidget
 from .widgets.hotkey_edit import HotkeyEdit
 from ..core.config import API_TIMEOUT_MAX, API_TIMEOUT_MIN, OPENAI_REASONING_EFFORT_OPTIONS
+from ..core.provider_catalog import get_supported_provider_values
 
 
 OPENAI_REASONING_EFFORT_LABELS = {
@@ -28,7 +29,7 @@ class SettingsUIFactory:
     SETTINGS_WIDGET_CONFIG = {
         'apiProviderCombo': {
             'object_name': 'apiProviderCombo',
-            'items': ['openai', 'google', 'deepl']
+            'items': get_supported_provider_values()
         },
         'openaiApiKeyEdit': {
             'object_name': 'openaiApiKeyEdit',

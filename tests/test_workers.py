@@ -7,7 +7,7 @@ import pytest
 from unittest.mock import Mock
 
 from whisperbridge.ui_qt.workers import ApiTestWorker
-from whisperbridge.core.api_manager import APIProvider
+from whisperbridge.core.provider_catalog import APIProvider
 
 # If run directly, execute pytest with very verbose output and no coverage
 if __name__ == "__main__":

@@ -14,7 +14,8 @@ from unittest.mock import AsyncMock, MagicMock
 from PIL import Image
 from PySide6.QtTest import QSignalSpy
 
-from whisperbridge.core.api_manager import APIManager, APIProvider
+from whisperbridge.core.api_manager import APIManager
+from whisperbridge.core.provider_catalog import APIProvider
 from whisperbridge.services.ocr_service import OCRService, OCRRequest
 from whisperbridge.services.translation_service import TranslationService
 from whisperbridge.ui_qt.workers import CaptureOcrTranslateWorker
