@@ -53,7 +53,7 @@ class CaptureOcrTranslateWorker(QObject):
             logger.debug("Processing pre-captured image")
             self.progress.emit("Starting OCR and translation")
             ocr_service = get_ocr_service()
-            translation_service = get_translation_service(initialize=True)
+            translation_service = get_translation_service()
 
             try:
                 ocr_response = ocr_service.process_image(

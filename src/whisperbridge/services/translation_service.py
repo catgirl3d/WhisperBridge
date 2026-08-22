@@ -31,39 +31,11 @@ class TranslationService:
 
     def __init__(self):
         self._api_manager = get_api_manager()
-        self._is_initialized = False
-
-    def initialize(self) -> bool:
-        """Initialize the translation service."""
-        try:
-            if not self._api_manager.is_initialized():
-                logger.error("API manager not initialized")
-                return False
-
-            # Check if we have any API clients available
-            has_clients = self._api_manager.has_clients()
-
-            if not has_clients:
-                logger.warning("No API clients available. Translation features will be disabled.")
-                logger.info("To enable translation, configure your API key in settings.")
-            else:
-                logger.info("Translation service initialized with API clients")
-
-            self._is_initialized = True
-            return True
-
-        except Exception as e:
-            logger.error(f"Failed to initialize translation service: {e}")
-            return False
-
-    def is_initialized(self) -> bool:
-        """Check if service is initialized."""
-        return self._is_initialized
 
     @property
     def is_available(self) -> bool:
-        """Check if translation is available (initialized and has API clients)."""
-        return self._is_initialized and self._api_manager.has_clients()
+        """Check if translation is available (API manager has clients)."""
+        return self._api_manager.has_clients()
 
     def _make_response(
         self,
@@ -427,7 +399,6 @@ class TranslationService:
 
     def shutdown(self):
         """Shutdown the translation service."""
-        self._is_initialized = False
         logger.info("Translation service shutdown")
 
 
@@ -436,26 +407,10 @@ _translation_service: Optional[TranslationService] = None
 _service_lock = threading.RLock()
 
 
-def get_translation_service(initialize: bool = False) -> TranslationService:
-    """
-    Get the global translation service instance.
-    
-    Args:
-        initialize: If True, initialize the service if not already initialized.
-    
-    Returns:
-        The global TranslationService instance.
-        
-    Raises:
-        RuntimeError: If initialize=True and initialization fails.
-    """
+def get_translation_service() -> TranslationService:
+    """Get the global translation service instance."""
     global _translation_service
     with _service_lock:
         if _translation_service is None:
             _translation_service = TranslationService()
-        
-        if initialize and not _translation_service.is_initialized():
-            if not _translation_service.initialize():
-                raise RuntimeError("Failed to initialize translation service")
-        
         return _translation_service

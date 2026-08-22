@@ -129,11 +129,7 @@ class AppServices(QObject):
         try:
             init_api_manager()
             logger.info("AppServices: API manager initialized successfully")
-            translation_service = get_translation_service()
-            if not translation_service.initialize():
-                logger.warning("AppServices: Failed to initialize translation service")
-            else:
-                logger.info("AppServices: Translation service initialized successfully")
+            get_translation_service()
         except Exception as e:
             logger.warning(f"AppServices: Failed to initialize translation service: {e}")
 

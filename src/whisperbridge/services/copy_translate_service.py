@@ -10,6 +10,7 @@ and error handling.
 
 from PySide6.QtCore import QObject, Signal
 
+from ..core.provider_catalog import APIProvider
 from ..services.clipboard_service import get_clipboard_service
 from ..services.config_service import config_service as _config_service
 from ..services.translation_service import get_translation_service
@@ -253,31 +254,18 @@ class CopyTranslateService(QObject):
                 return
 
             # Check for API key presence before attempting translation
-            provider = (self.config_service.get_setting("api_provider") or "openai").strip().lower()
-            openai_key = self.config_service.get_setting("openai_api_key")
-            google_key = self.config_service.get_setting("google_api_key")
-            deepl_key = self.config_service.get_setting("deepl_api_key")
-            has_openai_key = bool(openai_key)
-            has_google_key = bool(google_key)
-            has_deepl_key = bool(deepl_key)
-            if provider == "openai":
-                has_api_key = has_openai_key
-            elif provider == "google":
-                # Backward compatibility: allow the legacy OpenAI fallback.
-                has_api_key = bool(google_key or openai_key)
-            elif provider == "deepl":
-                has_api_key = has_deepl_key
-            else:
+            provider = (self.config_service.get_setting("api_provider") or APIProvider.OPENAI.value).strip().lower()
+            try:
+                provider = APIProvider(provider).value
+            except ValueError:
                 has_api_key = False
                 log.warning("Copy-translate encountered unsupported API provider: {}", provider)
+            else:
+                has_api_key = bool(self.config_service.get_setting(f"{provider}_api_key"))
             log.debug(
-                "Copy-translate configuration: provider={} has_api_key={} has_openai_key={} "
-                "has_google_key={} has_deepl_key={}",
+                "Copy-translate configuration: provider={} has_api_key={}",
                 provider,
                 has_api_key,
-                has_openai_key,
-                has_google_key,
-                has_deepl_key,
             )
             if not has_api_key:
                 log.info("No API key configured for the selected provider, showing original text only")
