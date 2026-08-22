@@ -175,6 +175,7 @@ def test_apply_openai_vision_models_to_ui_populates_and_preserves_custom_model(q
 def test_apply_available_models_to_ui_leaves_vision_combo_unchanged_for_non_openai(qapp):
     """Applying another provider's models must not alter the OpenAI vision selector."""
     dialog = SettingsDialog.__new__(SettingsDialog)
+    dialog._loaded_model_defaults = {}
     dialog.model_combo = QComboBox()
     dialog.openai_vision_model_combo = SettingsUIFactory().create_combo("openaiVisionModelCombo")
     dialog.openai_vision_model_combo.addItems(["gpt-5.4-mini", "custom-vision-model"])
@@ -190,6 +191,7 @@ def test_apply_available_models_to_ui_leaves_vision_combo_unchanged_for_non_open
 def test_apply_available_models_to_ui_applies_openai_vision_models(mocker):
     """OpenAI model application should update both selectors with the same source list."""
     dialog = SettingsDialog.__new__(SettingsDialog)
+    dialog._loaded_model_defaults = {}
     apply_models = mocker.patch.object(dialog, "_apply_models_to_ui")
     apply_vision_models = mocker.patch.object(dialog, "_apply_openai_vision_models_to_ui")
     vision_model = "gpt-5.6-luna"
@@ -210,6 +212,7 @@ def test_apply_available_models_to_ui_applies_openai_vision_models(mocker):
 def test_apply_available_models_to_ui_skips_openai_vision_for_other_providers(mocker):
     """Non-OpenAI model application should not access or update the vision selector."""
     dialog = SettingsDialog.__new__(SettingsDialog)
+    dialog._loaded_model_defaults = {}
     apply_models = mocker.patch.object(dialog, "_apply_models_to_ui")
     apply_vision_models = mocker.patch.object(dialog, "_apply_openai_vision_models_to_ui")
     vision_model_getter = mocker.patch.object(dialog, "_get_openai_vision_model_to_select")
