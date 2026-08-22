@@ -12,11 +12,12 @@ from types import SimpleNamespace
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 from PIL import Image
+from PySide6.QtTest import QSignalSpy
 
 from whisperbridge.core.api_manager import APIManager, APIProvider
 from whisperbridge.services.ocr_service import OCRService, OCRRequest
-from whisperbridge.services.ocr_translation_service import OCRTranslationCoordinator
 from whisperbridge.services.translation_service import TranslationService
+from whisperbridge.ui_qt.workers import CaptureOcrTranslateWorker
 
 
 class FakeConfigService:
@@ -137,36 +138,49 @@ def test_llm_whitespace_response_is_reported_as_unsuccessful(
     assert result.error_message == "Empty OCR text from LLM"
 
 
-def test_ocr_translation_passes_ui_languages_without_detection_or_swap(mocker):
-    """OCR coordinator delegates effective language policy to TranslationService."""
+def test_capture_worker_passes_ui_languages_without_detection_or_swap(qtbot, mocker):
+    """The worker passes UI language selections to TranslationService."""
     class Settings:
         ui_source_language = "auto"
         ui_target_language = "uk"
 
         @property
         def auto_swap_en_ru(self):
-            raise AssertionError("OCR coordinator must not read auto_swap_en_ru")
+            raise AssertionError("Worker must not read auto_swap_en_ru")
 
-    coordinator = object.__new__(OCRTranslationCoordinator)
-    coordinator.translation_service = mocker.Mock(is_available=True)
-    coordinator.translation_service.translate_text_sync.return_value = MagicMock(
+    ocr_service = mocker.Mock()
+    ocr_service.process_image.return_value = MagicMock(
+        text="selected text", success=True, error_message=None
+    )
+    translation_service = mocker.Mock(is_available=True)
+    translation_service.translate_text_sync.return_value = MagicMock(
         success=True,
         translated_text="translated",
     )
     mocker.patch(
-        "whisperbridge.services.ocr_translation_service.config_service.get_settings",
+        "whisperbridge.ui_qt.workers.get_ocr_service",
+        return_value=ocr_service,
+    )
+    mocker.patch(
+        "whisperbridge.ui_qt.workers.get_translation_service",
+        return_value=translation_service,
+    )
+    mocker.patch(
+        "whisperbridge.ui_qt.workers.config_service.get_settings",
         return_value=Settings(),
     )
     mocker.patch(
-        "whisperbridge.services.ocr_translation_service.get_notification_service",
+        "whisperbridge.ui_qt.workers.get_notification_service",
         return_value=mocker.Mock(),
     )
 
-    translated_text, error_message = coordinator._translate_if_needed("selected text")
+    worker = CaptureOcrTranslateWorker(Image.new("RGB", (8, 8)))
+    finished_spy = QSignalSpy(worker.finished)
+    worker.run()
 
-    assert (translated_text, error_message) == ("translated", "")
-    coordinator.translation_service.detect_language_sync.assert_not_called()
-    coordinator.translation_service.translate_text_sync.assert_called_once_with(
+    assert finished_spy.at(0) == ["selected text", "translated", "ocr", ""]
+    translation_service.detect_language_sync.assert_not_called()
+    translation_service.translate_text_sync.assert_called_once_with(
         "selected text",
         source_lang="auto",
         target_lang="uk",

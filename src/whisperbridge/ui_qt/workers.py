@@ -14,7 +14,9 @@ from ..core.api_manager import get_api_manager, APIProvider
 from ..core.config import API_TIMEOUT_DEFAULT, API_TIMEOUT_MAX, API_TIMEOUT_MIN, Settings
 from ..core.settings_manager import settings_manager
 from ..services.config_service import config_service
-from ..services.ocr_translation_service import get_ocr_translation_coordinator
+from ..services.notification_service import get_notification_service
+from ..services.ocr_service import OCRRequest, get_ocr_service
+from ..services.translation_service import get_translation_service
 from ..providers.deepl_adapter import DeepLClientAdapter
 from ..core.config import get_deepl_identifier
 
@@ -49,10 +51,60 @@ class CaptureOcrTranslateWorker(QObject):
 
             logger.debug("Processing pre-captured image")
             self.progress.emit("Starting OCR and translation")
-            coordinator = get_ocr_translation_coordinator()
-            original_text, translated_text, error_message = coordinator.process_image_with_translation(
-                self.image, preprocess=True
-            )
+            ocr_service = get_ocr_service()
+            translation_service = get_translation_service(initialize=True)
+
+            try:
+                ocr_response = ocr_service.process_image(
+                    OCRRequest(image=self.image, preprocess=True)
+                )
+                original_text = ocr_response.text
+
+                if not original_text:
+                    original_text = ""
+                    error_message = (
+                        ocr_response.error_message
+                        if not ocr_response.success
+                        else "OCR detected no text"
+                    )
+                    error_message = error_message or "OCR detected no text"
+                    translated_text = ""
+                elif not original_text.strip():
+                    translated_text = ""
+                    error_message = ""
+                else:
+                    logger.info("OCR completed, checking translation availability")
+                    get_notification_service().info(
+                        "OCR completed. Translating...",
+                        title="WhisperBridge",
+                    )
+
+                    if not translation_service.is_available:
+                        logger.debug("Translation service not available, skipping translation")
+                        translated_text = ""
+                        error_message = "Translation service not configured"
+                    else:
+                        settings = config_service.get_settings()
+                        source_lang = getattr(settings, "ui_source_language", "auto")
+                        target_lang = getattr(settings, "ui_target_language", "en")
+                        response = translation_service.translate_text_sync(
+                            original_text,
+                            source_lang=source_lang,
+                            target_lang=target_lang,
+                        )
+                        if response.success:
+                            logger.debug("Translation completed successfully")
+                            translated_text = response.translated_text
+                            error_message = ""
+                        else:
+                            logger.warning(f"Translation failed: {response.error_message}")
+                            translated_text = ""
+                            error_message = response.error_message
+            except Exception as e:
+                logger.error(f"Error during OCR/translation processing: {e}")
+                original_text = "Processing error"
+                translated_text = ""
+                error_message = str(e)
             overlay_id = "ocr"
 
             if self._cancel_requested:

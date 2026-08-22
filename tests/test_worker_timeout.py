@@ -907,27 +907,53 @@ class TestCaptureOcrTranslateWorker:
 
     @pytest.fixture
     def mock_services(self, mocker):
-        """Mock the OCR-translation coordinator boundary."""
-        mock_coord = mocker.patch('whisperbridge.ui_qt.workers.get_ocr_translation_coordinator')
-        coord_instance = Mock()
-        coord_instance.process_image_with_translation.return_value = ("original", "translated", "")
-        mock_coord.return_value = coord_instance
+        """Mock OCR, translation, and notification service boundaries."""
+        ocr_service = Mock()
+        ocr_service.process_image.return_value = Mock(
+            text="original", success=True, error_message=None
+        )
+        translation_service = Mock(is_available=True)
+        translation_service.translate_text_sync.return_value = Mock(
+            success=True, translated_text="translated"
+        )
+        notification_service = Mock()
+        mocker.patch(
+            'whisperbridge.ui_qt.workers.get_ocr_service', return_value=ocr_service
+        )
+        mocker.patch(
+            'whisperbridge.ui_qt.workers.get_translation_service',
+            return_value=translation_service,
+        )
+        mocker.patch(
+            'whisperbridge.ui_qt.workers.get_notification_service',
+            return_value=notification_service,
+        )
+        mocker.patch(
+            'whisperbridge.ui_qt.workers.config_service.get_settings',
+            return_value=Mock(ui_source_language="auto", ui_target_language="uk"),
+        )
 
-        yield coord_instance
+        yield ocr_service, translation_service, notification_service
 
     def test_capture_ocr_worker_with_image(self, mock_services):
         """Test worker processes pre-captured image."""
-        coord_instance = mock_services
+        ocr_service, translation_service, _ = mock_services
         image = Mock()
 
         worker = CaptureOcrTranslateWorker(image=image)
         worker.run()
 
-        coord_instance.process_image_with_translation.assert_called_once_with(image, preprocess=True)
+        ocr_service.process_image.assert_called_once()
+        request = ocr_service.process_image.call_args.args[0]
+        assert request.image is image
+        assert request.preprocess is True
+        translation_service.translate_text_sync.assert_called_once_with(
+            "original", source_lang="auto", target_lang="uk"
+        )
 
     def test_capture_ocr_worker_success_signals(self, qtbot, mock_services):
         """Test worker emits finished payload for successful OCR path."""
-        _ = mock_services
+        _, _, notification_service = mock_services
 
         worker = CaptureOcrTranslateWorker(image=Mock())
         finished_spy = QSignalSpy(worker.finished)
@@ -937,44 +963,79 @@ class TestCaptureOcrTranslateWorker:
         assert progress_spy.count() >= 1
         assert finished_spy.count() == 1
         assert finished_spy.at(0)[2] == "ocr"
+        notification_service.info.assert_called_once_with(
+            "OCR completed. Translating...", title="WhisperBridge"
+        )
+
+    def test_capture_ocr_worker_preserves_ocr_failure_contract(self, mock_services):
+        """OCR failures emit the original text/translation/error tuple."""
+        ocr_service, _, _ = mock_services
+        ocr_service.process_image.return_value = Mock(
+            text="", success=False, error_message="vision failed"
+        )
+
+        worker = CaptureOcrTranslateWorker(image=Mock())
+        finished_spy = QSignalSpy(worker.finished)
+        worker.run()
+
+        assert finished_spy.count() == 1
+        assert finished_spy.at(0) == ["", "", "ocr", "vision failed"]
+
+    def test_capture_ocr_worker_reports_unavailable_translation(self, mock_services):
+        """A missing translation service preserves the OCR result and error."""
+        ocr_service, translation_service, _ = mock_services
+        translation_service.is_available = False
+
+        worker = CaptureOcrTranslateWorker(image=Mock())
+        finished_spy = QSignalSpy(worker.finished)
+        worker.run()
+
+        assert finished_spy.at(0) == ["original", "", "ocr", "Translation service not configured"]
+        translation_service.translate_text_sync.assert_not_called()
 
     def test_capture_ocr_worker_cancel(self, mock_services, mocker):
         """Test worker respects cancel request."""
-        coord_instance = mock_services
+        ocr_service, _, _ = mock_services
         worker = CaptureOcrTranslateWorker(image=Mock())
         worker.request_cancel()
 
         worker.run()
 
-        coord_instance.process_image_with_translation.assert_not_called()
+        ocr_service.process_image.assert_not_called()
 
     def test_capture_ocr_worker_requires_image(self):
         """Worker constructor must reject missing image input."""
         with pytest.raises(ValueError, match="image is required"):
             CaptureOcrTranslateWorker(image=None)
 
-    def test_processing_error_is_propagated(self, qtbot, mock_services):
-        """Worker should emit error when coordinator processing fails."""
-        coord_instance = mock_services
-        coord_instance.process_image_with_translation.side_effect = Exception("processing exploded")
+    def test_processing_error_preserves_coordinator_contract(self, mock_services):
+        """Worker preserves the former coordinator error tuple."""
+        ocr_service, _, _ = mock_services
+        ocr_service.process_image.side_effect = Exception("processing exploded")
 
         worker = CaptureOcrTranslateWorker(image=Mock())
-        error_spy = QSignalSpy(worker.error)
+        finished_spy = QSignalSpy(worker.finished)
 
         worker.run()
 
-        assert error_spy.count() == 1
-        assert "processing exploded" in error_spy.at(0)[0]
+        assert finished_spy.at(0) == [
+            "Processing error",
+            "",
+            "ocr",
+            "processing exploded",
+        ]
 
     def test_capture_service_is_not_called_when_image_provided(self, mock_services, mocker):
         """Worker must process the exact pre-captured image passed by caller."""
-        coord_instance = mock_services
+        ocr_service, _, _ = mock_services
 
         pre_captured_image = Mock()
         worker = CaptureOcrTranslateWorker(image=pre_captured_image)
         worker.run()
 
-        coord_instance.process_image_with_translation.assert_called_once_with(pre_captured_image, preprocess=True)
+        request = ocr_service.process_image.call_args.args[0]
+        assert request.image is pre_captured_image
+        assert request.preprocess is True
 
     def test_worker_cancellation_during_processing(self, qtbot, mock_services):
         """Test worker respects cancellation request during processing."""
