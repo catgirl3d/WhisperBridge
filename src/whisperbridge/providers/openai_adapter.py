@@ -1,7 +1,8 @@
 """
 OpenAI chat client adapter for WhisperBridge.
 
-Provides an OpenAI-compatible interface that wraps the native OpenAI SDK.
+Wraps the native OpenAI SDK so all provider adapters expose the same
+surface consumed by the API manager.
 """
 
 from types import SimpleNamespace
@@ -16,9 +17,10 @@ __all__ = ["OpenAIChatClientAdapter"]
 
 class OpenAIChatClientAdapter:
     """
-    Adapter for OpenAI Chat API with OpenAI-compatible interface.
+    Uniform client surface for the OpenAI provider.
 
-    Exposes:
+    Exposes the same interface as the Google/DeepL adapters so the API
+    manager can treat all providers interchangeably:
       - chat.completions.create(...)
       - models.list()
 

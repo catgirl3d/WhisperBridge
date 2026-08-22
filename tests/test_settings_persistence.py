@@ -1,8 +1,25 @@
 import json
+import threading
 
 from whisperbridge.core.config import Settings
 from whisperbridge.core.settings_manager import SettingsManager
 from whisperbridge.services.config_service import ConfigService, SettingsObserver
+
+
+def _config_lock_is_free_from_other_thread(config: ConfigService) -> bool:
+    """Probe from another thread: RLock reentrancy would mask same-thread checks."""
+    result = {}
+
+    def probe():
+        acquired = config._lock.acquire(timeout=0.2)
+        result["acquired"] = acquired
+        if acquired:
+            config._lock.release()
+
+    thread = threading.Thread(target=probe)
+    thread.start()
+    thread.join(timeout=1.0)
+    return result.get("acquired", False)
 
 
 class RecordingObserver(SettingsObserver):
@@ -80,6 +97,62 @@ def test_config_service_set_setting_uses_validated_value_for_settings_and_observ
 
     persisted_data = json.loads(settings_file.read_text(encoding="utf-8"))
     assert persisted_data["translator_font_size"] == 32
+
+
+def test_observer_callback_runs_without_config_lock_on_set_setting(tmp_path, mocker):
+    manager = SettingsManager()
+    settings_file = tmp_path / "settings.json"
+    mocker.patch.object(manager, "_get_settings_file", return_value=settings_file)
+    manager._settings = Settings()
+
+    config = ConfigService()
+    config._settings_manager = manager
+    config._settings = manager.get_settings()
+
+    class LockCheckingObserver(SettingsObserver):
+        def __init__(self):
+            self.errors = []
+
+        def on_settings_changed(self, key, old_value, new_value):
+            if not _config_lock_is_free_from_other_thread(config):
+                self.errors.append(AssertionError("config lock held during observer callback"))
+
+    observer = LockCheckingObserver()
+    config.add_observer(observer)
+
+    assert config.set_setting("theme", "dark")
+    assert not observer.errors
+
+
+def test_observer_callback_runs_without_config_lock_on_update_settings(tmp_path, mocker):
+    manager = SettingsManager()
+    settings_file = tmp_path / "settings.json"
+    mocker.patch.object(manager, "_get_settings_file", return_value=settings_file)
+    manager._settings = Settings()
+
+    config = ConfigService()
+    config._settings_manager = manager
+    config._settings = manager.get_settings()
+
+    class LockCheckingObserver(SettingsObserver):
+        def __init__(self):
+            self.errors = []
+
+        def _assert_config_lock_is_free(self):
+            if not _config_lock_is_free_from_other_thread(config):
+                self.errors.append(AssertionError("config lock held during observer callback"))
+
+        def on_settings_saved(self, settings):
+            self._assert_config_lock_is_free()
+
+        def on_settings_changed(self, key, old_value, new_value):
+            self._assert_config_lock_is_free()
+
+    observer = LockCheckingObserver()
+    config.add_observer(observer)
+
+    assert config.update_settings({"theme": "dark"})
+    assert not observer.errors
 
 
 def test_config_service_reinitializes_api_manager_when_provider_changes(tmp_path, mocker):

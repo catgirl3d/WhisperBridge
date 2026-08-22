@@ -70,12 +70,14 @@ class ConfigService(QObject):
         with self._lock:
             try:
                 self._settings = self._settings_manager.load_settings()
-                self._notify_observers("loaded", self._settings)
-                logger.info("Settings loaded via config service")
-                return self._settings
+                settings = self._settings
             except Exception as e:
                 logger.error(f"Failed to load settings: {e}")
                 raise
+
+        self._notify_observers("loaded", settings)
+        logger.info("Settings loaded via config service")
+        return settings
 
     def save_settings(self, settings: Optional[Settings] = None) -> bool:
         """Save settings and notify observers."""
@@ -87,27 +89,29 @@ class ConfigService(QObject):
                         logger.warning("No settings to save")
                         return False
 
-                logger.debug(f"ConfigService.save_settings called with theme='{settings.theme}'")
-
                 # Track changes for notifications
                 old_settings = self._settings.model_copy() if self._settings else None
 
                 success = self._settings_manager.save_settings(settings)
-                logger.debug(f"SettingsManager.save_settings returned: {success}")
 
                 if success:
                     self._settings = settings
-                    self._notify_observers("saved", self._settings)
-
-                    # Notify about individual changes
-                    if old_settings:
-                        self._notify_setting_changes(old_settings, self._settings)
-
-                return success
 
             except Exception as e:
                 logger.error(f"Failed to save settings: {e}")
                 return False
+
+        logger.debug(f"ConfigService.save_settings called with theme='{settings.theme}'")
+        logger.debug(f"SettingsManager.save_settings returned: {success}")
+
+        if success:
+            self._notify_observers("saved", settings)
+
+            # Notify about individual changes
+            if old_settings:
+                self._notify_setting_changes(old_settings, settings)
+
+        return success
 
     def _notify_setting_changes(self, old_settings: Settings, new_settings: Settings):
         """Notify observers about individual setting changes."""
@@ -161,26 +165,27 @@ class ConfigService(QObject):
                     validated_value = getattr(validated_settings, key, value)
                     self._settings = validated_settings
 
-                    self._check_and_reinitialize_api_manager(previous_settings, validated_settings)
-
-                    if old_value != validated_value:
-                        self._notify_observers("changed", key, old_value, validated_value)
-
-                    # If log level changed, reconfigure logging
-                    if key == "log_level" and old_value != validated_value:
-                        try:
-                            from ..core.logger import setup_logging
-
-                            setup_logging(self)
-                            logger.info(f"Applied new log level: {validated_value}")
-                        except Exception as e:
-                            logger.error(f"Failed to apply new log level '{validated_value}': {e}")
-
-                return success
-
             except Exception as e:
                 logger.error(f"Failed to set setting {key}: {e}")
                 return False
+
+        if success:
+            self._check_and_reinitialize_api_manager(previous_settings, validated_settings)
+
+            if old_value != validated_value:
+                self._notify_observers("changed", key, old_value, validated_value)
+
+            # If log level changed, reconfigure logging
+            if key == "log_level" and old_value != validated_value:
+                try:
+                    from ..core.logger import setup_logging
+
+                    setup_logging(self)
+                    logger.info(f"Applied new log level: {validated_value}")
+                except Exception as e:
+                    logger.error(f"Failed to apply new log level '{validated_value}': {e}")
+
+        return success
 
     def update_settings(self, updates: Dict[str, Any]) -> bool:
         """Update multiple settings at once."""
@@ -190,10 +195,11 @@ class ConfigService(QObject):
                 merged_data = current_settings.model_dump()
                 merged_data.update(updates)
                 new_settings = Settings.model_validate(merged_data)
-                return self.save_settings(new_settings)
             except Exception as e:
                 logger.error(f"Failed to update settings: {e}")
                 return False
+
+        return self.save_settings(new_settings)
 
     def _check_and_reinitialize_api_manager(self, old_settings: Settings, new_settings: Settings):
         """Check if API-related settings changed and reinitialize API manager if needed."""

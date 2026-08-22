@@ -2,8 +2,9 @@
 Provider management for the API Manager package.
 
 This module provides:
-- APIProvider enum for supported API providers
 - ProviderRegistry class for managing API provider clients
+
+The supported provider catalog lives in core.provider_catalog.APIProvider.
 """
 
 from typing import Any, Dict, Optional
