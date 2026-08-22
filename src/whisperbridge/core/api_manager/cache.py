@@ -9,11 +9,9 @@ import json
 import threading
 import time
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from loguru import logger
-
-from ..config import ensure_config_dir
 
 
 class ModelCache:
@@ -33,62 +31,71 @@ class ModelCache:
             ttl_seconds: Time-to-live for cache entries (default: 2 weeks).
         """
         self._cache: Dict[str, Tuple[List[str], float]] = {}
-        self._lock = threading.RLock()
-        self._config_dir = config_dir
+        self._lock = threading.Lock()
         self._ttl = ttl_seconds
         self._cache_file = config_dir / "models_cache.json"
 
     def load_from_disk(self) -> None:
         """Load persistent model cache into memory if present."""
         path = self._cache_file
-        if not path.exists():
-            return
         try:
+            if not path.exists():
+                return
             with path.open("r", encoding="utf-8") as f:
                 raw = json.load(f)
             with self._lock:
                 # raw expected as {provider_value: {"models": [...], "timestamp": ts}}
-                for prov_str, entry in raw.items():
-                    models = entry.get("models", [])
-                    ts = entry.get("timestamp", 0)
-                    self._cache[prov_str] = (models, ts)
+                for provider, entry in raw.items():
+                    self._cache[provider] = (
+                        entry.get("models", []),
+                        entry.get("timestamp", 0),
+                    )
             logger.info("Loaded model cache from disk")
         except Exception as e:
             logger.warning(f"Failed to load model cache from disk: {e}")
 
     def save_to_disk(self) -> None:
         """Persist in-memory model cache to disk."""
-        path = self._cache_file
-        data = {}
         with self._lock:
-            for prov, (models, ts) in self._cache.items():
-                data[prov] = {"models": models, "timestamp": ts}
+            self._save_locked()
+
+    def _save_locked(self) -> None:
+        """Write the current cache snapshot; caller must hold ``_lock``."""
+        data = {
+            provider: {"models": models, "timestamp": timestamp}
+            for provider, (models, timestamp) in self._cache.items()
+        }
         try:
-            with path.open("w", encoding="utf-8") as f:
+            with self._cache_file.open("w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
             logger.debug("Saved model cache to disk")
         except Exception as e:
             logger.warning(f"Failed to save model cache to disk: {e}")
 
     def cleanup_old_files(self) -> None:
-        """Remove cache files older than TTL."""
-        try:
-            path = self._cache_file
-            if path.exists():
-                file_age = time.time() - path.stat().st_mtime
-                if file_age > self._ttl:
-                    path.unlink()
-                    logger.debug("Removed old model cache file")
-        except Exception as e:
-            logger.debug(f"Failed to cleanup old cache files: {e}")
+        """Remove expired entries using their stored timestamps."""
+        now = time.time()
+        with self._lock:
+            expired_providers = [
+                provider
+                for provider, (_, timestamp) in self._cache.items()
+                if now - timestamp >= self._ttl
+            ]
+            if not expired_providers:
+                return
 
-    def _handle_cache_operation(self, operation: str, operation_func: Callable) -> Optional[Any]:
-        """Universal cache operation handler with error logging."""
-        try:
-            return operation_func()
-        except Exception as e:
-            logger.warning(f"Failed to {operation} model cache: {e}")
-            return None
+            for provider in expired_providers:
+                self._cache.pop(provider, None)
+
+            if self._cache:
+                self._save_locked()
+                return
+
+            try:
+                self._cache_file.unlink(missing_ok=True)
+                logger.debug("Removed expired model cache file")
+            except Exception as e:
+                logger.debug(f"Failed to cleanup expired model cache: {e}")
 
     def cache_models_and_persist(self, provider: str, models: List[str]) -> None:
         """
@@ -100,15 +107,12 @@ class ModelCache:
         """
         with self._lock:
             self._cache[provider] = (models, time.time())
-        self._handle_cache_operation("persist", self.save_to_disk)
+            self._save_locked()
 
     def initialize_safely(self) -> None:
         """Safely initialize model cache with error handling."""
-        def load_cache():
-            self.load_from_disk()
-            self.cleanup_old_files()
-
-        self._handle_cache_operation("load cache during initialization", load_cache)
+        self.load_from_disk()
+        self.cleanup_old_files()
 
     def get(self, provider: str) -> Optional[Tuple[List[str], float]]:
         """
@@ -139,19 +143,29 @@ class ModelCache:
         with self._lock:
             self._cache[provider] = (models, time.time())
 
-    def clear(self, provider: Optional[str] = None) -> None:
+    def clear(self, provider: Optional[str] = None, *, delete_persisted: bool = False) -> None:
         """
         Clear cache entries.
 
         Args:
             provider: If provided, clear only this provider's cache.
                      If None, clear all cache entries.
+            delete_persisted: Also remove the disk cache when clearing all entries.
         """
         with self._lock:
             if provider:
                 self._cache.pop(provider, None)
             else:
                 self._cache.clear()
+
+            if delete_persisted:
+                if provider:
+                    self._save_locked()
+                else:
+                    try:
+                        self._cache_file.unlink(missing_ok=True)
+                    except Exception as e:
+                        logger.debug(f"Failed to remove persisted model cache: {e}")
 
     def is_cached(self, provider: str) -> bool:
         """

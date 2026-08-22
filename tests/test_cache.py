@@ -136,6 +136,29 @@ class TestCacheThreadSafety:
             models, _ = result
             assert models == [f"model_{i}"]
 
+    def test_concurrent_persistence_writes_keep_a_complete_snapshot(self, tmp_path):
+        """Concurrent persistence writes must not overwrite newer cache entries."""
+        cache = ModelCache(tmp_path, ttl_seconds=1209600)
+        num_threads = 10
+
+        threads = [
+            threading.Thread(
+                target=cache.cache_models_and_persist,
+                args=(f"provider_{i}", [f"model_{i}"]),
+            )
+            for i in range(num_threads)
+        ]
+
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+
+        with (tmp_path / "models_cache.json").open("r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        assert set(data) == {f"provider_{i}" for i in range(num_threads)}
+
 
 class TestValidateModelList:
     """Tests for model list validation."""
@@ -195,16 +218,15 @@ class TestCacheClearOperations:
 
 
 class TestCacheCleanupOldFiles:
-    """Tests for old file cleanup functionality."""
+    """Tests for expired cache entry cleanup."""
 
-    def test_cleanup_old_files_removes_old_file(self, tmp_path):
-        """Test that an old cache file is actually removed when it exceeds TTL."""
+    def test_cleanup_old_files_removes_expired_entries(self, tmp_path):
+        """Expired entries are removed based on their stored timestamp."""
         # Arrange
         cache = ModelCache(tmp_path, ttl_seconds=60)
         cache_file = tmp_path / "models_cache.json"
         cache_file.write_text('{"openai": {"models": ["gpt-5.4-mini"], "timestamp": 1234567890.0}}', encoding='utf-8')
-        old_timestamp = time.time() - 120
-        os.utime(cache_file, (old_timestamp, old_timestamp))
+        cache.load_from_disk()
 
         # Act
         cache.cleanup_old_files()
@@ -213,13 +235,15 @@ class TestCacheCleanupOldFiles:
         assert not cache_file.exists()
 
     def test_cleanup_old_files_handles_unlink_error(self, tmp_path, mocker):
-        """Test that cleanup tolerates an inaccessible old cache file."""
+        """Test that cleanup tolerates an inaccessible expired cache file."""
         # Arrange
         cache = ModelCache(tmp_path, ttl_seconds=60)
         cache_file = tmp_path / "models_cache.json"
-        cache_file.write_text("cache", encoding="utf-8")
-        old_timestamp = time.time() - 120
-        os.utime(cache_file, (old_timestamp, old_timestamp))
+        cache_file.write_text(
+            '{"openai": {"models": ["gpt-5.4-mini"], "timestamp": 1234567890.0}}',
+            encoding="utf-8",
+        )
+        cache.load_from_disk()
         mock_unlink = mocker.patch.object(
             type(cache_file), "unlink", side_effect=PermissionError("file is in use")
         )
@@ -230,6 +254,19 @@ class TestCacheCleanupOldFiles:
         # Assert
         mock_unlink.assert_called_once()
         assert cache_file.exists()
+
+    def test_cleanup_ignores_file_mtime_for_fresh_entries(self, tmp_path):
+        """A fresh entry remains valid even when the file itself is old."""
+        cache1 = ModelCache(tmp_path, ttl_seconds=60)
+        cache1.cache_models_and_persist("openai", ["gpt-5.4-mini"])
+        cache_file = tmp_path / "models_cache.json"
+        old_timestamp = time.time() - 120
+        os.utime(cache_file, (old_timestamp, old_timestamp))
+
+        cache2 = ModelCache(tmp_path, ttl_seconds=60)
+        cache2.initialize_safely()
+
+        assert cache2.get("openai") is not None
 
 
 class TestCacheIsCached:

@@ -137,6 +137,29 @@ class TestInitialization:
         
         assert api_manager._usage == {}
 
+    def test_reinitialize_removes_persistent_model_cache(
+        self, api_manager, mock_config_service, mocker, tmp_path
+    ):
+        """Reinitialization must not reload models from the previous session."""
+        mock_config_service.get_setting.side_effect = lambda key: {
+            "openai_api_key": "sk-test123",
+            "api_provider": "openai",
+            "api_timeout": 30,
+        }.get(key)
+        mocker.patch(
+            "whisperbridge.core.api_manager.providers.OpenAIChatClientAdapter",
+            return_value=mocker.Mock(),
+        )
+
+        api_manager._cache.cache_models_and_persist("openai", ["stale-model"])
+        cache_file = tmp_path / "models_cache.json"
+        assert cache_file.exists()
+
+        api_manager.reinitialize()
+
+        assert not cache_file.exists()
+        assert api_manager._cache.get("openai") is None
+
 
 class TestMakeRequestSync:
     """Tests for make_request_sync method."""

@@ -95,7 +95,7 @@ class APIManager:
         with self._lock:
             self._providers.clear()
             self._usage.clear()
-            self._cache.clear()
+            self._cache.clear(delete_persisted=True)
             self._is_initialized = False
 
         return self.initialize()
