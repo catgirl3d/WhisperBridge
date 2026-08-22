@@ -52,7 +52,7 @@ class AppServices(QObject):
             try:
                 self.clipboard_service = get_clipboard_service()
                 if self.clipboard_service:
-                    logger.info("AppServices: ClipboardService initialized and started")
+                    logger.info("AppServices: ClipboardService initialized")
                 else:
                     logger.warning("AppServices: ClipboardService not available; clipboard-backed features may be limited")
             except Exception as e:
