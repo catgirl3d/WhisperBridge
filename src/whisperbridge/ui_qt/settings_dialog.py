@@ -944,7 +944,7 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
 
         # Create and start worker
         self.test_worker = ApiTestWorker(provider, api_key)
-        self.app.create_and_run_worker(self.test_worker, self._on_test_finished, self._on_test_error)
+        self.app.create_and_run_worker(self.test_worker, self._on_test_finished)
 
     def _reset_test_button(self):
         """Reset the test API button to its default state."""
@@ -972,12 +972,6 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
                 QMessageBox.warning(self, "Model Apply Failed", f"API key is valid, but could not apply models: {e}")
         else:
             QMessageBox.warning(self, "Test Failed", f"API test failed: {error_msg}")
-
-    def _on_test_error(self, error_message: str):
-        """Handle API test error."""
-        # Re-enable button
-        self._reset_test_button()
-        QMessageBox.warning(self, "Test Failed", f"API test failed: {error_message}")
 
     def _load_models(self, provider_name: Optional[str] = None, model_to_select: Optional[str] = None):
         """Load available models for the current provider."""

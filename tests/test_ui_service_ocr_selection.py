@@ -102,6 +102,47 @@ def test_start_ocr_worker_requires_image(mocker):
     notifier.error.assert_called_once_with("No OCR image provided.", "WhisperBridge")
 
 
+@pytest.mark.parametrize("payload", [("", "", ""), ("", "", "", "")])
+def test_handle_worker_finished_ignores_empty_terminal_payload(mocker, payload):
+    """Clean OCR termination must not open an overlay or notify the user."""
+    ui = _build_ui_service(mocker)
+    show_overlay_mock = mocker.patch.object(ui, "show_overlay_window")
+    notify_mock = mocker.patch("whisperbridge.services.ui_service.get_notification_service")
+
+    ui.handle_worker_finished(*payload)
+
+    show_overlay_mock.assert_not_called()
+    notify_mock.assert_not_called()
+
+
+def test_handle_worker_finished_shows_overlay_for_empty_ocr_result(mocker):
+    """An empty OCR result is a normal outcome and must keep the overlay UX."""
+    ui = _build_ui_service(mocker)
+    show_overlay_mock = mocker.patch.object(ui, "show_overlay_window")
+    notify_mock = mocker.patch("whisperbridge.services.ui_service.get_notification_service")
+
+    ui.handle_worker_finished("", "", "ocr", "OCR detected no text")
+
+    show_overlay_mock.assert_called_once_with(
+        "", "", overlay_id="ocr", error_message="OCR detected no text"
+    )
+    notify_mock.return_value.error.assert_not_called()
+
+
+def test_handle_worker_finished_notifies_external_ocr_crash_without_overlay(mocker):
+    """Infrastructure OCR failures preserve the old notification-only UX."""
+    ui = _build_ui_service(mocker)
+    show_overlay_mock = mocker.patch.object(ui, "show_overlay_window")
+    notify_mock = mocker.patch("whisperbridge.services.ui_service.get_notification_service")
+    notifier = Mock()
+    notify_mock.return_value = notifier
+
+    ui.handle_worker_finished("", "", "", "OCR backend exploded")
+
+    show_overlay_mock.assert_not_called()
+    notifier.error.assert_called_once_with("Processing error: OCR backend exploded", "WhisperBridge")
+
+
 def test_activate_ocr_starts_selection_with_frozen_frame_when_capture_succeeds(mocker):
     """OCR activation should pass freeze-frame image/rect into selection overlay start()."""
     ui = _build_ui_service(mocker)

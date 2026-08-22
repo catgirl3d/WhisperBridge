@@ -256,16 +256,29 @@ class CopyTranslateService(QObject):
             provider = (self.config_service.get_setting("api_provider") or "openai").strip().lower()
             openai_key = self.config_service.get_setting("openai_api_key")
             google_key = self.config_service.get_setting("google_api_key")
+            deepl_key = self.config_service.get_setting("deepl_api_key")
             has_openai_key = bool(openai_key)
             has_google_key = bool(google_key)
+            has_deepl_key = bool(deepl_key)
+            if provider == "openai":
+                has_api_key = has_openai_key
+            elif provider == "google":
+                # Backward compatibility: allow the legacy OpenAI fallback.
+                has_api_key = bool(google_key or openai_key)
+            elif provider == "deepl":
+                has_api_key = has_deepl_key
+            else:
+                has_api_key = False
+                log.warning("Copy-translate encountered unsupported API provider: {}", provider)
             log.debug(
-                "Copy-translate configuration: provider={} has_openai_key={} has_google_key={}",
+                "Copy-translate configuration: provider={} has_api_key={} has_openai_key={} "
+                "has_google_key={} has_deepl_key={}",
                 provider,
+                has_api_key,
                 has_openai_key,
                 has_google_key,
+                has_deepl_key,
             )
-            # Backward compatibility: if provider is google but dedicated key is missing, allow fallback to openai key
-            has_api_key = has_openai_key if provider == "openai" else bool(google_key or openai_key)
             if not has_api_key:
                 log.info("No API key configured for the selected provider, showing original text only")
                 # Emit overlay with original text only (no translation attempt)
@@ -306,7 +319,18 @@ class CopyTranslateService(QObject):
             # Mark translation completion time
             t_after_translation = time.perf_counter()
 
-            translated_text = getattr(response, "translated_text", None) or str(response)
+            # translate_text_sync may return a plain string (legacy fallback
+            # path) or a TranslationResponse; never stringify a failed object.
+            if isinstance(response, str):
+                translated_text = response
+            elif bool(getattr(response, "success", True)):
+                translated_text = getattr(response, "translated_text", None) or ""
+            else:
+                translated_text = ""
+                log.warning(
+                    "Copy-translate translation failed: {}",
+                    getattr(response, "error_message", ""),
+                )
 
             # Read auto_copy_translated setting live and set pending flag so main thread can copy AFTER overlay is shown
             try:

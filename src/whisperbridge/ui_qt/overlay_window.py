@@ -70,7 +70,10 @@ class OverlayWindow(StyledOverlayWindow):
         super().__init__(title="Translator")
         self._translator_settings_dialog = None
         self._translation_start_time = None
-        self._translation_error_handled = False
+        self._translation_worker = None
+        self._translation_thread = None
+        self._style_worker = None
+        self._style_thread = None
 
         # Animation state for loading spinner + dots
         self._loading_timer: Optional[QTimer] = None
@@ -322,14 +325,12 @@ class OverlayWindow(StyledOverlayWindow):
         if hasattr(self, "_translation_prev_text"):
             delattr(self, "_translation_prev_text")
 
-    def _finalize_translation_request(self, *, success: bool, refresh_api_state: bool, clear_error_marker: bool = True) -> None:
-        """Run request cleanup after either the error or finished signal path."""
+    def _finalize_translation_request(self, *, success: bool, refresh_api_state: bool) -> None:
+        """Run request cleanup after the terminal finished signal."""
         if success:
             self._apply_success_completion_status()
 
         self._translation_start_time = None
-        if clear_error_marker:
-            self._translation_error_handled = False
         self._restore_request_controls()
 
         if refresh_api_state:
@@ -345,7 +346,6 @@ class OverlayWindow(StyledOverlayWindow):
     def _begin_request_ui_state(self, *, is_style: bool):
         """Initialize request state and loading UI before starting a worker."""
         self._translation_start_time = time.time()
-        self._translation_error_handled = False
         self.status_label.setText("Request sent")
         self.ui_builder.apply_status_style(self.status_label, 'default')
 
@@ -1014,13 +1014,10 @@ class OverlayWindow(StyledOverlayWindow):
         worker.moveToThread(thread)
 
         worker.finished.connect(self._on_translation_finished)
-        worker.error.connect(self._on_translation_error)
         thread.started.connect(worker.run)
 
         worker.finished.connect(thread.quit)
-        worker.error.connect(thread.quit)
         worker.finished.connect(worker.deleteLater)
-        worker.error.connect(worker.deleteLater)
         thread.finished.connect(thread.deleteLater)
 
         # Watchdog timer setup
@@ -1076,10 +1073,6 @@ class OverlayWindow(StyledOverlayWindow):
                 except (RuntimeError, TypeError):
                     pass
                 try:
-                    worker.error.disconnect(cleanup_watchdog)
-                except (RuntimeError, TypeError):
-                    pass
-                try:
                     worker.finished.disconnect(cleanup_watchdog)
                 except (RuntimeError, TypeError):
                     pass
@@ -1095,7 +1088,6 @@ class OverlayWindow(StyledOverlayWindow):
         
         # Connect cleanup signals
         thread.finished.connect(cleanup_watchdog)
-        worker.error.connect(cleanup_watchdog)
         worker.finished.connect(cleanup_watchdog)
         
         # Start watchdog immediately BEFORE thread ensures 100% coverage
@@ -1148,34 +1140,40 @@ class OverlayWindow(StyledOverlayWindow):
         try:
             if success:
                 self._apply_successful_translation_result(result)
-            elif self._translation_error_handled:
-                logger.debug("Skipping duplicate translation error handling in finished slot")
             else:
                 self._apply_request_error_status(result, show_popup_for_unknown=True)
         finally:
-            self._finalize_translation_request(success=success, refresh_api_state=False)
-
-    def _on_translation_error(self, error_message: str):
-        """Handle error from background translation."""
-        self._translation_error_handled = True
-        try:
-            self._apply_request_error_status(error_message, show_popup_for_unknown=True)
-        finally:
-            self._finalize_translation_request(success=False, refresh_api_state=True, clear_error_marker=False)
+            self._finalize_translation_request(
+                success=success,
+                refresh_api_state=not success,
+            )
 
     def _cancel_active_request(self):
         """Cancel active translation/style request and restore UI state."""
-        worker = getattr(self, "_translation_worker", None)
-        thread = getattr(self, "_translation_thread", None)
+        translation_worker = getattr(self, "_translation_worker", None)
+        translation_thread = getattr(self, "_translation_thread", None)
+        style_worker = getattr(self, "_style_worker", None)
+        style_thread = getattr(self, "_style_thread", None)
 
-        if worker is None:
-            worker = getattr(self, "_style_worker", None)
-            thread = getattr(self, "_style_thread", None)
+        try:
+            translation_running = translation_thread is not None and translation_thread.isRunning()
+        except RuntimeError:  # C++ object already deleted
+            translation_running = False
+        try:
+            style_running = style_thread is not None and style_thread.isRunning()
+        except RuntimeError:
+            style_running = False
+
+        if translation_running or not style_running:
+            worker = translation_worker
+            thread = translation_thread
+        else:
+            worker = style_worker
+            thread = style_thread
 
         if worker is not None:
             for signal, handler in (
                 (worker.finished, self._on_translation_finished),
-                (worker.error, self._on_translation_error),
             ):
                 try:
                     signal.disconnect(handler)
@@ -1212,6 +1210,40 @@ class OverlayWindow(StyledOverlayWindow):
                 self.translate_btn.setText(prev_text)
         if hasattr(self, "_translation_prev_text"):
             delattr(self, "_translation_prev_text")
+
+    def shutdown_workers(self):
+        """Cancel and wait for all live request worker threads during application shutdown."""
+        pairs = (
+            (getattr(self, "_translation_worker", None), getattr(self, "_translation_thread", None)),
+            (getattr(self, "_style_worker", None), getattr(self, "_style_thread", None)),
+        )
+
+        threads = []
+        for worker, thread in pairs:
+            if worker is not None and hasattr(worker, "request_cancel"):
+                try:
+                    worker.request_cancel()
+                except Exception as e:
+                    logger.debug(f"Failed to request worker cancellation during shutdown: {e}")
+            try:
+                if thread is not None and thread.isRunning():
+                    thread.quit()
+                    threads.append(thread)
+            except RuntimeError:  # C++ object already deleted
+                pass
+
+        deadline = time.monotonic() + 5.0
+        while any(thread.isRunning() for thread in threads):
+            remaining_ms = int((deadline - time.monotonic()) * 1000)
+            if remaining_ms <= 0:
+                break
+            for thread in threads:
+                if thread.isRunning():
+                    thread.wait(min(100, remaining_ms))
+
+        for thread in threads:
+            if thread.isRunning():
+                logger.warning("Overlay worker thread did not stop during shutdown")
 
     def _start_loading_animation(self, base_text: str, compact: bool):
         """Start the loading animation with spinning icon and animated dots."""

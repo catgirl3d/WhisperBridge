@@ -5,6 +5,7 @@ Provides compatible interface with the existing CTK-based application.
 
 import sys
 import os
+import time
 from PySide6.QtGui import QIcon
 from typing import Any, Dict, Optional, Protocol, cast
 
@@ -17,7 +18,6 @@ from PySide6.QtWidgets import QApplication
 class RunnableWorker(Protocol):
     """Protocol for QObject workers that can be run by the factory."""
     finished: Signal
-    error: Signal
 
     def run(self): ...
     def moveToThread(self, thread: QThread): ...
@@ -312,29 +312,15 @@ class QtApp(QObject, SettingsObserver):
         except Exception as e:
             logger.error(f"Error in _handle_worker_finished delegate: {e}", exc_info=True)
 
-    @Slot(str)
-    def _handle_worker_error(self, error_message: str):
-        """Slot to handle worker error signal — delegate to UIService."""
-        try:
-            logger.error("Worker error slot invoked in main thread (delegating to UIService)")
-            if self.ui:
-                self.ui._handle_worker_error(error_message)
-        except Exception as e:
-            logger.error(f"Error in _handle_worker_error delegate: {e}", exc_info=True)
-
-    def create_and_run_worker(self, worker: RunnableWorker, on_finished, on_error):
+    def create_and_run_worker(self, worker: RunnableWorker, on_finished):
         """Centralized creates, configures, and starts a QThread for the worker."""
         thread = QThread()
         worker.moveToThread(thread)
         worker.finished.connect(on_finished)
-        worker.error.connect(on_error)
         thread.started.connect(worker.run)
         worker.finished.connect(thread.quit)
-        # Safety net: ensure thread also stops when worker reports error.
-        worker.error.connect(thread.quit)
         thread.finished.connect(thread.deleteLater)
         worker.finished.connect(worker.deleteLater)
-        worker.error.connect(worker.deleteLater)
         self._worker_threads.append((thread, worker))
         thread.finished.connect(
             lambda: self._worker_threads.remove((thread, worker))
@@ -440,6 +426,41 @@ class QtApp(QObject, SettingsObserver):
         logger.info("Shutting down Qt-based WhisperBridge...")
 
         self.is_running = False
+
+        # Cancel and drain workers before tearing down services that receive their signals.
+        worker_threads = list(self._worker_threads)
+        shutdown_deadline = time.monotonic() + 5.0
+
+        # Pass 1: signal cancellation and quit for every worker concurrently,
+        # so no thread's wait blocks another worker from receiving its cancel.
+        for thread, worker in worker_threads:
+            try:
+                request_cancel = getattr(worker, "request_cancel", None)
+                if callable(request_cancel):
+                    request_cancel()
+            except Exception as e:
+                logger.warning(f"Error requesting worker cancellation: {e}")
+
+            try:
+                thread.quit()
+            except Exception as e:
+                logger.warning(f"Error stopping worker thread: {e}")
+
+        # Pass 2: bounded join within the shared deadline.
+        threads = [thread for thread, _ in worker_threads]
+        while any(thread.isRunning() for thread in threads):
+            remaining_ms = int((shutdown_deadline - time.monotonic()) * 1000)
+            if remaining_ms <= 0:
+                break
+            for thread in threads:
+                if thread.isRunning():
+                    thread.wait(min(100, remaining_ms))
+
+        for thread, worker in worker_threads:
+            if thread.isRunning():
+                logger.warning(
+                    f"Worker thread {worker.__class__.__name__} did not stop during shutdown"
+                )
 
         # Shutdown services managed by AppServices
         if self.services:

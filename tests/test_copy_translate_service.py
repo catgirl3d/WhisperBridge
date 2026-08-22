@@ -150,6 +150,74 @@ def test_run_translates_with_auto_swap_and_auto_copy(qapp, mocker):
     ctx.notification_service.error.assert_not_called()
 
 
+def test_run_translates_with_deepl_key(qapp, mocker):
+    ctx = _build_service(qapp, mocker)
+    ctx.clipboard_service.get_clipboard_text.side_effect = ["old text", "selected text"]
+    ctx.config_service.get_setting.side_effect = _make_get_setting(
+        {
+            "clipboard_poll_timeout_ms": 200,
+            "api_provider": "deepl",
+            "openai_api_key": None,
+            "google_api_key": None,
+            "deepl_api_key": "deepl-test-key",
+        }
+    )
+    ctx.translation_service.translate_text_sync.return_value = SimpleNamespace(
+        translated_text="Переклад"
+    )
+
+    ctx.service.run()
+
+    ctx.translation_service.translate_text_sync.assert_called_once_with(
+        "selected text",
+        source_lang="auto",
+        target_lang="uk",
+    )
+    assert ctx.emitted == [("selected text", "Переклад", False)]
+
+
+def test_run_emits_original_text_when_deepl_key_is_missing(qapp, mocker):
+    ctx = _build_service(qapp, mocker)
+    ctx.clipboard_service.get_clipboard_text.side_effect = ["old text", "selected text"]
+    ctx.config_service.get_setting.side_effect = _make_get_setting(
+        {
+            "clipboard_poll_timeout_ms": 200,
+            "api_provider": "deepl",
+            "openai_api_key": None,
+            "google_api_key": None,
+            "deepl_api_key": "",
+        }
+    )
+
+    ctx.service.run()
+
+    assert ctx.emitted == [("selected text", "", False)]
+    ctx.translation_service.translate_text_sync.assert_not_called()
+
+
+def test_run_never_stringifies_failed_translation_response(qapp, mocker):
+    """A failed TranslationResponse must not leak its repr into the overlay."""
+    ctx = _build_service(qapp, mocker)
+    ctx.clipboard_service.get_clipboard_text.side_effect = ["old text", "selected text"]
+    ctx.config_service.get_setting.side_effect = _make_get_setting(
+        {
+            "clipboard_poll_timeout_ms": 200,
+            "api_provider": "openai",
+            "openai_api_key": "sk-test",
+            "google_api_key": None,
+        }
+    )
+    ctx.translation_service.translate_text_sync.return_value = SimpleNamespace(
+        success=False,
+        translated_text=None,
+        error_message="invalid api key",
+    )
+
+    ctx.service.run()
+
+    assert ctx.emitted == [("selected text", "", False)]
+
+
 def test_run_reports_copy_simulation_error_without_result_and_resumes_hotkeys(qapp, mocker):
     """A controller failure emits no result, reports the exception, and resumes hotkeys."""
     ctx = _build_service(qapp, mocker)

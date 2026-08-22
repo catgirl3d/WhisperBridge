@@ -499,6 +499,15 @@ class UIService:
         to avoid creating duplicate windows for OCR results.
         """
         try:
+            # Empty overlay_id marks non-UI outcomes: silent cancellation or
+            # infrastructure crash (notification-only, preserved from the old
+            # error-signal handler). Normal results always carry overlay_id="ocr".
+            if not overlay_id:
+                if error_message:
+                    notification_service = get_notification_service()
+                    notification_service.error(f"Processing error: {error_message}", "WhisperBridge")
+                return
+
             self.logger.info("UIService.handle_worker_finished invoked in main thread")
             canonical_overlay_id = "ocr"
             # Always show OCR results in canonical overlay
@@ -657,6 +666,12 @@ class UIService:
                     self.logger.debug("UIService: Tray manager disposed")
             except Exception as e:
                 self.logger.warning(f"UIService: Error disposing tray manager: {e}")
+            # Cancel active overlay requests before closing their windows.
+            for overlay in list(self.overlay_windows.values()):
+                try:
+                    overlay.shutdown_workers()
+                except Exception as e:
+                    self.logger.warning(f"UIService: Error shutting down overlay workers: {e}")
             # Close overlay windows
             try:
                 for overlay in list(self.overlay_windows.values()):
@@ -849,7 +864,7 @@ class UIService:
             self.logger.info("Starting OCR worker for pre-captured image")
 
             worker = CaptureOcrTranslateWorker(image=image)
-            self.app.create_and_run_worker(worker, self.app._handle_worker_finished, self.app._handle_worker_error)
+            self.app.create_and_run_worker(worker, self.app._handle_worker_finished)
 
             self.logger.info("OCR worker started successfully")
 
@@ -857,14 +872,6 @@ class UIService:
             self.logger.error(f"Error starting OCR worker: {e}", exc_info=True)
             notification_service = get_notification_service()
             notification_service.error(f"Failed to start OCR processing: {e}", "WhisperBridge")
-
-    @main_thread_only
-    @Slot(str)
-    def _handle_worker_error(self, error_message: str):
-        """Handle worker error."""
-        self.logger.error(f"Worker error: {error_message}")
-        notification_service = get_notification_service()
-        notification_service.error(f"Processing error: {error_message}", "WhisperBridge")
 
 
 # Global UI service instance (set by AppServices)

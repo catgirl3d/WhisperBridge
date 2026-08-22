@@ -34,7 +34,7 @@ class TestWorkers:
         mock_api.initialize.assert_not_called()
 
     def test_api_test_worker_error(self, qtbot, mocker):
-        """Test ApiTestWorker emits error on failure."""
+        """Test ApiTestWorker reports failure through its terminal signal."""
         mock_get_api = mocker.patch('whisperbridge.ui_qt.workers.get_api_manager')
         mock_api = Mock()
         mock_api.is_initialized.return_value = True
@@ -42,9 +42,11 @@ class TestWorkers:
         mock_get_api.return_value = mock_api
 
         worker = ApiTestWorker('openai', 'sk-test')
-        with qtbot.waitSignal(worker.error) as blocker:
+        with qtbot.waitSignal(worker.finished) as blocker:
             worker.run()
-        assert blocker.args == ['API error or invalid key']
+        assert blocker.args == [False, 'API error or invalid key', [], '']
+        with pytest.raises(AttributeError):
+            worker.error
         mock_api.get_available_models_sync.assert_called_once_with(
             provider=APIProvider.OPENAI, temp_api_key='sk-test'
         )

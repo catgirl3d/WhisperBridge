@@ -29,7 +29,6 @@ class CaptureOcrTranslateWorker(QObject):
     progress = Signal(str)
     ocr_finished = Signal(str)
     finished = Signal(str, str, str, str)  # original, translated, overlay_id, error_message
-    error = Signal(str)
 
     def __init__(self, image):
         super().__init__()
@@ -48,6 +47,7 @@ class CaptureOcrTranslateWorker(QObject):
             self.started.emit()
 
             if self._cancel_requested:
+                self.finished.emit("", "", "", "")
                 return
 
             logger.debug("Processing pre-captured image")
@@ -109,6 +109,7 @@ class CaptureOcrTranslateWorker(QObject):
             overlay_id = "ocr"
 
             if self._cancel_requested:
+                self.finished.emit("", "", "", "")
                 return
 
             self.progress.emit("Processing completed")
@@ -119,13 +120,12 @@ class CaptureOcrTranslateWorker(QObject):
 
         except Exception as e:
             logger.error(f"Error in worker run: {e}", exc_info=True)
-            self.error.emit(str(e))
+            self.finished.emit("", "", "", str(e))
 
 class ApiTestWorker(QObject):
     """Worker for testing API key asynchronously."""
 
     finished = Signal(bool, str, list, str)  # success, error_message, models, source
-    error = Signal(str)
 
     def __init__(self, provider: str, api_key: str):
         super().__init__()
@@ -158,27 +158,25 @@ class ApiTestWorker(QObject):
                     provider=provider_enum, temp_api_key=self.api_key
                 )
                 if source in ("error", "unconfigured"):
-                    self.error.emit("API error or invalid key")
+                    self.finished.emit(False, "API error or invalid key", [], "")
                 elif not models:
-                    self.error.emit("No models available for this API key")
+                    self.finished.emit(False, "No models available for this API key", [], "")
                 else:
                     self.finished.emit(True, "", models, source)
         except Exception as e:
             if self.provider == "deepl":
                 self.finished.emit(False, f"DeepL test failed: {str(e)}", [], "api")
             else:
-                self.error.emit(f"Connection error: {str(e)}")
+                self.finished.emit(False, f"Connection error: {str(e)}", [], "")
 
 class BaseAsyncWorker(QObject):
     """Base class for workers that need an asyncio event loop.
     
     Signals:
         finished(bool, str): Always emitted on completion. First param is success flag, second is result or error message.
-        error(str): Emitted on error.
     """
 
     finished = Signal(bool, str)  # success, result_or_error
-    error = Signal(str)
 
     def __init__(self):
         super().__init__()
@@ -211,7 +209,6 @@ class BaseAsyncWorker(QObject):
             except Exception:
                 pass
             msg = "Request cancelled"
-            self.error.emit(msg)
             self.finished.emit(False, msg)
             return None
 
@@ -248,19 +245,16 @@ class BaseAsyncWorker(QObject):
         except asyncio.CancelledError:
             logger.info(f"{worker_name} cancelled by user")
             msg = "Request cancelled"
-            self.error.emit(msg)
             self.finished.emit(False, msg)
             return None
         except asyncio.TimeoutError:
             logger.error(f"{worker_name} timed out after {timeout}s")
             msg = f"Request timed out after {timeout} seconds"
-            self.error.emit(msg)
             self.finished.emit(False, msg)
             return None
         except Exception as e:
             logger.error(f"{worker_name} failed: {e}", exc_info=True)
             msg = str(e)
-            self.error.emit(msg)
             self.finished.emit(False, msg)
             return None
         finally:
@@ -324,12 +318,10 @@ class TranslationWorker(BaseAsyncWorker):
                 self.finished.emit(True, resp.translated_text or "")
             else:
                 msg = getattr(resp, "error_message", "Translation failed")
-                self.error.emit(msg)
                 self.finished.emit(False, msg)
         except Exception as e:
             logger.error(f"TranslationWorker failed: {e}", exc_info=True)
             msg = str(e)
-            self.error.emit(msg)
             self.finished.emit(False, msg)
 
 
@@ -360,10 +352,8 @@ class StyleWorker(BaseAsyncWorker):
                 self.finished.emit(True, resp.translated_text or "")
             else:
                 msg = getattr(resp, "error_message", "Styling failed")
-                self.error.emit(msg)
                 self.finished.emit(False, msg)
         except Exception as e:
             logger.error(f"StyleWorker failed: {e}", exc_info=True)
             msg = str(e)
-            self.error.emit(msg)
             self.finished.emit(False, msg) 
