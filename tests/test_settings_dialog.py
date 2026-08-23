@@ -175,7 +175,7 @@ def test_baseline_incomplete_style_entries_do_not_create_false_diff(dialog):
 
 def test_missing_baseline_refuses_to_build_patch_and_keeps_dialog_open(dialog, mocker):
     """A missing baseline is a programming error: never diff against live settings."""
-    critical_mock = mocker.patch("whisperbridge.ui_qt.settings_dialog.QMessageBox.critical")
+    mocker.patch("whisperbridge.ui_qt.settings_dialog.QMessageBox.critical")
     dialog.show()
     dialog.api_timeout_spin.setValue(45)
     dialog._form_baseline = None

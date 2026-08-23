@@ -66,7 +66,7 @@ class TestTextOnlyRequests:
         mock_gen = mocker.patch.object(fake_google_client._client.models, 'generate_content', return_value=mock_generate_content_response)
         
         # Action
-        response = fake_google_client.chat.completions.create(
+        fake_google_client.chat.completions.create(
             model="gemini-3-flash",
             messages=messages,
             max_completion_tokens=256

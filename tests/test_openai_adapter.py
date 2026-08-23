@@ -143,7 +143,7 @@ class TestOpenAITextRequests:
         messages = [{"role": "user", "content": "Test"}]
         
         # Mock the SDK to raise an exception
-        mock_create = mocker.patch.object(
+        mocker.patch.object(
             fake_openai_client._client.chat.completions,
             "create",
             side_effect=Exception("API Error: Rate limit exceeded")
