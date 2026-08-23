@@ -85,8 +85,8 @@ class CaptureOcrTranslateWorker(QObject):
                         target_lang = getattr(settings, "ui_target_language", "en")
                         response = translation_service.translate_text(
                             original_text,
-                            source_lang=source_lang,
-                            target_lang=target_lang,
+                            ui_source_lang=source_lang,
+                            ui_target_lang=target_lang,
                         )
                         if response.success:
                             logger.debug("Translation completed successfully")

@@ -149,7 +149,7 @@ def test_capture_worker_passes_ui_languages_without_detection_or_swap(qapp, mock
     ocr_service.process_image.return_value = MagicMock(
         text="selected text", success=True, error_message=None
     )
-    translation_service = mocker.Mock(is_available=True)
+    translation_service = mocker.Mock(spec=TranslationService, is_available=True)
     translation_service.translate_text.return_value = MagicMock(
         success=True,
         translated_text="translated",
@@ -180,8 +180,8 @@ def test_capture_worker_passes_ui_languages_without_detection_or_swap(qapp, mock
     translation_service.detect_language_sync.assert_not_called()
     translation_service.translate_text.assert_called_once_with(
         "selected text",
-        source_lang="auto",
-        target_lang="uk",
+        ui_source_lang="auto",
+        ui_target_lang="uk",
     )
 
 

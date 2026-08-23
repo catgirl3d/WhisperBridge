@@ -20,11 +20,13 @@ try:
     )
     from whisperbridge.ui_qt.overlay_window import OverlayWindow
     from whisperbridge.services.config_service import config_service
+    from whisperbridge.services.translation_service import TranslationService
 except ImportError:
     # Allow running non-Qt tests in minimal env
     BaseWorker = None
     OverlayWindow = None
     config_service = None
+    TranslationService = None
     QSignalSpy = None
     CaptureOcrTranslateWorker = None
     ApiTestWorker = None
@@ -843,7 +845,7 @@ class TestCaptureOcrTranslateWorker:
         ocr_service.process_image.return_value = Mock(
             text="original", success=True, error_message=None
         )
-        translation_service = Mock(is_available=True)
+        translation_service = Mock(spec=TranslationService, is_available=True)
         translation_service.translate_text.return_value = Mock(
             success=True, translated_text="translated"
         )
@@ -878,7 +880,7 @@ class TestCaptureOcrTranslateWorker:
         request = ocr_service.process_image.call_args.args[0]
         assert request.image is image
         translation_service.translate_text.assert_called_once_with(
-            "original", source_lang="auto", target_lang="uk"
+            "original", ui_source_lang="auto", ui_target_lang="uk"
         )
 
     def test_capture_ocr_worker_success_signals(self, qtbot, mock_services):

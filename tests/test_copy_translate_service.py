@@ -2,6 +2,7 @@ from types import ModuleType, SimpleNamespace
 from unittest.mock import call
 
 from whisperbridge.services.copy_translate_service import CopyTranslateService
+from whisperbridge.services.translation_service import TranslationService
 
 
 def _make_get_setting(values):
@@ -55,7 +56,7 @@ def _build_service(qapp, mocker):
         ui_source_language="auto",
         ui_target_language="uk",
     )
-    translation_service = mocker.Mock()
+    translation_service = mocker.Mock(spec=TranslationService)
     hotkey_service = mocker.Mock()
     logger = mocker.Mock()
     notification_service = mocker.Mock()
@@ -130,8 +131,8 @@ def test_run_translates_with_auto_swap_and_auto_copy(qapp, mocker):
     ctx.translation_service.detect_language_sync.assert_not_called()
     ctx.translation_service.translate_text.assert_called_once_with(
         "selected text",
-        source_lang="auto",
-        target_lang="uk",
+        ui_source_lang="auto",
+        ui_target_lang="uk",
     )
     assert ctx.emitted == [("selected text", "Привіт", True)]
     assert ctx.controller.method_calls == [
@@ -163,8 +164,8 @@ def test_run_translates_and_emits_result_without_auto_copy(qapp, mocker):
 
     ctx.translation_service.translate_text.assert_called_once_with(
         "selected text",
-        source_lang="auto",
-        target_lang="uk",
+        ui_source_lang="auto",
+        ui_target_lang="uk",
     )
     assert ctx.emitted == [("selected text", "Переклад", False)]
 

@@ -278,8 +278,8 @@ class CopyTranslateService(QObject):
 
                 response = self.translation_service.translate_text(
                     text_to_translate,
-                    source_lang=ui_source_language,
-                    target_lang=ui_target_language,
+                    ui_source_lang=ui_source_language,
+                    ui_target_lang=ui_target_language,
                 )
             except Exception as exc:
                 log.error(f"Copy-translate: error preparing translation: {exc}", exc_info=True)
