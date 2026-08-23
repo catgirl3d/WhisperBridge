@@ -81,62 +81,14 @@ class OverlayWindow(StyledOverlayWindow):
         self._loading_dots_count = 0
         self._loading_base_text = ""
 
-        # Create UI builder
+        # Create UI builder; it builds all widgets and remains their single source of truth.
         self.ui_builder = OverlayUIBuilder()
-        
-        # Build UI and unpack DTO
         ui = self.ui_builder.build_ui(self)
-        
-        # === Unpack all 35 components from DTO ===
-        # Layout containers
-        self.info_row_widget = ui.info_row
-        self.footer_widget = ui.footer_widget
-        
-        # Info row widgets
-        self.mode_label = ui.mode_label
-        self.mode_combo = ui.mode_combo
-        self.style_combo = ui.style_combo
-        self.edit_styles_btn = ui.edit_styles_btn
-        self.detected_lang_label = ui.detected_lang_label
-        self.auto_swap_checkbox = ui.auto_swap_checkbox
-        
-        # Language row widgets
-        self.source_combo = ui.source_combo
-        self.target_combo = ui.target_combo
-        self.swap_btn = ui.swap_btn
-        self.original_label = ui.original_label
-        self.language_spacer = ui.language_spacer
-        
-        # Text panels
-        self.original_text = ui.original_text
-        self.translated_text = ui.translated_text
-        self.translated_label = ui.translated_label
-        self.original_panel = ui.original_panel
-        self.translated_panel = ui.translated_panel
-        
-        # Action buttons
-        self.translate_btn = ui.translate_btn
-        self.reader_mode_btn = ui.reader_mode_btn
-        self.clear_original_btn = ui.clear_original_btn
-        self.copy_original_btn = ui.copy_original_btn
-        self.clear_translated_btn = ui.clear_translated_btn
-        self.copy_translated_btn = ui.copy_translated_btn
-        self.original_buttons = ui.original_buttons
-        self.translated_buttons = ui.translated_buttons
-        
-        # Footer
-        self.status_label = ui.status_label
-        self.provider_badge = ui.provider_badge
-        self.close_btn = ui.close_btn
-        
-        # Icons
-        self.icon_translation = ui.icon_translation
-        self.icon_check_green = ui.icon_check_green
-        self.close_icon_normal = ui.close_icon_normal
-        self.close_icon_hover = ui.close_icon_hover
-        
-        # Hideable elements
-        self.hideable_elements = ui.hideable_elements
+
+        # Expose built components as flat window attributes.
+        for name, component in vars(ui).items():
+            if not name.startswith("_"):
+                setattr(self, name, component)
 
         # Initialize provider menu
         self._setup_provider_menu()
@@ -144,8 +96,8 @@ class OverlayWindow(StyledOverlayWindow):
         # Assemble the built UI into the window's content layout
         layout = self.content_layout
         layout.setSpacing(6)
-        layout.addWidget(self.info_row_widget)
-        layout.addLayout(ui.language_row)
+        layout.addWidget(self.info_row)
+        layout.addLayout(self.language_row)
         # Apply initial mode visibility now that all controls exist
         if hasattr(self, "mode_combo"):
             try:
