@@ -5,7 +5,6 @@ This module provides comprehensive screen capture functionality
 including area selection, image capture, and processing.
 """
 
-import threading
 import time
 from dataclasses import dataclass
 import math
@@ -62,9 +61,6 @@ class ScreenCaptureService:
         if not PIL_AVAILABLE:
             raise ImportError("Pillow is required for screen capture functionality")
 
-        self._capture_active = False
-        self._lock = threading.RLock()
-
         # Default options
         self.default_options = CaptureOptions()
 
@@ -112,14 +108,6 @@ class ScreenCaptureService:
             CaptureResult: Capture result
         """
         logger.info(f"Requested area capture: rectangle={rectangle}")
-        with self._lock:
-            if self._capture_active:
-                logger.warning("Capture already in progress, rejecting new request")
-                return CaptureResult(None, None, False, "Capture already in progress")
-
-            self._capture_active = True
-            logger.debug("Capture lock acquired")
-
         try:
             opts = options or self.default_options
             logger.debug(f"Using capture options: {opts}")
@@ -131,11 +119,6 @@ class ScreenCaptureService:
             logger.error(f"Area capture failed: {e}")
             logger.debug(f"Area capture error details: {type(e).__name__}: {str(e)}", exc_info=True)
             return CaptureResult(None, None, False, str(e))
-
-        finally:
-            with self._lock:
-                self._capture_active = False
-                logger.debug("Capture lock released")
 
     def capture_virtual_desktop(self, options: Optional[CaptureOptions] = None) -> CaptureResult:
         """Capture the full virtual desktop in one shot.
