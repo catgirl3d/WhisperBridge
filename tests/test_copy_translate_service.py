@@ -101,7 +101,7 @@ def test_run_emits_original_text_when_translation_is_unavailable(qapp, mocker):
 
     assert ctx.emitted == [("selected text", "", False)]
     ctx.translation_service.detect_language_sync.assert_not_called()
-    ctx.translation_service.translate_text_sync.assert_not_called()
+    ctx.translation_service.translate_text.assert_not_called()
     assert ctx.hotkey_service.set_paused.call_args_list == [call(True), call(False)]
     ctx.notification_service.info.assert_not_called()
     ctx.notification_service.warning.assert_not_called()
@@ -123,12 +123,12 @@ def test_run_translates_with_auto_swap_and_auto_copy(qapp, mocker):
         ui_source_language="auto",
         ui_target_language="uk",
     )
-    ctx.translation_service.translate_text_sync.return_value = SimpleNamespace(translated_text="Привіт")
+    ctx.translation_service.translate_text.return_value = SimpleNamespace(translated_text="Привіт")
 
     ctx.service.run()
 
     ctx.translation_service.detect_language_sync.assert_not_called()
-    ctx.translation_service.translate_text_sync.assert_called_once_with(
+    ctx.translation_service.translate_text.assert_called_once_with(
         "selected text",
         source_lang="auto",
         target_lang="uk",
@@ -155,13 +155,13 @@ def test_run_translates_and_emits_result_without_auto_copy(qapp, mocker):
             "clipboard_poll_timeout_ms": 200,
         }
     )
-    ctx.translation_service.translate_text_sync.return_value = SimpleNamespace(
+    ctx.translation_service.translate_text.return_value = SimpleNamespace(
         translated_text="Переклад"
     )
 
     ctx.service.run()
 
-    ctx.translation_service.translate_text_sync.assert_called_once_with(
+    ctx.translation_service.translate_text.assert_called_once_with(
         "selected text",
         source_lang="auto",
         target_lang="uk",
@@ -178,7 +178,7 @@ def test_run_never_stringifies_failed_translation_response(qapp, mocker):
             "clipboard_poll_timeout_ms": 200,
         }
     )
-    ctx.translation_service.translate_text_sync.return_value = SimpleNamespace(
+    ctx.translation_service.translate_text.return_value = SimpleNamespace(
         success=False,
         translated_text=None,
         error_message="invalid api key",
@@ -199,7 +199,7 @@ def test_run_reports_copy_simulation_error_without_result_and_resumes_hotkeys(qa
 
     assert ctx.emitted == []
     ctx.translation_service.detect_language_sync.assert_not_called()
-    ctx.translation_service.translate_text_sync.assert_not_called()
+    ctx.translation_service.translate_text.assert_not_called()
     ctx.notification_service.error.assert_called_once_with(
         "Copy-translate copy simulation failed: controller failed",
         "WhisperBridge",
@@ -217,12 +217,12 @@ def test_run_falls_back_to_default_translation_when_ui_settings_fail(qapp, mocke
         }
     )
     ctx.config_service.get_settings.side_effect = RuntimeError("settings read failed")
-    ctx.translation_service.translate_text_sync.return_value = "Fallback translation"
+    ctx.translation_service.translate_text.return_value = "Fallback translation"
 
     ctx.service.run()
 
     ctx.translation_service.detect_language_sync.assert_not_called()
-    ctx.translation_service.translate_text_sync.assert_called_once_with("selected text")
+    ctx.translation_service.translate_text.assert_called_once_with("selected text")
     assert ctx.emitted == [("selected text", "Fallback translation", False)]
     ctx.notification_service.info.assert_called_once_with("Translating...", "WhisperBridge")
     ctx.notification_service.warning.assert_not_called()
@@ -242,7 +242,7 @@ def test_run_warns_when_clipboard_content_does_not_change(qapp, mocker):
 
     assert ctx.emitted == []
     ctx.translation_service.detect_language_sync.assert_not_called()
-    ctx.translation_service.translate_text_sync.assert_not_called()
+    ctx.translation_service.translate_text.assert_not_called()
     assert ctx.hotkey_service.set_paused.call_args_list == [call(True), call(False)]
     ctx.notification_service.warning.assert_called_once_with(
         "Copy-translate failed: no clipboard text detected",

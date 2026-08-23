@@ -276,7 +276,7 @@ class CopyTranslateService(QObject):
                 # Show a brief translating notification
                 self.notification_service.info("Translating...", "WhisperBridge")
 
-                response = self.translation_service.translate_text_sync(
+                response = self.translation_service.translate_text(
                     text_to_translate,
                     source_lang=ui_source_language,
                     target_lang=ui_target_language,
@@ -285,12 +285,12 @@ class CopyTranslateService(QObject):
                 log.error(f"Copy-translate: error preparing translation: {exc}", exc_info=True)
                 # Fallback to default translation call on any failure
                 self.notification_service.info("Translating...", "WhisperBridge")
-                response = self.translation_service.translate_text_sync(text_to_translate)
+                response = self.translation_service.translate_text(text_to_translate)
 
             # Mark translation completion time
             t_after_translation = time.perf_counter()
 
-            # translate_text_sync may return a plain string (legacy fallback
+            # translate_text may return a plain string (legacy fallback
             # path) or a TranslationResponse; never stringify a failed object.
             if isinstance(response, str):
                 translated_text = response

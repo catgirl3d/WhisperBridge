@@ -4,15 +4,13 @@ Unit tests for LLM OCR functionality in OCRService.
 Tests validate key behaviors without hitting real network.
 """
 
-import asyncio
 import base64
 from io import BytesIO
 from types import SimpleNamespace
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 from PIL import Image
-from PySide6.QtTest import QSignalSpy
 
 from whisperbridge.core.api_manager import APIManager
 from whisperbridge.core.provider_catalog import APIProvider
@@ -139,7 +137,7 @@ def test_llm_whitespace_response_is_reported_as_unsuccessful(
     assert result.error_message == "Empty OCR text from LLM"
 
 
-def test_capture_worker_passes_ui_languages_without_detection_or_swap(qtbot, mocker):
+def test_capture_worker_passes_ui_languages_without_detection_or_swap(qapp, mocker):
     """The worker passes UI language selections to TranslationService."""
     class Settings:
         ui_source_language = "auto"
@@ -154,7 +152,7 @@ def test_capture_worker_passes_ui_languages_without_detection_or_swap(qtbot, moc
         text="selected text", success=True, error_message=None
     )
     translation_service = mocker.Mock(is_available=True)
-    translation_service.translate_text_sync.return_value = MagicMock(
+    translation_service.translate_text.return_value = MagicMock(
         success=True,
         translated_text="translated",
     )
@@ -176,12 +174,13 @@ def test_capture_worker_passes_ui_languages_without_detection_or_swap(qtbot, moc
     )
 
     worker = CaptureOcrTranslateWorker(Image.new("RGB", (8, 8)))
-    finished_spy = QSignalSpy(worker.finished)
+    results = []
+    worker.finished.connect(lambda *args: results.append(list(args)))
     worker.run()
 
-    assert finished_spy.at(0) == ["selected text", "translated", "ocr", ""]
+    assert results == [["selected text", "translated", "ocr", ""]]
     translation_service.detect_language_sync.assert_not_called()
-    translation_service.translate_text_sync.assert_called_once_with(
+    translation_service.translate_text.assert_called_once_with(
         "selected text",
         source_lang="auto",
         target_lang="uk",
@@ -195,15 +194,13 @@ def test_translation_service_owns_detection_and_auto_swap(mocker):
         ui_target_language = "uk"
 
     service = object.__new__(TranslationService)
-    service._detect_language_async = AsyncMock(return_value="en")
+    service.detect_language_sync = mocker.Mock(return_value="en")
     mocker.patch(
         "whisperbridge.services.translation_service.config_service.get_settings",
         return_value=Settings(),
     )
 
-    source_lang, target_lang = asyncio.run(
-        service._determine_languages("selected text", "auto", "uk")
-    )
+    source_lang, target_lang = service._determine_languages("selected text", "auto", "uk")
 
     assert (source_lang, target_lang) == ("en", "ru")
-    service._detect_language_async.assert_awaited_once_with("selected text")
+    service.detect_language_sync.assert_called_once_with("selected text")

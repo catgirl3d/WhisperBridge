@@ -2,10 +2,9 @@
 Translation Service for WhisperBridge.
 
 This module provides API integration for text translation with
-error handling and async processing.
+error handling and synchronous processing.
 """
 
-import asyncio
 import threading
 from typing import Optional
 
@@ -83,9 +82,9 @@ class TranslationService:
 
         return model
 
-    async def _determine_languages(self, text: str, ui_source_lang: Optional[str], ui_target_lang: Optional[str]) -> tuple[str, str]:
+    def _determine_languages(self, text: str, ui_source_lang: Optional[str], ui_target_lang: Optional[str]) -> tuple[str, str]:
         """Determines the effective source and target languages for translation."""
-        detected_lang = await self._detect_language_async(text) or "auto"
+        detected_lang = self.detect_language_sync(text) or "auto"
 
         settings = config_service.get_settings()
         swap_enabled = getattr(settings, "auto_swap_en_ru", False)
@@ -107,21 +106,21 @@ class TranslationService:
         logger.debug(f"Languages determined from UI/settings: {source} -> {target}")
         return source, target
 
-    async def translate_text_async(
+    def translate_text(
         self,
         text: str,
         ui_source_lang: Optional[str] = None,
         ui_target_lang: Optional[str] = None,
     ) -> TranslationResponse:
-        """Translate text asynchronously using API."""
+        """Translate text synchronously using API."""
 
         logger.info(f"Starting translation for text: '{text[:30]}...'")
         source_lang = ui_source_lang
         target_lang = ui_target_lang
 
         try:
-            # Determine languages using the new helper
-            source_lang, target_lang = await self._determine_languages(text, ui_source_lang, ui_target_lang)
+            # Determine languages using the helper
+            source_lang, target_lang = self._determine_languages(text, ui_source_lang, ui_target_lang)
 
             # Get the active model once
             intended_model = self._get_active_model()
@@ -136,7 +135,7 @@ class TranslationService:
                 model=intended_model,
             )
 
-            response = await self._call_gpt_api_async(request)
+            response = self._call_gpt_api(request)
 
             # Validate response
             if not response.success:
@@ -166,7 +165,7 @@ class TranslationService:
                 target_lang=target_lang,
             )
 
-    async def style_text_async(
+    def style_text(
         self,
         text: str,
         style_name: str,
@@ -221,7 +220,7 @@ class TranslationService:
                 )
 
             # Enforce "respond in the same language as input" policy for stylist mode
-            detected_lang = await self._detect_language_async(text)
+            detected_lang = self.detect_language_sync(text)
             language_policy_lines = [
                 "Important language policy:",
                 "- Detect the input language and return the rewritten text in the same language.",
@@ -283,16 +282,7 @@ class TranslationService:
             logger.warning(f"Language detection failed: {e}")
             return None
 
-    async def _detect_language_async(self, text: str) -> Optional[str]:
-        """Detect language of the input text asynchronously."""
-        try:
-            loop = asyncio.get_event_loop()
-            return await loop.run_in_executor(None, self.detect_language_sync, text)
-        except Exception as e:
-            logger.warning(f"Language detection failed: {e}")
-            return None
-
-    async def _call_gpt_api_async(self, request: TranslationRequest) -> TranslationResponse:
+    def _call_gpt_api(self, request: TranslationRequest) -> TranslationResponse:
         """Make actual API call using the API manager's logic."""
         if not self._api_manager.is_initialized():
             raise RuntimeError("API manager not initialized")
@@ -358,44 +348,6 @@ class TranslationService:
         except Exception as e:
             logger.error(f"API call failed: {e}")
             raise
-
-    def translate_text_sync(
-        self,
-        text: str,
-        source_lang: Optional[str] = None,
-        target_lang: Optional[str] = None,
-    ) -> TranslationResponse:
-        """Synchronous wrapper for translate_text_async."""
-        try:
-            # asyncio.run() handles the event loop management automatically.
-            return asyncio.run(
-                self.translate_text_async(text, source_lang, target_lang)
-            )
-        except Exception as e:
-            logger.error(f"Synchronous translation failed: {e}")
-            return self._make_response(
-                success=False,
-                error_message=str(e),
-                source_lang=source_lang,
-                target_lang=target_lang,
-            )
-
-    def style_text_sync(
-        self,
-        text: str,
-        style_name: str,
-    ) -> TranslationResponse:
-        """Synchronous wrapper for style_text_async."""
-        try:
-            return asyncio.run(self.style_text_async(text, style_name))
-        except Exception as e:
-            logger.error(f"Synchronous styling failed: {e}")
-            return self._make_response(
-                success=False,
-                error_message=str(e),
-                source_lang="style",
-                target_lang=style_name,
-            )
 
     def shutdown(self):
         """Shutdown the translation service."""

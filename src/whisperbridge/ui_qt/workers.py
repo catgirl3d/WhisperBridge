@@ -3,15 +3,10 @@ Qt-based worker classes for background processing in WhisperBridge.
 Provides thread-safe workers for OCR/translation and settings saving operations.
 """
 
-import asyncio
-import time
-from typing import Any, Coroutine, Optional
-
 from loguru import logger
 from PySide6.QtCore import QObject, Signal
 
 from ..core.api_manager import get_api_manager
-from ..core.config import API_TIMEOUT_DEFAULT, API_TIMEOUT_MAX, API_TIMEOUT_MIN, Settings
 from ..core.provider_catalog import APIProvider
 from ..core.settings_manager import settings_manager
 from ..services.config_service import config_service
@@ -88,7 +83,7 @@ class CaptureOcrTranslateWorker(QObject):
                         settings = config_service.get_settings()
                         source_lang = getattr(settings, "ui_source_language", "auto")
                         target_lang = getattr(settings, "ui_target_language", "en")
-                        response = translation_service.translate_text_sync(
+                        response = translation_service.translate_text(
                             original_text,
                             source_lang=source_lang,
                             target_lang=target_lang,
@@ -169,128 +164,22 @@ class ApiTestWorker(QObject):
             else:
                 self.finished.emit(False, f"Connection error: {str(e)}", [], "")
 
-class BaseAsyncWorker(QObject):
-    """Base class for workers that need an asyncio event loop.
-    
-    Signals:
-        finished(bool, str): Always emitted on completion. First param is success flag, second is result or error message.
-    """
+class BaseWorker(QObject):
+    """Base class for background workers."""
 
     finished = Signal(bool, str)  # success, result_or_error
 
     def __init__(self):
         super().__init__()
         self._cancel_requested = False
-        self._active_loop: Optional[asyncio.AbstractEventLoop] = None
-        self._active_task: Optional[asyncio.Task[Any]] = None
 
     def request_cancel(self):
-        """Request cancellation of the active async task."""
+        """Request cancellation of the worker."""
         self._cancel_requested = True
 
-        loop = self._active_loop
-        task = self._active_task
-        if loop is None or task is None:
-            return
 
-        try:
-            if not task.done():
-                loop.call_soon_threadsafe(task.cancel)
-        except Exception as e:
-            logger.debug(f"Failed to request task cancellation: {e}")
-
-    def _run_async_task(self, coro: Coroutine[Any, Any, Any], worker_name: str):
-        """Run an async coroutine in a new event loop with timeout and cleanup."""
-        if self._cancel_requested:
-            try:
-                close_coro = getattr(coro, "close", None)
-                if callable(close_coro):
-                    close_coro()
-            except Exception:
-                pass
-            msg = "Request cancelled"
-            self.finished.emit(False, msg)
-            return None
-
-        raw_timeout = config_service.get_setting("api_timeout")
-        timeout = raw_timeout
-        try:
-            timeout = int(timeout)
-        except (TypeError, ValueError):
-            timeout = None
-        if timeout is None or not API_TIMEOUT_MIN <= timeout <= API_TIMEOUT_MAX:
-            logger.warning(
-                f"Invalid api_timeout value: {raw_timeout}, "
-                f"using default {API_TIMEOUT_DEFAULT}"
-            )
-            timeout = API_TIMEOUT_DEFAULT
-        start_time = time.time()
-
-        # Create and use a new event loop in this thread to avoid conflicting with Qt's loop
-        loop = asyncio.new_event_loop()
-        self._active_loop = loop
-        try:
-            asyncio.set_event_loop(loop)
-
-            # Wrap async call with timeout to prevent indefinite hanging
-            async def with_timeout():
-                return await asyncio.wait_for(coro, timeout=timeout)
-
-            self._active_task = loop.create_task(with_timeout())
-            resp = loop.run_until_complete(self._active_task)
-
-            elapsed = time.time() - start_time
-            logger.info(f"{worker_name} completed successfully in {elapsed:.2f}s")
-            return resp
-        except asyncio.CancelledError:
-            logger.info(f"{worker_name} cancelled by user")
-            msg = "Request cancelled"
-            self.finished.emit(False, msg)
-            return None
-        except asyncio.TimeoutError:
-            logger.error(f"{worker_name} timed out after {timeout}s")
-            msg = f"Request timed out after {timeout} seconds"
-            self.finished.emit(False, msg)
-            return None
-        except Exception as e:
-            logger.error(f"{worker_name} failed: {e}", exc_info=True)
-            msg = str(e)
-            self.finished.emit(False, msg)
-            return None
-        finally:
-            # Cancel all pending tasks before closing loop to prevent hanging
-            try:
-                pending = asyncio.all_tasks(loop)
-                if pending:
-                    logger.debug(f"Cancelling {len(pending)} pending tasks")
-                    # Note: Main task (with_timeout) is already finished here, so we only cancel 
-                    # lingering background tasks started by the service.
-                    for task in pending:
-                        task.cancel()
-                    # Give tasks a chance to handle cancellation with timeout to prevent infinite hang
-                    try:
-                        loop.run_until_complete(asyncio.wait_for(
-                            asyncio.gather(*pending, return_exceptions=True),
-                            timeout=5.0  # 5 second grace period for task cancellation
-                        ))
-                    except asyncio.TimeoutError:
-                        logger.warning("Task cancellation timed out after 5 seconds, proceeding with loop cleanup")
-            except Exception as e:
-                logger.debug(f"Error during task cancellation: {e}")
-            finally:
-                try:
-                    loop.close()
-                except Exception as e:
-                    logger.debug(f"Error closing event loop: {e}")
-                finally:
-                    # Detach loop from thread
-                    asyncio.set_event_loop(None)
-                    self._active_task = None
-                    self._active_loop = None
-
-
-class TranslationWorker(BaseAsyncWorker):
-    """Worker for translating text asynchronously."""
+class TranslationWorker(BaseWorker):
+    """Worker for translating text in a background QThread."""
 
     def __init__(self, text_to_translate: str, ui_source_lang: str, ui_target_lang: str):
         super().__init__()
@@ -301,18 +190,22 @@ class TranslationWorker(BaseAsyncWorker):
     def run(self):
         logger.info("TranslationWorker started")
         try:
+            if self._cancel_requested:
+                self.finished.emit(False, "Request cancelled")
+                return
+
             from ..services.translation_service import get_translation_service
             service = get_translation_service()
 
-            coro = service.translate_text_async(
+            resp = service.translate_text(
                 self.text,
                 ui_source_lang=self.ui_source_lang,
                 ui_target_lang=self.ui_target_lang,
             )
 
-            resp = self._run_async_task(coro, "TranslationWorker")
-            if resp is None:
-                return  # Error already emitted by _run_async_task
+            if self._cancel_requested:
+                self.finished.emit(False, "Request cancelled")
+                return
 
             if resp and getattr(resp, "success", False):
                 self.finished.emit(True, resp.translated_text or "")
@@ -321,12 +214,11 @@ class TranslationWorker(BaseAsyncWorker):
                 self.finished.emit(False, msg)
         except Exception as e:
             logger.error(f"TranslationWorker failed: {e}", exc_info=True)
-            msg = str(e)
-            self.finished.emit(False, msg)
+            self.finished.emit(False, str(e))
 
 
-class StyleWorker(BaseAsyncWorker):
-    """Worker for styling (rewriting) text asynchronously using presets."""
+class StyleWorker(BaseWorker):
+    """Worker for styling (rewriting) text using presets in a background QThread."""
 
     def __init__(self, text_to_style: str, style_name: str):
         super().__init__()
@@ -336,17 +228,21 @@ class StyleWorker(BaseAsyncWorker):
     def run(self):
         logger.info(f"StyleWorker started with style: '{self.style_name}'")
         try:
+            if self._cancel_requested:
+                self.finished.emit(False, "Request cancelled")
+                return
+
             from ..services.translation_service import get_translation_service
             service = get_translation_service()
 
-            coro = service.style_text_async(
+            resp = service.style_text(
                 self.text,
                 style_name=self.style_name,
             )
 
-            resp = self._run_async_task(coro, "StyleWorker")
-            if resp is None:
-                return  # Error already emitted by _run_async_task
+            if self._cancel_requested:
+                self.finished.emit(False, "Request cancelled")
+                return
 
             if resp and getattr(resp, "success", False):
                 self.finished.emit(True, resp.translated_text or "")
@@ -355,5 +251,4 @@ class StyleWorker(BaseAsyncWorker):
                 self.finished.emit(False, msg)
         except Exception as e:
             logger.error(f"StyleWorker failed: {e}", exc_info=True)
-            msg = str(e)
-            self.finished.emit(False, msg) 
+            self.finished.emit(False, str(e))

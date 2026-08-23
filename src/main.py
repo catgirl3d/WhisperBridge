@@ -5,7 +5,6 @@ This module initializes and runs the WhisperBridge desktop application
 for quick text translation using OCR and GPT API.
 """
 
-import asyncio
 import sys
 import os
 import threading
@@ -63,8 +62,8 @@ except Exception as e:
     raise
 
 
-async def _async_main():
-    """Main application entry point."""
+def main():
+    """Console script entry point wrapper for setuptools."""
     try:
         # Setup logging
         setup_logging(config_service)
@@ -86,15 +85,6 @@ async def _async_main():
         sys.exit(1)
     finally:
         logger.info("WhisperBridge application stopped")
-
-
-def main():
-    """Console script entry point wrapper for setuptools."""
-    try:
-        asyncio.run(_async_main())
-    except Exception as e:
-        log_crash(e)
-        raise
 
 
 if __name__ == "__main__":
@@ -119,7 +109,6 @@ if __name__ == "__main__":
         pass
 
     try:
-        # Run with asyncio for async operations
         main()
     except Exception as e:
         log_crash(e)

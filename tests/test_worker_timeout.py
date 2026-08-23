@@ -1,14 +1,13 @@
 """
-Unit tests for worker timeout and event loop cleanup functionality.
+Unit tests for worker lifecycle, cancellation, and watchdog functionality.
 Includes integration tests for Watchdog timer and Qt signals using pytest-qt.
 Run with: python -m pytest tests/test_worker_timeout.py -v
 """
 
-import asyncio
 import threading
 import time
 import pytest
-from unittest.mock import Mock, AsyncMock
+from unittest.mock import Mock
 
 # Import dependencies
 try:
@@ -16,14 +15,14 @@ try:
     from PySide6.QtWidgets import QApplication
     from PySide6.QtTest import QSignalSpy
     from whisperbridge.ui_qt.workers import (
-        BaseAsyncWorker, TranslationWorker, StyleWorker,
+        BaseWorker, TranslationWorker, StyleWorker,
         CaptureOcrTranslateWorker, ApiTestWorker
     )
     from whisperbridge.ui_qt.overlay_window import OverlayWindow
     from whisperbridge.services.config_service import config_service
 except ImportError:
     # Allow running non-Qt tests in minimal env
-    BaseAsyncWorker = None
+    BaseWorker = None
     OverlayWindow = None
     config_service = None
     QSignalSpy = None
@@ -32,8 +31,8 @@ except ImportError:
     QObject = None
 
 
-if BaseAsyncWorker is not None:
-    class ManualCompletionWorker(BaseAsyncWorker):
+if BaseWorker is not None:
+    class ManualCompletionWorker(BaseWorker):
         """Test-only worker for setup and cleanup without translation execution."""
 
         def __init__(self, result="result", error_message="Some error"):
@@ -82,8 +81,8 @@ else:
     ShutdownWorker = None
 
 
-if BaseAsyncWorker is not None:
-    class CancellableCompletionWorker(BaseAsyncWorker):
+if BaseWorker is not None:
+    class CancellableCompletionWorker(BaseWorker):
         """Test worker that remains active until cancellation is requested."""
 
         def __init__(self):
@@ -109,52 +108,6 @@ else:
 
 # --- Non-Qt Tests (Unit Tests) ---
 
-class TestAsyncioTimeoutWrapper:
-    """Test asyncio timeout wrapper logic (Unit tests)."""
-
-    def test_asyncio_wait_for_timeout(self):
-        """Test asyncio.wait_for properly raises TimeoutError."""
-        async def slow_coro():
-            await asyncio.sleep(10)
-        
-        with pytest.raises(asyncio.TimeoutError):
-            asyncio.run(asyncio.wait_for(slow_coro(), timeout=0.1))
-
-    def test_asyncio_wait_for_success(self):
-        """Test asyncio.wait_for completes successfully."""
-        async def fast_coro():
-            return "success"
-        
-        result = asyncio.run(asyncio.wait_for(fast_coro(), timeout=1.0))
-        assert result == "success"
-
-    def test_event_loop_cleanup_pending_tasks(self):
-        """Test event loop properly cancels pending tasks."""
-        async def hanging_coro():
-            await asyncio.sleep(100)
-        
-        async def create_pending_tasks():
-            task = asyncio.create_task(hanging_coro())
-            await asyncio.sleep(0.01)
-            return task
-        
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        
-        try:
-            task = loop.run_until_complete(create_pending_tasks())
-            pending = asyncio.all_tasks(loop)
-            assert len(pending) > 0, "Should have pending tasks"
-            
-            for t in pending:
-                t.cancel()
-            
-            # Allow cancellation to process
-            loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
-        finally:
-            loop.close()
-
-
 class TestWorkerTimeoutLogic:
     """Test timeout calculation logic (Unit tests)."""
 
@@ -171,7 +124,7 @@ class TestWorkerTimeoutLogic:
 
 # --- Qt Integration Tests ---
 
-@pytest.mark.skipif(BaseAsyncWorker is None, reason="Requires Qt and project dependencies")
+@pytest.mark.skipif(BaseWorker is None, reason="Requires Qt and project dependencies")
 class TestQtIntegration:
     """Integration tests requiring Qt event loop."""
 
@@ -462,13 +415,16 @@ class TestQtIntegration:
         """Second click should cancel the active request and restore button state."""
         mocker.patch.object(overlay, "_is_api_ready", return_value=(True, ""))
 
-        mock_service = Mock()
+        started = threading.Event()
+        release = threading.Event()
 
-        async def slow_translate(*_args, **_kwargs):
-            await asyncio.sleep(10)
+        def blocking_translate(*_args, **_kwargs):
+            started.set()
+            release.wait(5)
             return Mock(success=True, translated_text="late")
 
-        mock_service.translate_text_async = AsyncMock(side_effect=slow_translate)
+        mock_service = Mock()
+        mock_service.translate_text = Mock(side_effect=blocking_translate)
         mocker.patch(
             'whisperbridge.services.translation_service.get_translation_service',
             return_value=mock_service,
@@ -476,16 +432,26 @@ class TestQtIntegration:
 
         overlay.original_text.setPlainText("hello")
         overlay._on_translate_clicked()
+        assert started.wait(1.0)
 
         assert overlay._translation_start_time is not None
         assert overlay.translate_btn.isEnabled() is True
 
         overlay._on_translate_clicked()
+        release.set()
         qtbot.wait(50)
 
         assert overlay._translation_start_time is None
         assert overlay.translate_btn.isEnabled() is True
         assert "cancel" in overlay.status_label.text().lower()
+
+        try:
+            translation_thread = getattr(overlay, "_translation_thread", None)
+            if translation_thread is not None and translation_thread.isRunning():
+                translation_thread.quit()
+                translation_thread.wait(2000)
+        except RuntimeError:
+            pass
 
     def test_translate_click_starts_translation_worker_with_selected_languages(self, overlay, mocker):
         """Translate mode should pass the current source and target languages to TranslationWorker."""
@@ -574,34 +540,6 @@ class TestQtIntegration:
 
     # --- Signal Emission Order Tests ---
 
-    def test_timeout_emits_exactly_one_finished_without_error_signal(self, qtbot, mock_config_service):
-        """Verify that timeout emits one terminal finished signal and no error signal."""
-        mock_config_service[0] = 1
-        worker = BaseAsyncWorker()
-        finished_spy = QSignalSpy(worker.finished)
-        
-        async def slow_coro():
-            await asyncio.sleep(1.5)
-            
-        worker._run_async_task(slow_coro(), "TestTimeoutOrder")
-        
-        assert finished_spy.count() == 1
-        assert finished_spy.at(0)[0] is False
-        assert "timed out" in finished_spy.at(0)[1]
-        with pytest.raises(AttributeError):
-            worker.error
-
-    def test_base_async_worker_direct_success_emits_no_signals(self):
-        """Verify direct BaseAsyncWorker success does not emit signals."""
-        worker = BaseAsyncWorker()
-        finished_spy = QSignalSpy(worker.finished)
-        async def fast_coro(): return "ok"
-        result = worker._run_async_task(fast_coro(), "TestSuccess")
-        assert result == "ok"
-        assert finished_spy.count() == 0
-        with pytest.raises(AttributeError):
-            worker.error
-
     def test_signal_disconnection_after_cleanup(self, qtbot, overlay):
         """Verify signal-driven cleanup happens correctly."""
         # Count timers before
@@ -616,54 +554,6 @@ class TestQtIntegration:
         
         # Thread may be deleted by now, so just verify test completed without crash
         # The fact we got here means cleanup worked
-
-    # --- Worker Integration Tests ---
-
-    def test_translation_worker_integration(self, qtbot, mock_config_service, mocker):
-        """Integration test for TranslationWorker with mocked service."""
-        mock_service = Mock()
-        mock_service.translate_text_async = AsyncMock(return_value=Mock(success=True, translated_text="Hola"))
-        
-        mocker.patch('whisperbridge.services.translation_service.get_translation_service', return_value=mock_service)
-        worker = TranslationWorker("Hello", "en", "es")
-        finished_spy = QSignalSpy(worker.finished)
-        worker.run()
-        assert finished_spy.count() == 1
-        assert finished_spy.at(0)[0] is True
-        assert finished_spy.at(0)[1] == "Hola"
-        mock_service.translate_text_async.assert_awaited_once_with(
-            "Hello", ui_source_lang="en", ui_target_lang="es"
-        )
-
-    def test_style_worker_integration(self, qtbot, mocker):
-        """Integration test for StyleWorker."""
-        mock_service = Mock()
-        mock_service.style_text_async = AsyncMock(return_value=Mock(success=True, translated_text="Styled Text"))
-        
-        mocker.patch('whisperbridge.services.translation_service.get_translation_service', return_value=mock_service)
-        worker = StyleWorker("Raw", "Formal")
-        finished_spy = QSignalSpy(worker.finished)
-        worker.run()
-        assert finished_spy.count() == 1
-        assert finished_spy.at(0)[0] is True
-        assert finished_spy.at(0)[1] == "Styled Text"
-
-    def test_worker_timeout_handling(self, qtbot, mock_config_service, mocker):
-        """Test TranslationWorker handles timeout correctly."""
-        mock_config_service[0] = 1
-        mock_service = Mock()
-        async def slow_mock(*args, **kwargs): await asyncio.sleep(1.5)
-        mock_service.translate_text_async = AsyncMock(side_effect=slow_mock)
-        
-        mocker.patch('whisperbridge.services.translation_service.get_translation_service', return_value=mock_service)
-        worker = TranslationWorker("Slow", "en", "es")
-        finished_spy = QSignalSpy(worker.finished)
-        worker.run()
-        assert finished_spy.count() == 1
-        assert finished_spy.at(0)[0] is False
-        assert "timed out" in finished_spy.at(0)[1]
-        with pytest.raises(AttributeError):
-            worker.error
 
     def test_known_error_status_from_finished_signal(self, overlay, mock_qmessagebox):
         """Known API errors should keep their status from the sole finished signal."""
@@ -886,96 +776,12 @@ class TestQtIntegration:
         assert [spy.count() for spy in finished_spies] == [1] * 3
 
     # --- Additional Coverage Tests ---
-    
-    def test_pending_task_cancellation_timeout(self, mocker, loguru_caplog):
-        """Test cancellation cleanup warns on timeout without deadlocking."""
-        worker = BaseAsyncWorker()
 
-        loop = asyncio.new_event_loop()
-        original_close = loop.close
-        mocker.patch("whisperbridge.ui_qt.workers.asyncio.new_event_loop", return_value=loop)
-        mocker.patch.object(loop, "close")
-
-        cancellation_received = asyncio.Event()
-        release_task = asyncio.Event()
-        background_task = None
-        cleanup_gather = None
-
-        async def main_task():
-            async def tracked_task():
-                try:
-                    await asyncio.sleep(1000)
-                except asyncio.CancelledError:
-                    cancellation_received.set()
-                    while not release_task.is_set():
-                        try:
-                            await release_task.wait()
-                        except asyncio.CancelledError:
-                            continue
-                    return "released"
-
-            nonlocal background_task
-            background_task = asyncio.create_task(tracked_task())
-            await asyncio.sleep(0)
-            return "done"
-
-        async def simulated_wait_for(awaitable, timeout):
-            nonlocal cleanup_gather
-            if timeout == 5.0:
-                cleanup_gather = awaitable
-                awaitable.cancel()
-
-                def consume_gather_exception(future):
-                    try:
-                        future.exception()
-                    except asyncio.CancelledError:
-                        pass
-
-                awaitable.add_done_callback(consume_gather_exception)
-                await cancellation_received.wait()
-                raise asyncio.TimeoutError
-            return await awaitable
-
-        mocker.patch(
-            "whisperbridge.ui_qt.workers.asyncio.wait_for",
-            side_effect=simulated_wait_for,
-        )
-
-        try:
-            result = worker._run_async_task(main_task(), "TestCancel")
-
-            assert result == "done"
-            assert cancellation_received.is_set()
-            assert any(
-                record.message == (
-                    "Task cancellation timed out after 5 seconds, "
-                    "proceeding with loop cleanup"
-                )
-                and record.levelname == "WARNING"
-                for record in loguru_caplog.records
-            )
-
-            release_task.set()
-            assert loop.run_until_complete(background_task) == "released"
-            assert cleanup_gather is not None
-            assert cleanup_gather.done()
-            try:
-                cleanup_gather.exception()
-            except asyncio.CancelledError:
-                pass
-            assert not asyncio.all_tasks(loop)
-        finally:
-            if background_task is not None and not background_task.done():
-                release_task.set()
-                loop.run_until_complete(background_task)
-            original_close()
-    
-    
     def test_translation_worker_empty_response(self, qtbot, mock_config_service, mocker):
         """Test TranslationWorker handles empty API response."""
         mock_service = Mock()
-        mock_service.translate_text_async = AsyncMock(return_value=Mock(success=True, translated_text=None))
-        
+        mock_service.translate_text = Mock(return_value=Mock(success=True, translated_text=None))
+
         mocker.patch('whisperbridge.services.translation_service.get_translation_service', return_value=mock_service)
         worker = TranslationWorker("Hello", "en", "es")
         finished_spy = QSignalSpy(worker.finished)
@@ -983,12 +789,12 @@ class TestQtIntegration:
         assert finished_spy.count() == 1
         assert finished_spy.at(0)[0] is True
         assert finished_spy.at(0)[1] == ""
-    
+
     def test_translation_worker_service_error(self, qtbot, mock_config_service, mocker):
         """Test TranslationWorker handles service errors."""
         mock_service = Mock()
-        mock_service.translate_text_async = AsyncMock(side_effect=Exception("Service unavailable"))
-        
+        mock_service.translate_text = Mock(side_effect=Exception("Service unavailable"))
+
         mocker.patch('whisperbridge.services.translation_service.get_translation_service', return_value=mock_service)
         worker = TranslationWorker("Hello", "en", "es")
         finished_spy = QSignalSpy(worker.finished)
@@ -997,12 +803,12 @@ class TestQtIntegration:
         assert finished_spy.at(0)[0] is False
         with pytest.raises(AttributeError):
             worker.error
-    
+
     def test_style_worker_empty_response(self, qtbot, mock_config_service, mocker):
         """Test StyleWorker handles empty API response."""
         mock_service = Mock()
-        mock_service.style_text_async = AsyncMock(return_value=Mock(success=True, translated_text=None))
-        
+        mock_service.style_text = Mock(return_value=Mock(success=True, translated_text=None))
+
         mocker.patch('whisperbridge.services.translation_service.get_translation_service', return_value=mock_service)
         worker = StyleWorker("Raw", "Formal")
         finished_spy = QSignalSpy(worker.finished)
@@ -1010,12 +816,12 @@ class TestQtIntegration:
         assert finished_spy.count() == 1
         assert finished_spy.at(0)[0] is True
         assert finished_spy.at(0)[1] == ""
-    
+
     def test_style_worker_service_error(self, qtbot, mock_config_service, mocker):
         """Test StyleWorker handles service errors."""
         mock_service = Mock()
-        mock_service.style_text_async = AsyncMock(side_effect=Exception("Service unavailable"))
-        
+        mock_service.style_text = Mock(side_effect=Exception("Service unavailable"))
+
         mocker.patch('whisperbridge.services.translation_service.get_translation_service', return_value=mock_service)
         worker = StyleWorker("Raw", "Formal")
         finished_spy = QSignalSpy(worker.finished)
@@ -1038,7 +844,7 @@ class TestCaptureOcrTranslateWorker:
             text="original", success=True, error_message=None
         )
         translation_service = Mock(is_available=True)
-        translation_service.translate_text_sync.return_value = Mock(
+        translation_service.translate_text.return_value = Mock(
             success=True, translated_text="translated"
         )
         notification_service = Mock()
@@ -1072,7 +878,7 @@ class TestCaptureOcrTranslateWorker:
         request = ocr_service.process_image.call_args.args[0]
         assert request.image is image
         assert request.preprocess is True
-        translation_service.translate_text_sync.assert_called_once_with(
+        translation_service.translate_text.assert_called_once_with(
             "original", source_lang="auto", target_lang="uk"
         )
 
@@ -1116,7 +922,7 @@ class TestCaptureOcrTranslateWorker:
         worker.run()
 
         assert finished_spy.at(0) == ["original", "", "ocr", "Translation service not configured"]
-        translation_service.translate_text_sync.assert_not_called()
+        translation_service.translate_text.assert_not_called()
 
     def test_capture_ocr_worker_cancel(self, mock_services, mocker):
         """Test worker respects cancel request."""
@@ -1256,7 +1062,7 @@ class TestApiTestWorker:
         assert finished_spy.at(0) == [False, "API error or invalid key", [], ""]
         
 
-@pytest.mark.skipif(BaseAsyncWorker is None, reason="Requires Qt and project dependencies")
+@pytest.mark.skipif(BaseWorker is None, reason="Requires Qt and project dependencies")
 class TestErrorRecovery:
     """Tests for worker error recovery scenarios."""
     
@@ -1296,65 +1102,6 @@ class TestErrorRecovery:
             if thread.isRunning():
                 thread.quit()
                 thread.wait(500)
-    
-    def test_worker_recovery_after_timeout(self, qtbot, overlay, mock_config_service, mocker):
-        """Test that a new worker can be created after previous one timed out."""
-        mock_config_service[0] = 1
-
-        mock_service = Mock()
-        call_count = 0
-
-        async def translate_text(*_args, **_kwargs):
-            nonlocal call_count
-            call_count += 1
-            if call_count == 1:
-                await asyncio.sleep(2)
-            return Mock(success=True, translated_text="result")
-
-        mock_service.translate_text_async = AsyncMock(side_effect=translate_text)
-        mocker.patch(
-            'whisperbridge.services.translation_service.get_translation_service',
-            return_value=mock_service,
-        )
-        
-        # First worker times out
-        worker1, thread1 = overlay._setup_worker(TranslationWorker, "test1", "en", "ru")
-        finished_spy = QSignalSpy(worker1.finished)
-        with qtbot.waitSignal(thread1.finished, timeout=3000):
-            pass
-
-        assert finished_spy.count() == 1
-        assert finished_spy.at(0)[0] is False
-        assert "timed out" in finished_spy.at(0)[1]
-        with pytest.raises(AttributeError):
-            worker1.error
-        
-        # First thread may be deleted by Qt's deleteLater, so handle gracefully
-        try:
-            # Verify first thread stopped
-            assert not thread1.isRunning()
-        except RuntimeError:
-            # Thread was deleted - that's OK, means cleanup worked
-            pass
-        
-        # Second worker should work normally
-        worker2, thread2 = overlay._setup_worker(TranslationWorker, "test2", "en", "ru")
-        assert thread2.isRunning()
-        finished_spy = QSignalSpy(worker2.finished)
-        with qtbot.waitSignal(thread2.finished, timeout=1000):
-            pass
-
-        assert finished_spy.count() == 1
-        assert finished_spy.at(0)[0] is True
-        assert finished_spy.at(0)[1] == "result"
-        
-        # Second thread may also be deleted, handle gracefully
-        try:
-            # Verify second thread stopped cleanly
-            assert not thread2.isRunning()
-        except RuntimeError:
-            # Thread was deleted - that's OK, means cleanup worked
-            pass
     
     def test_worker_recovery_after_exception(self, qtbot, overlay):
         """Test that a new worker can be created after previous one raised exception."""
