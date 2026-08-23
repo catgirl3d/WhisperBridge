@@ -57,7 +57,7 @@ def setup_logging(config_service: ConfigService):
                 backtrace=True,
                 diagnose=True,
             )
-        except Exception as e:
+        except Exception:
             # Fallback: log to null sink if file logging fails
             logger.add(lambda msg: None, level=log_level)
 

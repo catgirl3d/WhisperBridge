@@ -152,7 +152,6 @@ def detect_language_with_confidence(text: str, normalize: bool = True) -> Langua
     if not text or not text.strip():
         return LanguageDetectionResult(language=None, confidence=0.0)
     
-    original_text = text
     text = text.strip().lower()
     
     # Check for mixed scripts (potential homoglyphs)

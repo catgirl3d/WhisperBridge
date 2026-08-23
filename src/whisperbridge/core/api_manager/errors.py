@@ -68,14 +68,12 @@ def requires_initialization(func):
     return sync_wrapper
 
 
-def classify_error(error: Exception, provider: Optional[str] = None) -> APIError:
+def classify_error(error: Exception) -> APIError:
     """
     Classify exception into API error type.
 
     Args:
         error: The exception to classify.
-        provider: Optional provider name for context.
-
     Returns:
         APIError with classified error type.
     """

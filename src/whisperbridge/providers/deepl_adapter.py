@@ -102,13 +102,12 @@ class DeepLClientAdapter:
                 payload = resp.json()
             translations = payload.get("translations") or []
             translated_text = translations[0].get("text", "") if translations else ""
-            detected = translations[0].get("detected_source_language", "") if translations else ""
-            return self._mock_response(translated_text, detected)
+            return self._mock_response(translated_text)
         except Exception as e:
             logger.error(f"DeepL API request failed: {e}")
             raise
 
-    def _mock_response(self, text: str, detected_lang: str) -> Any:
+    def _mock_response(self, text: str) -> Any:
         message = SimpleNamespace(content=text)
         choice = SimpleNamespace(message=message)
         usage = SimpleNamespace(total_tokens=0)

@@ -221,7 +221,7 @@ class APIManager:
             return response
 
         except Exception as e:
-            api_error = classify_error(e, provider.value)
+            api_error = classify_error(e)
 
             logger.error(f"API request failed: {api_error.error_type.value} - {api_error.message}")
 
