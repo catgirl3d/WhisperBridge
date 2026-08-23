@@ -263,29 +263,23 @@ class CopyTranslateService(QObject):
                 return
 
             # TranslationService owns detection and EN/RU auto-swap policy.
-            try:
-                log.debug(f"Copy-translate: text length={len(text_to_translate)}")
-                settings = self.config_service.get_settings()
-                ui_source_language = getattr(settings, "ui_source_language", "auto")
-                ui_target_language = getattr(settings, "ui_target_language", "en")
-                log.debug(
-                    f"Copy-translate: passing UI source='{ui_source_language}', "
-                    f"target='{ui_target_language}' to TranslationService"
-                )
+            log.debug(f"Copy-translate: text length={len(text_to_translate)}")
+            settings = self.config_service.get_settings()
+            ui_source_language = settings.ui_source_language
+            ui_target_language = settings.ui_target_language
+            log.debug(
+                f"Copy-translate: passing UI source='{ui_source_language}', "
+                f"target='{ui_target_language}' to TranslationService"
+            )
 
-                # Show a brief translating notification
-                self.notification_service.info("Translating...", "WhisperBridge")
+            # Show a brief translating notification
+            self.notification_service.info("Translating...", "WhisperBridge")
 
-                response = self.translation_service.translate_text(
-                    text_to_translate,
-                    ui_source_lang=ui_source_language,
-                    ui_target_lang=ui_target_language,
-                )
-            except Exception as exc:
-                log.error(f"Copy-translate: error preparing translation: {exc}", exc_info=True)
-                # Fallback to default translation call on any failure
-                self.notification_service.info("Translating...", "WhisperBridge")
-                response = self.translation_service.translate_text(text_to_translate)
+            response = self.translation_service.translate_text(
+                text_to_translate,
+                ui_source_lang=ui_source_language,
+                ui_target_lang=ui_target_language,
+            )
 
             # Mark translation completion time
             t_after_translation = time.perf_counter()

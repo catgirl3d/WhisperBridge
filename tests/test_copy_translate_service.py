@@ -208,26 +208,28 @@ def test_run_reports_copy_simulation_error_without_result_and_resumes_hotkeys(qa
     assert ctx.hotkey_service.set_paused.call_args_list == [call(True), call(False)]
 
 
-def test_run_falls_back_to_default_translation_when_ui_settings_fail(qapp, mocker):
+def test_run_reports_config_error_without_result_and_resumes_hotkeys(qapp, mocker):
+    """A settings read failure emits no result, reports the error, and resumes hotkeys."""
     ctx = _build_service(qapp, mocker)
     ctx.clipboard_service.get_clipboard_text.side_effect = ["old text", "selected text"]
     ctx.config_service.get_setting.side_effect = _make_get_setting(
         {
             "clipboard_poll_timeout_ms": 200,
-            "auto_copy_translated": RuntimeError("config read failed"),
         }
     )
     ctx.config_service.get_settings.side_effect = RuntimeError("settings read failed")
-    ctx.translation_service.translate_text.return_value = "Fallback translation"
 
     ctx.service.run()
 
     ctx.translation_service.detect_language_sync.assert_not_called()
-    ctx.translation_service.translate_text.assert_called_once_with("selected text")
-    assert ctx.emitted == [("selected text", "Fallback translation", False)]
-    ctx.notification_service.info.assert_called_once_with("Translating...", "WhisperBridge")
+    ctx.translation_service.translate_text.assert_not_called()
+    assert ctx.emitted == []
+    ctx.notification_service.info.assert_not_called()
     ctx.notification_service.warning.assert_not_called()
-    ctx.notification_service.error.assert_not_called()
+    ctx.notification_service.error.assert_called_once_with(
+        "Copy-translate error: settings read failed",
+        "WhisperBridge",
+    )
 
 
 def test_run_warns_when_clipboard_content_does_not_change(qapp, mocker):
