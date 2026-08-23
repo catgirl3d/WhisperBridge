@@ -1,3 +1,5 @@
+import sys
+
 try:
     from whisperbridge.core.config import Settings
     print("Successfully imported Settings")

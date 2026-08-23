@@ -117,9 +117,11 @@ class TestOpenAITextRequests:
             messages=messages
         )
 
-        assert mock_create.called
-        kwargs = mock_create.call_args.kwargs
-        assert kwargs["messages"] == messages
+        mock_create.assert_called_once_with(
+            model="gpt-5.4-mini",
+            messages=messages,
+            max_completion_tokens=256,
+        )
 
     def test_model_variations(self, mocker, fake_openai_client, mock_completion_response):
         """Test different model name handling."""
@@ -131,12 +133,16 @@ class TestOpenAITextRequests:
         )
 
         for model_name in models_to_test:
+            mock_create.reset_mock()
             fake_openai_client.chat.completions.create(
                 model=model_name,
                 messages=messages
             )
-            kwargs = mock_create.call_args.kwargs
-            assert kwargs["model"] == model_name
+            mock_create.assert_called_once_with(
+                model=model_name,
+                messages=messages,
+                max_completion_tokens=256,
+            )
 
     def test_error_handling(self, mocker, fake_openai_client):
         """Test that SDK errors are propagated correctly."""

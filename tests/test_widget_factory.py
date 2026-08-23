@@ -195,6 +195,26 @@ def test_apply_available_models_to_ui_leaves_vision_combo_unchanged_for_non_open
     assert dialog.openai_vision_model_combo.currentText() == "custom-vision-model"
 
 
+def test_apply_available_models_to_ui_populates_google_model_and_default(qapp):
+    dialog = SettingsDialog.__new__(SettingsDialog)
+    dialog._loaded_model_defaults = {}
+    dialog.model_combo = QComboBox()
+    dialog.openai_vision_model_combo = SettingsUIFactory().create_combo("openaiVisionModelCombo")
+    dialog.openai_vision_model_combo.addItem("custom-vision-model")
+    dialog.openai_vision_model_combo.setCurrentText("custom-vision-model")
+
+    dialog._apply_available_models_to_ui(["gemini-2.5-flash"], None, "api", "google")
+
+    assert [dialog.model_combo.itemText(i) for i in range(dialog.model_combo.count())] == [
+        "gemini-2.5-flash"
+    ]
+    assert dialog.model_combo.currentText() == "gemini-2.5-flash"
+    assert dialog._loaded_model_defaults == {"google_model": "gemini-2.5-flash"}
+    assert [dialog.openai_vision_model_combo.itemText(i) for i in range(dialog.openai_vision_model_combo.count())] == [
+        "custom-vision-model"
+    ]
+
+
 def test_apply_available_models_to_ui_applies_openai_vision_models(mocker):
     """OpenAI model application should update both selectors with the same source list."""
     dialog = SettingsDialog.__new__(SettingsDialog)

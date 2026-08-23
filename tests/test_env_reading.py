@@ -1,43 +1,18 @@
-#!/usr/bin/env python3
-"""
-Simple test to check how Pydantic reads .env files and environment variables.
-"""
-
-import os
-from pathlib import Path
-
 from whisperbridge.core.config import BUILD_OCR_ENABLED, Settings
 
-def test_env_reading():
-    print("=== Testing Environment Variable Reading ===")
-    print(f"Current working directory: {os.getcwd()}")
-    project_root = Settings.get_project_root()
-    print(f"Project root: {project_root}")
 
-    # Check if .env file exists (use absolute path)
-    env_file = project_root / '.env'
-    print(f".env file exists: {env_file.exists()}")
-    if env_file.exists():
-        print(f".env file path: {env_file.absolute()}")
-        with open(env_file, 'r') as f:
-            print(f".env file contents: {f.read().strip()}")
+def test_build_ocr_flag_is_boolean_gate():
+    assert isinstance(BUILD_OCR_ENABLED, bool)
 
-    # Check environment variables (build-time flags)
-    print(f"os.environ.get('WHISPERBRIDGE_BUILD_OCR'): {os.environ.get('WHISPERBRIDGE_BUILD_OCR')}")
-    print(f"os.environ.get('OCR_ENABLED') [legacy]: {os.environ.get('OCR_ENABLED')}")
-    print(f"BUILD_OCR_ENABLED (resolved): {BUILD_OCR_ENABLED}")
 
-    # Test Pydantic settings loading
-    print("\n=== Testing Pydantic Settings Loading ===")
-    try:
-        settings = Settings()
-        print(f"Settings loaded successfully")
-        print(f"ocr_enabled: {settings.ocr_enabled}")
-        print(f"api_provider: {settings.api_provider}")
-    except Exception as e:
-        print(f"Error loading settings: {e}")
-        import traceback
-        traceback.print_exc()
+def test_settings_load_and_expose_runtime_toggle():
+    settings = Settings()
+    assert isinstance(settings.ocr_enabled, bool)
 
-if __name__ == "__main__":
-    test_env_reading()
+
+def test_ocr_enabled_reads_environment_override(monkeypatch):
+    monkeypatch.setenv("OCR_ENABLED", "0")
+    assert Settings().ocr_enabled is False
+
+    monkeypatch.setenv("OCR_ENABLED", "1")
+    assert Settings().ocr_enabled is True

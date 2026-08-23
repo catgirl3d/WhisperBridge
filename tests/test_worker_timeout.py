@@ -705,12 +705,12 @@ class TestQtIntegration:
         for i in range(10):
             worker, thread = overlay._setup_worker(ManualCompletionWorker)
             destroyed_spy = QSignalSpy(thread.destroyed)
-            threads_and_spies.append(destroyed_spy)
+            threads_and_spies.append((thread, destroyed_spy))
             with qtbot.waitSignal(thread.finished, timeout=1000):
                 assert QMetaObject.invokeMethod(worker, "complete_success", Qt.QueuedConnection)
             qtbot.waitUntil(lambda: destroyed_spy.count() == 1, timeout=1000)
 
-        assert all(spy.count() == 1 for spy in threads_and_spies)
+        assert all(spy.count() == 1 for _, spy in threads_and_spies)
 
     # --- Stress Tests ---
 

@@ -3,7 +3,6 @@
 import pytest
 from whisperbridge.core.provider_catalog import get_supported_provider_values
 from whisperbridge.core.config import (
-    API_TIMEOUT_DEFAULT,
     OPENAI_MODEL_POLICY,
     Settings,
     filter_openai_model_selection,
@@ -16,7 +15,7 @@ def test_settings_initialization():
     assert settings.openai_model == OPENAI_MODEL_POLICY.default_model
     assert settings.openai_vision_model == OPENAI_MODEL_POLICY.default_model
     assert settings.openai_reasoning_effort == "not_set"
-    assert settings.api_timeout == API_TIMEOUT_DEFAULT
+    assert settings.api_timeout == 30
 
 
 def test_api_provider_is_normalized_to_catalog_default(loguru_caplog):

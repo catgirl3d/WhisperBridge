@@ -30,7 +30,7 @@ def _patch_copy_environment(mocker):
     setattr(pynput_module, "keyboard", keyboard_module)
 
     keyboard_utils_module = ModuleType("whisperbridge.utils.keyboard_utils")
-    setattr(keyboard_utils_module, "WIN_VK_MAP", {"c": 67})
+    setattr(keyboard_utils_module, "WIN_VK_MAP", {"c": 170})
 
     mocker.patch.dict(
         "sys.modules",
@@ -43,7 +43,12 @@ def _patch_copy_environment(mocker):
     mocker.patch("time.sleep", return_value=None)
     mocker.patch("platform.system", return_value="linux")
 
-    return SimpleNamespace(controller=controller, c_key=c_key, ctrl_key=ctrl_key)
+    return SimpleNamespace(
+        controller=controller,
+        c_key=c_key,
+        ctrl_key=ctrl_key,
+        from_vk=keyboard_module.KeyCode.from_vk,
+    )
 
 
 def _build_service(qapp, mocker):
@@ -85,6 +90,7 @@ def _build_service(qapp, mocker):
         controller=patched.controller,
         c_key=patched.c_key,
         ctrl_key=patched.ctrl_key,
+        from_vk=patched.from_vk,
     )
 
 
@@ -141,6 +147,7 @@ def test_run_translates_with_auto_swap_and_auto_copy(qapp, mocker):
         call.release(ctx.c_key),
         call.release(ctx.ctrl_key),
     ]
+    ctx.from_vk.assert_called_once_with(170)
     assert ctx.hotkey_service.set_paused.call_args_list == [call(True), call(False)]
     ctx.notification_service.info.assert_called_once_with("Translating...", "WhisperBridge")
     ctx.notification_service.warning.assert_not_called()

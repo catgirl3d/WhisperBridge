@@ -53,12 +53,17 @@ def test_placeholder_text_edit_draws_placeholder_with_widget_font(qapp):
     fake_painter = FakePainter()
     widget._draw_placeholder(fake_painter)
 
+    margin = int(widget.document().documentMargin())
+    viewport_rect = widget.viewport().rect()
+    expected_rect = viewport_rect.adjusted(margin, margin, -margin, -margin)
+
     assert widget.font().pointSize() == 22
     assert widget.document().defaultFont().pointSize() == 22
     assert fake_painter.font.pointSize() == 22
     assert fake_painter.pen == widget.palette().placeholderText().color()
     assert len(fake_painter.draw_calls) == 1
-    _, flags, text = fake_painter.draw_calls[0]
+    rect, flags, text = fake_painter.draw_calls[0]
+    assert rect == expected_rect
     assert flags == Qt.AlignmentFlag.AlignTop | Qt.TextFlag.TextWordWrap
     assert text == "Translation will appear here..."
 

@@ -7,7 +7,11 @@ from unittest.mock import Mock
 from PIL import Image
 from PySide6.QtCore import QRect
 
-from whisperbridge.services.screen_capture_service import Rectangle, ScreenCaptureService
+from whisperbridge.services.screen_capture_service import (
+    CaptureOptions,
+    Rectangle,
+    ScreenCaptureService,
+)
 
 
 @pytest.fixture
@@ -118,6 +122,36 @@ class _FakePainter:
         return None
 
 
+class _ColorPixmap(_FakePixmap):
+    def __init__(self, color, **kwargs):
+        super().__init__(**kwargs)
+        self.color = color
+
+
+class _ColorQImage(_FakeQImage):
+    def __init__(self, size, fmt):
+        self._w = size.width()
+        self._h = size.height()
+        self._bytes = bytearray(b"\x00\x00\x00\x00" * (self._w * self._h))
+
+    def bits(self):
+        return memoryview(self._bytes)
+
+
+class _ColorPainter(_FakePainter):
+    def __init__(self, image):
+        super().__init__(image)
+        self._image = image
+
+    def drawPixmap(self, x, y, width, height, pixmap):
+        super().drawPixmap(x, y, width, height, pixmap)
+        blue, green, red = pixmap.color
+        for row in range(height):
+            for column in range(width):
+                offset = ((y + row) * self._image._w + x + column) * 4
+                self._image._bytes[offset:offset + 4] = bytes((blue, green, red, 255))
+
+
 class _FakeGuiApp:
     """Minimal fake QGuiApplication with configurable screens."""
 
@@ -169,6 +203,25 @@ def test_qt_capture_composes_from_multiple_screens(capture_service, mocker):
     assert len(right.grab_calls) == 1
     assert left.grab_calls[0][1:] == (1820, 10, 100, 50)
     assert right.grab_calls[0][1:] == (0, 10, 100, 50)
+
+
+def test_qt_capture_preserves_colors_and_screen_offsets(capture_service, mocker):
+    left = _FakeScreen(QRect(-2, 0, 2, 2), pixmap=_ColorPixmap((10, 20, 30)))
+    right = _FakeScreen(QRect(0, 0, 2, 2), pixmap=_ColorPixmap((40, 50, 60)))
+
+    mocker.patch("whisperbridge.services.screen_capture_service.QT_AVAILABLE", True)
+    mocker.patch.object(ScreenCaptureService, "_get_qt_gui_app", return_value=_FakeGuiApp([left, right]))
+    mocker.patch("whisperbridge.services.screen_capture_service.QImage", _ColorQImage)
+    mocker.patch("whisperbridge.services.screen_capture_service.QPainter", _ColorPainter)
+
+    result = capture_service.capture_area(Rectangle(-2, 0, 4, 2))
+
+    assert result.success is True
+    px = result.image.load()
+    assert [px[x, y] for y in range(2) for x in range(4)] == [
+        (30, 20, 10), (30, 20, 10), (60, 50, 40), (60, 50, 40),
+        (30, 20, 10), (30, 20, 10), (60, 50, 40), (60, 50, 40),
+    ]
 
 
 def test_qt_capture_uses_qt_bounds_when_platform_bounds_differ(capture_service, mocker):
@@ -362,6 +415,19 @@ def test_capture_virtual_desktop_uses_qt_virtual_bounds(capture_service, mocker)
     assert result.rectangle is captured_rectangle
 
 
+def test_capture_virtual_desktop_forwards_options_object(capture_service, mocker):
+    virtual_bounds = Rectangle(-10, 0, 20, 10)
+    options = CaptureOptions(scale_factor=1.5)
+    mocker.patch.object(capture_service, "_get_qt_virtual_bounds", return_value=virtual_bounds)
+    capture_area_mock = mocker.patch.object(capture_service, "capture_area")
+    capture_area_mock.return_value = Mock(success=True, image=None, rectangle=virtual_bounds)
+
+    capture_service.capture_virtual_desktop(options)
+
+    capture_area_mock.assert_called_once_with(virtual_bounds, options)
+    assert capture_area_mock.call_args.args[1] is options
+
+
 def test_crop_captured_image_returns_clipped_region(capture_service):
     """Cropping pre-captured image should clip selection to frozen image bounds."""
     source_image = Image.new("RGB", (300, 200), color="white")
@@ -378,6 +444,28 @@ def test_crop_captured_image_returns_clipped_region(capture_service):
     assert result.rectangle == Rectangle(x=100, y=50, width=50, height=90)
     assert result.image is not None
     assert result.image.size == (50, 90)
+
+
+def test_crop_captured_image_returns_expected_pixels(capture_service):
+    source_image = Image.new("RGB", (4, 3))
+    pixels = [
+        (1, 1, 1), (2, 2, 2), (3, 3, 3), (4, 4, 4),
+        (5, 5, 5), (6, 6, 6), (7, 7, 7), (8, 8, 8),
+        (9, 9, 9), (10, 10, 10), (11, 11, 11), (12, 12, 12),
+    ]
+    source_image.putdata(pixels)
+
+    result = capture_service.crop_captured_image(
+        captured_image=source_image,
+        captured_rectangle=Rectangle(100, 50, 4, 3),
+        target_rectangle=Rectangle(101, 51, 2, 2),
+    )
+
+    assert result.success is True
+    px = result.image.load()
+    assert [px[x, y] for y in range(2) for x in range(2)] == [
+        (6, 6, 6), (7, 7, 7), (10, 10, 10), (11, 11, 11)
+    ]
 
 
 def test_crop_captured_image_scales_logical_to_pixel_coords(capture_service):
