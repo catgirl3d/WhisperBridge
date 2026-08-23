@@ -16,7 +16,6 @@ from PySide6.QtWidgets import QApplication
 
 from ..services.config_service import SettingsObserver, config_service
 from ..services.theme_service import ThemeService
-from ..services.translation_service import get_translation_service
 from ..core.api_manager import get_api_manager
 from ..core.config import BUILD_OCR_ENABLED
 from ..services.app_services import AppServices
@@ -387,14 +386,6 @@ class QtApp(QObject, SettingsObserver):
         finally:
             self.shutdown()
 
-    def _safe_shutdown(self, service, service_name: str):
-        """Safely shut down a service and log errors."""
-        if service:
-            try:
-                service.shutdown()
-            except Exception as e:
-                logger.warning(f"Error shutting down {service_name}: {e}")
-
     def shutdown(self):
         """Shutdown the application gracefully."""
         if self.shutdown_requested:
@@ -447,20 +438,15 @@ class QtApp(QObject, SettingsObserver):
             except Exception:
                 pass
 
-            self._safe_shutdown(self.services.clipboard_service, "clipboard service")
-
             # Delegate UI-specific shutdown to UIService
             if self.ui:
                 self.ui.shutdown_ui()
 
-        # Shutdown global singleton services
-        global_services = [
-            (get_translation_service(), "translation service"),
-            (get_api_manager(), "API manager"),
-        ]
-
-        for service, name in global_services:
-            self._safe_shutdown(service, name)
+        # Release API manager resources (provider clients hold HTTP connection pools)
+        try:
+            get_api_manager().shutdown()
+        except Exception as e:
+            logger.warning(f"Error shutting down API manager: {e}")
 
         logger.info("Qt-based WhisperBridge shutdown complete")
 

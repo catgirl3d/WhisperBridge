@@ -365,7 +365,6 @@ class TestQtIntegration:
         """Shutdown cancels a real worker and waits for its QThread to finish."""
         from whisperbridge.ui_qt.app import QtApp
 
-        mocker.patch("whisperbridge.ui_qt.app.get_translation_service", return_value=Mock())
         mocker.patch("whisperbridge.ui_qt.app.get_api_manager", return_value=Mock())
         app = QtApp()
         worker = ShutdownWorker()
@@ -384,7 +383,6 @@ class TestQtIntegration:
         """Shutdown remains safe when called repeatedly without workers."""
         from whisperbridge.ui_qt.app import QtApp
 
-        mocker.patch("whisperbridge.ui_qt.app.get_translation_service", return_value=Mock())
         mocker.patch("whisperbridge.ui_qt.app.get_api_manager", return_value=Mock())
         app = QtApp()
 

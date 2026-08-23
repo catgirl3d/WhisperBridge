@@ -345,10 +345,6 @@ class TranslationService:
             logger.error(f"API call failed: {e}")
             raise
 
-    def shutdown(self):
-        """Shutdown the translation service."""
-        logger.info("Translation service shutdown")
-
 
 # Global translation service instance
 _translation_service: Optional[TranslationService] = None
