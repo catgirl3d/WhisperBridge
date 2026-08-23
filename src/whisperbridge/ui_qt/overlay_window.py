@@ -950,13 +950,13 @@ class OverlayWindow(StyledOverlayWindow):
             logger.info(f"UI source language updated: {code}")
 
     def _on_target_changed(self, index: int):
-        """User changed Target combo -> persist ui_target_mode/ui_target_language."""
+        """User changed Target combo -> persist ui_target_language."""
         data = self.target_combo.currentData()
-        updates = {"ui_target_mode": "explicit", "ui_target_language": data}
+        updates = {"ui_target_language": data}
         try:
             previous_target = getattr(config_service.get_settings(), "ui_target_language", data)
             if config_service.update_settings(updates):
-                logger.info(f"UI target updated: mode=explicit, lang={data}")
+                logger.info(f"UI target updated: lang={data}")
             else:
                 self.ui_builder.set_combo_data(self.target_combo, previous_target)
                 logger.error(f"Failed to persist target selection: {data}")
@@ -986,7 +986,6 @@ class OverlayWindow(StyledOverlayWindow):
         # Common settings update logic
         updates = {
             "ui_source_language": new_source,
-            "ui_target_mode": "explicit",
             "ui_target_language": new_target,
         }
         try:

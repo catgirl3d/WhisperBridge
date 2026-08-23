@@ -52,11 +52,6 @@ HELP_TEXTS = {
         "detailed": "<b>System Prompt</b><br>Instructions that guide how the AI translates."
     },
 
-    # OCR Tab
-    "ocr.engine": {
-        "tooltip": "OCR method (LLM-only).",
-        "detailed": "<b>OCR Engine</b><br><b>llm:</b> Uses AI for text recognition."
-    },
     "ocr.llm_prompt": {
         "tooltip": "Instructions for LLM-based OCR processing.",
         "detailed": "<b>LLM OCR Prompt</b><br>Tell the AI how to extract and format text from images."

@@ -1,9 +1,8 @@
 """
-Image processing utilities for OCR optimization.
+Image utilities for LLM vision OCR.
 
-This module provides comprehensive image preprocessing functions
-to improve OCR accuracy including contrast enhancement, noise reduction,
-scaling, and format conversion.
+This module provides image scaling and JPEG/data-URL encoding
+for sending screenshots to vision models.
 """
 
 import base64

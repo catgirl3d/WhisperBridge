@@ -877,7 +877,6 @@ class TestCaptureOcrTranslateWorker:
         ocr_service.process_image.assert_called_once()
         request = ocr_service.process_image.call_args.args[0]
         assert request.image is image
-        assert request.preprocess is True
         translation_service.translate_text.assert_called_once_with(
             "original", source_lang="auto", target_lang="uk"
         )
@@ -985,7 +984,6 @@ class TestCaptureOcrTranslateWorker:
 
         request = ocr_service.process_image.call_args.args[0]
         assert request.image is pre_captured_image
-        assert request.preprocess is True
 
     def test_worker_cancellation_during_processing(self, qtbot, mock_services):
         """Test worker respects cancellation request during processing."""

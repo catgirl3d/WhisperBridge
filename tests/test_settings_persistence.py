@@ -213,7 +213,6 @@ def test_config_service_update_settings_returns_false_on_save_failure(mocker):
 
     result = config.update_settings({
         "ui_source_language": "en",
-        "ui_target_mode": "explicit",
         "ui_target_language": "ru",
     })
 
@@ -222,7 +221,6 @@ def test_config_service_update_settings_returns_false_on_save_failure(mocker):
     saved_settings = mock_save_settings.call_args.args[0]
     assert isinstance(saved_settings, Settings)
     assert saved_settings.ui_source_language == "en"
-    assert saved_settings.ui_target_mode == "explicit"
     assert saved_settings.ui_target_language == "ru"
 
 

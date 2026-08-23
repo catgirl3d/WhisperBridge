@@ -7,12 +7,22 @@ import sys
 import os
 import time
 from PySide6.QtGui import QIcon
-from typing import Any, Dict, Optional, Protocol, cast
+from typing import Optional, Protocol, cast
 
 from loguru import logger
 from ..core.version import get_version
 from PySide6.QtCore import QObject, QThread, Signal, Slot
 from PySide6.QtWidgets import QApplication
+
+from ..services.config_service import SettingsObserver, config_service
+from ..services.theme_service import ThemeService
+from ..services.translation_service import get_translation_service
+from ..core.api_manager import get_api_manager
+from ..core.config import BUILD_OCR_ENABLED
+from ..services.app_services import AppServices
+from ..services.ui_service import UIService
+from ..services.notification_service import NotificationService
+from ..services.copy_translate_service import CopyTranslateService
 
 
 class RunnableWorker(Protocol):
@@ -24,20 +34,6 @@ class RunnableWorker(Protocol):
     def deleteLater(self): ...
 
 
-from ..services.config_service import SettingsObserver, config_service
-from ..services.theme_service import ThemeService
-from ..services.translation_service import get_translation_service
-from ..core.api_manager import get_api_manager
-from ..core.config import BUILD_OCR_ENABLED
-
-# UI service extracted to manage window/overlay lifecycle
-from ..services.app_services import AppServices
-from ..services.ui_service import UIService
-from ..services.notification_service import NotificationService
-from ..services.copy_translate_service import CopyTranslateService
-# UI widgets are managed by UIService; direct imports removed to avoid tight coupling
-
-
 class QtApp(QObject, SettingsObserver):
     """Qt-based application class with compatible interface."""
 
@@ -46,7 +42,6 @@ class QtApp(QObject, SettingsObserver):
     show_settings_signal = Signal()
     toggle_overlay_signal = Signal()
     activate_ocr_signal = Signal()
-    ocr_ready_signal = Signal()
 
     def __init__(self):
         """Initialize the Qt application."""
@@ -106,7 +101,6 @@ class QtApp(QObject, SettingsObserver):
         self.show_settings_signal.connect(self._show_settings_slot)
         self.toggle_overlay_signal.connect(self._toggle_overlay_slot)
         self.activate_ocr_signal.connect(self._activate_ocr_slot)
-        self.ocr_ready_signal.connect(self._on_ocr_service_ready)
 
         # Defer settings loading and theme service initialization to initialize()
         # _ = config_service.get_settings()
@@ -172,12 +166,6 @@ class QtApp(QObject, SettingsObserver):
             logger.error(f"Failed to initialize Qt application: {e}")
             raise
 
-    @Slot()
-    def _on_ocr_service_ready(self):
-        """Slot for when OCR service is ready — delegate to UIService."""
-        if self.ui:
-            self.ui.handle_ocr_service_ready()
-
     @Slot(str)
     def _on_theme_changed(self, theme: str):
         """Forward ThemeService theme changes to UIService."""
@@ -205,7 +193,7 @@ class QtApp(QObject, SettingsObserver):
         """Handle changes to OCR settings."""
         if key not in ["ocr_enabled"]:
             return
-            
+
         try:
             self._update_ocr_state()
         except Exception as e:
@@ -217,7 +205,7 @@ class QtApp(QObject, SettingsObserver):
 
         if self.ui and self.ui.tray_manager:
             self.ui.tray_manager.update_ocr_action_state()
-        
+
         logger.info(f"OCR state updated. Available: {is_available}")
 
     def _handle_notification_setting_change(self, key: str, old_value, new_value):
@@ -240,7 +228,7 @@ class QtApp(QObject, SettingsObserver):
         self._handle_hotkey_setting_change(key, old_value, new_value)
         self._handle_ocr_setting_change(key, old_value, new_value)
         self._handle_notification_setting_change(key, old_value, new_value)
-        
+
     def _on_translate_hotkey(self):
         """Handle main translation hotkey press."""
         logger.info("Main translation hotkey pressed")
@@ -297,20 +285,11 @@ class QtApp(QObject, SettingsObserver):
         if self.ui:
             self.ui.activate_ocr()
 
-    def activate_ocr(self):
-        """Activate OCR selection overlay."""
-        if self.ui:
-            self.ui.activate_ocr()
-
     @Slot(str, str, str, str)
     def _handle_worker_finished(self, original_text: str, translated_text: str, overlay_id: str, error_message: str = ""):
         """Slot to handle worker finished signal — delegate to UIService."""
-        try:
-            logger.info("Worker finished slot invoked in main thread (delegating to UIService)")
-            if self.ui:
-                self.ui.handle_worker_finished(original_text, translated_text, overlay_id, error_message)
-        except Exception as e:
-            logger.error(f"Error in _handle_worker_finished delegate: {e}", exc_info=True)
+        if self.ui:
+            self.ui.handle_worker_finished(original_text, translated_text, overlay_id, error_message)
 
     def create_and_run_worker(self, worker: RunnableWorker, on_finished):
         """Centralized creates, configures, and starts a QThread for the worker."""
@@ -355,7 +334,6 @@ class QtApp(QObject, SettingsObserver):
         """Open settings dialog window (delegate to UIService)."""
         if self.ui:
             self.ui.open_settings()
-
 
     def show_overlay_window(
         self,
@@ -485,20 +463,6 @@ class QtApp(QObject, SettingsObserver):
             self._safe_shutdown(service, name)
 
         logger.info("Qt-based WhisperBridge shutdown complete")
-
-    def is_app_running(self) -> bool:
-        """Check if the application is running.
-
-        Returns:
-            bool: True if application is running
-        """
-        return self.is_running and self.qt_app is not None
-
-    def hide_main_window(self):
-        """Hide the main window (minimize to tray)."""
-        if self.ui:
-            self.ui.hide_main_window_to_tray()
-
 
 # Global application instance
 _qt_app_instance: Optional[QtApp] = None

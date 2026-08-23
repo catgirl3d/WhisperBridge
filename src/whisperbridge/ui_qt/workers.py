@@ -52,7 +52,7 @@ class CaptureOcrTranslateWorker(QObject):
 
             try:
                 ocr_response = ocr_service.process_image(
-                    OCRRequest(image=self.image, preprocess=True)
+                    OCRRequest(image=self.image)
                 )
                 original_text = ocr_response.text
 
@@ -178,6 +178,32 @@ class BaseWorker(QObject):
         self._cancel_requested = True
 
 
+def _run_translation_service_request(worker: BaseWorker, call, default_error: str):
+    """Run a translation-service call with cancel checks and result emission."""
+    try:
+        if worker._cancel_requested:
+            worker.finished.emit(False, "Request cancelled")
+            return
+
+        from ..services.translation_service import get_translation_service
+        service = get_translation_service()
+
+        resp = call(service)
+
+        if worker._cancel_requested:
+            worker.finished.emit(False, "Request cancelled")
+            return
+
+        if resp and getattr(resp, "success", False):
+            worker.finished.emit(True, resp.translated_text or "")
+        else:
+            msg = getattr(resp, "error_message", default_error)
+            worker.finished.emit(False, msg)
+    except Exception as e:
+        logger.error(f"{type(worker).__name__} failed: {e}", exc_info=True)
+        worker.finished.emit(False, str(e))
+
+
 class TranslationWorker(BaseWorker):
     """Worker for translating text in a background QThread."""
 
@@ -189,32 +215,15 @@ class TranslationWorker(BaseWorker):
 
     def run(self):
         logger.info("TranslationWorker started")
-        try:
-            if self._cancel_requested:
-                self.finished.emit(False, "Request cancelled")
-                return
-
-            from ..services.translation_service import get_translation_service
-            service = get_translation_service()
-
-            resp = service.translate_text(
+        _run_translation_service_request(
+            self,
+            lambda service: service.translate_text(
                 self.text,
                 ui_source_lang=self.ui_source_lang,
                 ui_target_lang=self.ui_target_lang,
-            )
-
-            if self._cancel_requested:
-                self.finished.emit(False, "Request cancelled")
-                return
-
-            if resp and getattr(resp, "success", False):
-                self.finished.emit(True, resp.translated_text or "")
-            else:
-                msg = getattr(resp, "error_message", "Translation failed")
-                self.finished.emit(False, msg)
-        except Exception as e:
-            logger.error(f"TranslationWorker failed: {e}", exc_info=True)
-            self.finished.emit(False, str(e))
+            ),
+            "Translation failed",
+        )
 
 
 class StyleWorker(BaseWorker):
@@ -227,28 +236,11 @@ class StyleWorker(BaseWorker):
 
     def run(self):
         logger.info(f"StyleWorker started with style: '{self.style_name}'")
-        try:
-            if self._cancel_requested:
-                self.finished.emit(False, "Request cancelled")
-                return
-
-            from ..services.translation_service import get_translation_service
-            service = get_translation_service()
-
-            resp = service.style_text(
+        _run_translation_service_request(
+            self,
+            lambda service: service.style_text(
                 self.text,
                 style_name=self.style_name,
-            )
-
-            if self._cancel_requested:
-                self.finished.emit(False, "Request cancelled")
-                return
-
-            if resp and getattr(resp, "success", False):
-                self.finished.emit(True, resp.translated_text or "")
-            else:
-                msg = getattr(resp, "error_message", "Styling failed")
-                self.finished.emit(False, msg)
-        except Exception as e:
-            logger.error(f"StyleWorker failed: {e}", exc_info=True)
-            self.finished.emit(False, str(e))
+            ),
+            "Styling failed",
+        )

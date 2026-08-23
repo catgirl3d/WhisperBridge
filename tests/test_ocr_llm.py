@@ -53,7 +53,6 @@ def test_llm_success_path_preserves_valid_image_payload_and_returns_result(
     # Setup
     service = OCRService(fake_config)
     fake_config.settings.update({
-        "ocr_engine": "llm",
         "api_provider": "openai",
         "ocr_llm_prompt": "Extract plain text...",
         "openai_vision_model": "gpt-5.4-mini"
@@ -73,11 +72,10 @@ def test_llm_success_path_preserves_valid_image_payload_and_returns_result(
 
     # Action
     tiny_image = Image.new("RGB", (8, 8), color=(20, 40, 60))
-    request = OCRRequest(image=tiny_image, preprocess=False)
+    request = OCRRequest(image=tiny_image)
     result = service.process_image(request)
 
     # Assertions
-    assert result.engine == "llm"
     assert result.text == "Hello LLM"
     assert result.success is True
     external_client.chat.completions.create.assert_called_once()

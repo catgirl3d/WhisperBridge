@@ -146,11 +146,6 @@ class StyledOverlayWindow(QWidget, BaseWindow):
         """Get window header title."""
         return self._title_label.text()
 
-    def set_top_button_padding(self, *, top: int = WINDOW_CONFIG['top_button_padding']['top'], right: int = WINDOW_CONFIG['top_button_padding']['right'], bottom: int = WINDOW_CONFIG['top_button_padding']['bottom'], left: int = WINDOW_CONFIG['top_button_padding']['left']) -> None:
-        """Adjust padding for top-right buttons positioning."""
-        self._top_button_padding = {"top": top, "right": right, "bottom": bottom, "left": left}
-        self._position_top_buttons()
-
     def add_settings_button(self, on_click: Optional[Callable[[], None]] = None) -> QPushButton:
         """
         Add a settings button to the top-right controls.

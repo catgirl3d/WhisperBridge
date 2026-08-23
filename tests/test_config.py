@@ -82,21 +82,6 @@ def test_filter_openai_model_selection_keeps_supported_families():
         "gpt-6",
     ]
 
-def test_ocr_engine_migration():
-    """Test that legacy ocr_engine values are correctly migrated to 'llm'."""
-    # Test migration from 'easyocr' to 'llm'
-    settings = Settings(ocr_engine="easyocr")
-    assert settings.ocr_engine == "llm", "Legacy 'easyocr' should be migrated to 'llm'"
-
-    # Test that 'llm' remains unchanged
-    settings = Settings(ocr_engine="llm")
-    assert settings.ocr_engine == "llm", "Valid 'llm' should remain unchanged"
-
-    # Test that any other value also gets migrated to 'llm'
-    settings = Settings(ocr_engine="some_other_engine")
-    assert settings.ocr_engine == "llm", "Any non-'llm' value should be migrated to 'llm'"
-
-
 def test_translator_font_size_is_normalized_by_settings_model():
     """translator_font_size should be clamped and coerced at the Settings boundary."""
     assert Settings(translator_font_size="19").translator_font_size == 19

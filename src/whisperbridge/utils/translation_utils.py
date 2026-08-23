@@ -3,10 +3,7 @@
 Prompt formatting, GPT response parsing, and token estimation helpers.
 """
 
-import re
 from dataclasses import dataclass
-
-from .language_utils import detect_language, get_language_name
 
 
 @dataclass
@@ -30,7 +27,6 @@ class TranslationResponse:
     target_lang: str = ""
     model: str = ""
     error_message: str = ""
-    tokens_used: int = 0
 
 
 @dataclass
@@ -102,78 +98,3 @@ def parse_gpt_response(response_text: str) -> str:
         text = text[1:-1].strip()
 
     return text
-
-
-def create_system_prompt_template(
-    source_lang: str = "auto", target_lang: str = "en"
-) -> str:
-    """Create a customized system prompt template."""
-    if source_lang == "auto":
-        template = f"""You are a professional translator. Your task is to translate text accurately and naturally to {get_language_name(target_lang)}.
-
-Guidelines:
-- Maintain the original meaning and tone
-- Use natural, fluent language
-- Preserve formatting and structure when possible
-- If the text is already in {get_language_name(target_lang)}, return it unchanged
-- Only provide the translation, no additional explanations
-
-Translate the following text:"""
-    else:
-        template = f"""You are a professional translator. Your task is to translate text from {get_language_name(source_lang)} to {get_language_name(target_lang)} accurately and naturally.
-
-Guidelines:
-- Maintain the original meaning and tone
-- Use natural, fluent {get_language_name(target_lang)}
-- Preserve formatting and structure when possible
-- Only provide the translation, no additional explanations
-
-Translate the following text:"""
-
-    return template
-
-
-def sanitize_text(text: str) -> str:
-    """Sanitize text for API processing."""
-    if not text:
-        return ""
-
-    # Remove excessive whitespace
-    text = re.sub(r"\s+", " ", text.strip())
-
-    # Remove control characters
-    text = re.sub(r"[\x00-\x1f\x7f-\x9f]", "", text)
-
-    return text
-
-
-def estimate_tokens(text: str) -> int:
-    """Estimate token count for text (rough approximation)."""
-    if not text:
-        return 0
-
-    # Rough approximation: 1 token ≈ 4 characters for English
-    # Adjust for other languages
-    char_count = len(text)
-
-    # For languages with more complex characters, adjust ratio
-    if detect_language(text) in ["zh", "ja", "ko"]:
-        return max(1, char_count // 2)  # More tokens per character for CJK
-
-    return max(1, char_count // 4)
-
-
-def format_error_message(error: Exception) -> str:
-    """Format error message for user display."""
-    error_type = type(error).__name__
-
-    if "API" in error_type:
-        return "API request failed. Please check your internet connection and API key."
-    elif "timeout" in str(error).lower():
-        return "Request timed out. Please try again."
-    elif "rate" in str(error).lower():
-        return "API rate limit exceeded. Please wait and try again."
-    elif "quota" in str(error).lower():
-        return "API quota exceeded. Please check your account limits."
-    else:
-        return f"Translation failed: {str(error)}"

@@ -152,13 +152,13 @@ class TrayManager(QObject):
             # Activate OCR action
             self.activate_ocr_action = QAction("Activate OCR", self)
             self.activate_ocr_action.triggered.connect(self._on_activate_ocr)
-            
+
             # Set visibility and enabled state from build and user settings.
             try:
                 self.activate_ocr_action.setVisible(BUILD_OCR_ENABLED)
                 is_available = BUILD_OCR_ENABLED and config_service.get_settings().ocr_enabled
                 self.activate_ocr_action.setEnabled(is_available)
-                    
+
             except Exception as e:
                 logger.error(f"Failed to set initial OCR action state: {e}")
                 self.activate_ocr_action.setVisible(False)

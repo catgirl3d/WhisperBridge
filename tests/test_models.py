@@ -37,9 +37,9 @@ def mock_provider_registry(mocker):
 
 
 @pytest.fixture
-def model_manager(mock_cache, mock_config_service, mock_provider_registry):
+def model_manager(mock_cache, mock_provider_registry):
     """Create a ModelManager instance for testing."""
-    return ModelManager(mock_cache, mock_config_service, mock_provider_registry)
+    return ModelManager(mock_cache, mock_provider_registry)
 
 
 class TestGetAvailableModels:
