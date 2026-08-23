@@ -276,3 +276,57 @@ def test_run_reports_missing_clipboard_service(qapp, mocker):
     )
     ctx.notification_service.info.assert_not_called()
     ctx.notification_service.warning.assert_not_called()
+
+
+def test_run_ignores_press_while_previous_cycle_is_running(qapp, mocker):
+    """A second press during an in-progress cycle must be a full no-op."""
+    ctx = _build_service(qapp, mocker)
+    ctx.service._running = True
+
+    ctx.service.run()
+
+    assert ctx.emitted == []
+    ctx.clipboard_service.get_clipboard_text.assert_not_called()
+    ctx.controller.press.assert_not_called()
+    ctx.hotkey_service.set_paused.assert_not_called()
+    assert ctx.service._running is True
+
+
+def test_run_resets_running_flag_after_unexpected_error(qapp, mocker):
+    """The re-entry guard must not get stuck after an error inside the cycle."""
+    ctx = _build_service(qapp, mocker)
+    ctx.clipboard_service.get_clipboard_text.side_effect = ["old text", "selected text"]
+    ctx.config_service.get_setting.side_effect = _make_get_setting(
+        {
+            "clipboard_poll_timeout_ms": 200,
+        }
+    )
+    ctx.config_service.get_settings.side_effect = RuntimeError("settings read failed")
+
+    ctx.service.run()
+
+    assert ctx.service._running is False
+    assert ctx.emitted == []
+    ctx.notification_service.error.assert_called_once()
+
+
+def test_empty_translation_disables_auto_copy_to_protect_clipboard(qapp, mocker):
+    """Empty translated text must not be emitted with auto_copy=True: copy_text("") clears the clipboard."""
+    ctx = _build_service(qapp, mocker)
+    ctx.translation_service.is_available = True
+    ctx.clipboard_service.get_clipboard_text.side_effect = ["old text", "selected text"]
+    ctx.config_service.get_setting.side_effect = _make_get_setting(
+        {
+            "clipboard_poll_timeout_ms": 200,
+            "auto_copy_translated": True,
+        }
+    )
+    ctx.translation_service.translate_text.return_value = SimpleNamespace(
+        success=True,
+        translated_text="",
+    )
+
+    ctx.service.run()
+
+    assert ctx.emitted == [("selected text", "", False)]
+    assert ctx.service._running is False

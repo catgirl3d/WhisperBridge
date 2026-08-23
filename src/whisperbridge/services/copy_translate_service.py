@@ -35,6 +35,7 @@ class CopyTranslateService(QObject):
         self.hotkey_service = hotkey_service
         self.debug_logger = debug_logger
         self._notification_service = None
+        self._running = False
 
     @property
     def notification_service(self):
@@ -44,7 +45,25 @@ class CopyTranslateService(QObject):
             self._notification_service = get_notification_service()
         return self._notification_service
 
-    def run(self):
+    def run(self) -> None:
+        """Guarded entry point: ignore presses while a copy-translate cycle is in progress."""
+        from loguru import logger
+
+        log = self.debug_logger or logger
+
+        # Plain boolean without a lock: re-entry happens on human timescale,
+        # and CPython flag reads/writes are atomic under the GIL.
+        if self._running:
+            log.info("Copy-translate already in progress; ignoring hotkey press")
+            return
+
+        self._running = True
+        try:
+            self._execute()
+        finally:
+            self._running = False
+
+    def _execute(self):
         import time
 
         from loguru import logger
@@ -304,6 +323,9 @@ class CopyTranslateService(QObject):
             except Exception as e:
                 log.debug(f"Failed to read auto_copy_translated setting: {e}")
                 auto_copy = False
+
+            # copy_text("") wipes the whole clipboard, so empty results must not auto-copy.
+            auto_copy = auto_copy and bool(translated_text)
 
             # Performance summary: compute clipboard and translation durations and log once
             clipboard_ms = ((t_after_poll_success - (t_after_sim or t_start)) * 1000) if (t_after_poll_success and t_after_sim) else 0
