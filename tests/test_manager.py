@@ -13,6 +13,7 @@ This module tests API manager integration functionality including:
 import pytest
 
 from whisperbridge.core.api_manager.manager import APIManager
+from whisperbridge.core.config import Settings
 from whisperbridge.core.provider_catalog import APIProvider
 
 
@@ -109,6 +110,21 @@ class TestInitialization:
 
         api_manager.initialize()
 
+        assert api_manager.has_current_provider() is False
+
+    def test_google_provider_is_unavailable_when_only_openai_key_exists(
+        self, api_manager, mock_config_service
+    ):
+        settings = Settings(
+            api_provider="google",
+            google_api_key="",
+            openai_api_key="sk-test123",
+        )
+        mock_config_service.get_setting.side_effect = lambda key: getattr(settings, key, None)
+
+        api_manager.initialize()
+
+        assert api_manager.has_clients() is True
         assert api_manager.has_current_provider() is False
 
     def test_has_current_provider_is_false_for_unsupported_provider(
