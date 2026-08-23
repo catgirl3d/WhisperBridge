@@ -7,7 +7,7 @@ This module provides the main OCR service using LLM vision capabilities.
 import time
 from dataclasses import dataclass
 from time import perf_counter
-from typing import Literal, Optional
+from typing import Optional
 
 from loguru import logger
 from PIL import Image
@@ -22,7 +22,6 @@ class OCRResult:
 
     text: str
     confidence: float
-    engine: Literal["llm"]
     processing_time: float
     error_message: Optional[str] = None
     success: bool = True
@@ -33,7 +32,6 @@ class OCRRequest:
     """OCR processing request."""
 
     image: Image.Image
-    preprocess: bool = True
 
 
 class OCRService:
@@ -57,7 +55,6 @@ class OCRService:
         return OCRResult(
             text="",
             confidence=0.0,
-            engine="llm",
             processing_time=processing_time,
             error_message=error_msg,
             success=False,
@@ -119,7 +116,6 @@ class OCRService:
             result = OCRResult(
                 text=extracted_text,
                 confidence=0.90 if success else 0.0,
-                engine="llm",
                 processing_time=processing_time,
                 success=success,
                 error_message=None if success else "Empty OCR text from LLM"
@@ -134,7 +130,6 @@ class OCRService:
             return OCRResult(
                 text="",
                 confidence=0.0,
-                engine="llm",
                 processing_time=processing_time,
                 error_message=str(e),
                 success=False,
@@ -147,13 +142,11 @@ class OCRService:
 
         logger.debug(
             "Starting OCR processing. Request: "
-            f"image_size={request.image.size}, image_mode='{request.image.mode}', "
-            f"preprocess={request.preprocess}"
+            f"image_size={request.image.size}, image_mode='{request.image.mode}'"
         )
 
         try:
             # Use LLM vision API
-            # Note: request.preprocess is ignored for LLM as it handles raw images better
             result = self._process_llm_image(request.image)
 
             if result.success and result.text.strip():

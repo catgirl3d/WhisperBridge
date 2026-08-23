@@ -8,8 +8,8 @@ Centralized service for managing system tray notifications with different types
 from enum import Enum
 from typing import Optional
 from loguru import logger
-from PySide6.QtCore import QThread, QObject, Signal, Slot
-from PySide6.QtWidgets import QSystemTrayIcon, QApplication
+from PySide6.QtCore import QObject, Signal, Slot
+from PySide6.QtWidgets import QSystemTrayIcon
 
 # Lazy import to avoid circular dependencies
 

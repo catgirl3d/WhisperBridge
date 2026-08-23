@@ -45,7 +45,6 @@ class TranslationService:
         source_lang: Optional[str] = None,
         target_lang: Optional[str] = None,
         model: Optional[str] = None,
-        tokens_used: int = 0,
     ) -> TranslationResponse:
         """Create a standardized TranslationResponse."""
         return TranslationResponse(
@@ -55,7 +54,6 @@ class TranslationService:
             source_lang=source_lang or "",
             target_lang=target_lang or "",
             model=model or "",
-            tokens_used=tokens_used,
         )
 
     def _get_active_model(self) -> str:
@@ -250,7 +248,6 @@ class TranslationService:
                 source_lang="style",
                 target_lang=style_name,
                 model=final_model,
-                tokens_used=response.usage.total_tokens if response.usage else 0,
             )
 
         except RetryError as e:
@@ -342,7 +339,6 @@ class TranslationService:
                 source_lang=request.source_lang,
                 target_lang=request.target_lang,
                 model=final_model,
-                tokens_used=response.usage.total_tokens if response.usage else 0,
             )
 
         except Exception as e:

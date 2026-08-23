@@ -51,7 +51,7 @@ class APIManager:
         config_dir = ensure_config_dir()
         self._cache = ModelCache(config_dir)
         self._providers = ProviderRegistry(config_service)
-        self._model_manager = ModelManager(self._cache, config_service, self._providers)
+        self._model_manager = ModelManager(self._cache, self._providers)
 
     def initialize(self) -> bool:
         """

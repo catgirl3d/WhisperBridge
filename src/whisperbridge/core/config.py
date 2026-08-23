@@ -10,7 +10,7 @@ import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Dict, List, Optional
 
 import keyring
 from loguru import logger
@@ -184,10 +184,8 @@ class Settings(BaseSettings):
     api_timeout: int = Field(default=API_TIMEOUT_DEFAULT, description="API request timeout in seconds")
     # Overlay UI-specific language selections (do not affect core behavior)
     # - ui_source_language: "auto" or explicit ISO code
-    # - ui_target_mode: "auto_swap" or "explicit"
-    # - ui_target_language: explicit ISO code used when ui_target_mode == "explicit"
+    # - ui_target_language: explicit ISO code
     ui_source_language: str = Field(default="auto", description="Overlay UI source language ('auto' or ISO code)")
-    ui_target_mode: Literal["auto_swap", "explicit"] = Field(default="explicit", description="Overlay UI target selection mode")
     ui_target_language: str = Field(default="en", description="Overlay UI explicit target language (ISO code)")
 
     # Translation behavior flags
@@ -224,7 +222,6 @@ class Settings(BaseSettings):
 
     # OCR Settings
     ocr_enabled: bool = Field(default=True, description="Enable OCR features")
-    ocr_engine: Literal["llm"] = Field(default="llm", description="OCR engine to use (LLM only)")
     ocr_llm_prompt: str = Field(
         default="Extract plain text from the image in natural reading order. Output only the text.",
         description="Prompt for LLM-based OCR",
@@ -368,19 +365,6 @@ class Settings(BaseSettings):
         if v.upper() not in valid_levels:
             raise ValueError(f"Invalid log level: {v}. Must be one of {valid_levels}")
         return v.upper()
-
-    @field_validator("ocr_engine", mode="before")
-    @classmethod
-    def validate_ocr_engine(cls, v: str) -> str:
-        """Validate OCR engine.
-        
-        Using mode='before' allows us to intercept and correct 'easyocr'
-        values coming from existing config files before Pydantic validation runs.
-        """
-        if v != "llm":
-            return "llm"  # Force LLM if anything else is set
-        return v
-
 
 # Provider capability constants and helpers (centralize DeepL specifics)
 def get_deepl_identifier() -> str:

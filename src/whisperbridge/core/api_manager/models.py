@@ -33,17 +33,15 @@ class ModelManager:
     and filtering.
     """
 
-    def __init__(self, cache: ModelCache, config_service, provider_registry):
+    def __init__(self, cache: ModelCache, provider_registry):
         """
         Initialize the ModelManager.
 
         Args:
             cache: ModelCache instance for caching model lists.
-            config_service: The application's configuration service.
             provider_registry: ProviderRegistry for accessing provider clients.
         """
         self._cache = cache
-        self._config = config_service
         self._providers = provider_registry
 
     def _get_exclude_terms(self, provider: APIProvider) -> Optional[List[str]]:

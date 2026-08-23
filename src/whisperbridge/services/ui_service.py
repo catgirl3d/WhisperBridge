@@ -9,7 +9,7 @@ import functools
 from typing import Dict, Optional, Tuple
 
 from loguru import logger as _default_logger
-from PySide6.QtCore import QThread, Slot, Qt
+from PySide6.QtCore import QThread, Slot
 from PySide6.QtWidgets import QApplication
 
 # UI widgets (import from ui_qt package)
@@ -126,7 +126,7 @@ class UIService:
             on_toggle = _emit_if_signal("toggle_overlay_signal")
             on_open = _emit_if_signal("show_settings_signal")
             on_exit = getattr(self.app, "exit_app", None) or (lambda: None)
-            on_activate = getattr(self.app, "activate_ocr", None) or (lambda: None)
+            on_activate = _emit_if_signal("activate_ocr_signal")
 
             self.tray_manager = TrayManager(
                 on_toggle_overlay=on_toggle,
@@ -566,18 +566,6 @@ class UIService:
     # --- Additional UI helpers --------------------------------
 
     @main_thread_only
-    def handle_ocr_service_ready(self):
-        """Handle OCR service ready event: show notification."""
-        try:
-            notification_service = get_notification_service()
-            notification_service.info("OCR service is ready.", "WhisperBridge")
-            self.logger.info("Handled OCR service ready: showed notification.")
-        except Exception as e:
-            self.logger.error(f"UIService.handle_ocr_service_ready error: {e}", exc_info=True)
-
-
-
-    @main_thread_only
     def update_window_opacity(self, opacity: float):
         """Update window opacity for all managed windows."""
         try:
@@ -599,7 +587,6 @@ class UIService:
             self.logger.error(
                 f"UIService.update_window_opacity error: {e}", exc_info=True
             )
-
 
     @main_thread_only
     def update_theme(self, theme: str):

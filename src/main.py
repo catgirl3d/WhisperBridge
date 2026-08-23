@@ -22,6 +22,7 @@ def _get_crash_log_path() -> Path:
     except Exception:
         return Path.cwd() / "crash.log"
 
+
 def log_crash(error: Exception):
     """Log unhandled exceptions to crash.log"""
     try:
@@ -37,6 +38,7 @@ def log_crash(error: Exception):
             f.write(f"Traceback:{os.linesep}{tb_str}{os.linesep}")
     except Exception:
         pass  # Silent fail for crash logging
+
 
 try:
     from whisperbridge.core.logger import logger, setup_logging
