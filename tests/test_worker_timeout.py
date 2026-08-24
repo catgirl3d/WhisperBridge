@@ -18,7 +18,7 @@ try:
         BaseWorker, TranslationWorker, StyleWorker,
         CaptureOcrTranslateWorker, ApiTestWorker
     )
-    from whisperbridge.ui_qt.overlay_window import OverlayWindow, set_combo_data
+    from whisperbridge.ui_qt.overlay_window import OverlayWindow
     from whisperbridge.services.config_service import config_service
     from whisperbridge.services.translation_service import TranslationService
 except ImportError:
@@ -194,10 +194,10 @@ class TestQtIntegration:
         qtbot.addWidget(window)
         window._update_layout()
 
-        assert window.original_text.font().pointSize() == 18
-        assert window.translated_text.font().pointSize() == 18
-        assert window.original_text.document().defaultFont().pointSize() == 18
-        assert window.translated_text.document().defaultFont().pointSize() == 18
+        assert window.view.original_text.font().pointSize() == 18
+        assert window.view.translated_text.font().pointSize() == 18
+        assert window.view.original_text.document().defaultFont().pointSize() == 18
+        assert window.view.translated_text.document().defaultFont().pointSize() == 18
 
     def test_overlay_observer_applies_live_translator_font_size_change(self, qtbot, mocker):
         """Overlay should update both text fields when translator_font_size changes."""
@@ -228,13 +228,13 @@ class TestQtIntegration:
         qtbot.addWidget(window)
         window._update_layout()
 
-        assert window.original_text.font().pointSize() == 14
-        assert window.translated_text.font().pointSize() == 14
+        assert window.view.original_text.font().pointSize() == 14
+        assert window.view.translated_text.font().pointSize() == 14
 
         window._settings_observer.on_settings_changed("translator_font_size", 14, 19)
 
-        assert window.original_text.font().pointSize() == 19
-        assert window.translated_text.font().pointSize() == 19
+        assert window.view.original_text.font().pointSize() == 19
+        assert window.view.translated_text.font().pointSize() == 19
 
     def test_overlay_dialog_spinbox_applies_font_size_live(self, qtbot, mocker):
         """Translator settings dialog should update overlay text fields immediately."""
@@ -273,8 +273,8 @@ class TestQtIntegration:
 
         mocker.patch('whisperbridge.ui_qt.overlay_window.config_service.get_setting', side_effect=get_setting)
         mocker.patch('whisperbridge.ui_qt.overlay_window.config_service.get_settings', return_value=mock_settings)
-        mocker.patch('whisperbridge.ui_qt.overlay_ui_builder.config_service.get_settings', return_value=mock_settings)
-        mocker.patch('whisperbridge.ui_qt.overlay_ui_builder.config_service.set_setting', side_effect=set_setting)
+        mocker.patch('whisperbridge.ui_qt.translator_settings_dialog.config_service.get_settings', return_value=mock_settings)
+        mocker.patch('whisperbridge.ui_qt.translator_settings_dialog.config_service.set_setting', side_effect=set_setting)
 
         window = OverlayWindow()
         qtbot.addWidget(window)
@@ -285,10 +285,10 @@ class TestQtIntegration:
         dialog.translator_font_size_spinbox.setValue(20)
         qtbot.wait(10)
 
-        assert window.original_text.font().pointSize() == 20
-        assert window.translated_text.font().pointSize() == 20
-        assert window.original_text.document().defaultFont().pointSize() == 20
-        assert window.translated_text.document().defaultFont().pointSize() == 20
+        assert window.view.original_text.font().pointSize() == 20
+        assert window.view.translated_text.font().pointSize() == 20
+        assert window.view.original_text.document().defaultFont().pointSize() == 20
+        assert window.view.translated_text.document().defaultFont().pointSize() == 20
 
     # --- Worker Thread Lifecycle Tests ---
 
@@ -430,20 +430,20 @@ class TestQtIntegration:
             return_value=mock_service,
         )
 
-        overlay.original_text.setPlainText("hello")
+        overlay.view.original_text.setPlainText("hello")
         overlay._on_translate_clicked()
         assert started.wait(1.0)
 
         assert overlay._translation_start_time is not None
-        assert overlay.translate_btn.isEnabled() is True
+        assert overlay.view.translate_btn.isEnabled() is True
 
         overlay._on_translate_clicked()
         release.set()
         qtbot.wait(50)
 
         assert overlay._translation_start_time is None
-        assert overlay.translate_btn.isEnabled() is True
-        assert "cancel" in overlay.status_label.text().lower()
+        assert overlay.view.translate_btn.isEnabled() is True
+        assert "cancel" in overlay.view.status_label.text().lower()
 
         try:
             translation_thread = getattr(overlay, "_translation_thread", None)
@@ -460,17 +460,28 @@ class TestQtIntegration:
         mock_setup_worker = mocker.patch.object(overlay, "_setup_worker", return_value=(Mock(), Mock()))
 
         overlay._cached_settings = Mock(compact_view=False, text_styles=[])
-        overlay.original_text.setPlainText("hello")
-        set_combo_data(overlay.source_combo, "en")
-        set_combo_data(overlay.target_combo, "ru")
+        overlay.view.original_text.setPlainText("hello")
+        overlay.view.set_language_selection("en", "ru")
 
         overlay._on_translate_clicked()
 
         assert overlay._translation_start_time is not None
         assert overlay._translation_prev_text == "  Translate"
-        assert overlay.status_label.text() == "Request sent"
+        assert overlay.view.status_label.text() == "Request sent"
         mock_start_loading.assert_called_once_with("Translating", False)
         mock_setup_worker.assert_called_once_with(TranslationWorker, "hello", "en", "ru")
+
+    def test_compact_loading_animation_updates_status(self, overlay):
+        """Compact spinner updates must continue through the status-dot effect."""
+        overlay.view.status_label.setText("before animation")
+        overlay._loading_compact = True
+        overlay._loading_rotation = 0
+        overlay._loading_dots_count = 0
+        overlay._original_icon = overlay.view.icon_translation
+
+        overlay._update_loading_animation()
+
+        assert overlay.view.status_label.text().startswith("Request sent")
 
     def test_translate_click_starts_style_worker_with_selected_style(self, overlay, mocker):
         """Style mode should pass the currently selected style name to StyleWorker."""
@@ -479,12 +490,12 @@ class TestQtIntegration:
         mock_setup_worker = mocker.patch.object(overlay, "_setup_worker", return_value=(Mock(), Mock()))
 
         overlay._cached_settings = Mock(compact_view=False, text_styles=[])
-        overlay.original_text.setPlainText("hello")
-        overlay.style_combo.clear()
-        overlay.style_combo.addItem("Formal")
-        overlay.style_combo.setCurrentIndex(0)
-        style_index = overlay._find_index_by_text(overlay.mode_combo, "Style")
-        overlay.mode_combo.setCurrentIndex(style_index)
+        overlay.view.original_text.setPlainText("hello")
+        overlay.view.style_combo.clear()
+        overlay.view.style_combo.addItem("Formal")
+        overlay.view.style_combo.setCurrentIndex(0)
+        style_index = overlay._find_index_by_text(overlay.view.mode_combo, "Style")
+        overlay.view.mode_combo.setCurrentIndex(style_index)
 
         overlay._on_translate_clicked()
 
@@ -500,10 +511,10 @@ class TestQtIntegration:
         mock_setup_worker = mocker.patch.object(overlay, "_setup_worker", return_value=(Mock(), Mock()))
 
         overlay._cached_settings = Mock(compact_view=False, text_styles=[{"name": "Improve tone"}])
-        overlay.original_text.setPlainText("hello")
-        overlay.style_combo.clear()
-        style_index = overlay._find_index_by_text(overlay.mode_combo, "Style")
-        overlay.mode_combo.setCurrentIndex(style_index)
+        overlay.view.original_text.setPlainText("hello")
+        overlay.view.style_combo.clear()
+        style_index = overlay._find_index_by_text(overlay.view.mode_combo, "Style")
+        overlay.view.mode_combo.setCurrentIndex(style_index)
 
         overlay._on_translate_clicked()
 
@@ -563,7 +574,7 @@ class TestQtIntegration:
 
         overlay._on_translation_finished(False, error_message)
 
-        assert "quota exceeded" in overlay.status_label.text().lower()
+        assert "quota exceeded" in overlay.view.status_label.text().lower()
         mock_qmessagebox.assert_not_called()
 
     def test_finished_without_error_signal_sets_known_error_status(self, overlay, mock_qmessagebox):
@@ -573,7 +584,7 @@ class TestQtIntegration:
 
         overlay._on_translation_finished(False, "quota exceeded: billing limit reached")
 
-        assert "quota exceeded" in overlay.status_label.text().lower()
+        assert "quota exceeded" in overlay.view.status_label.text().lower()
         mock_qmessagebox.assert_not_called()
 
     def test_unknown_error_popup_is_shown_once_from_finished_signal(self, overlay, mock_qmessagebox):
@@ -584,7 +595,7 @@ class TestQtIntegration:
 
         overlay._on_translation_finished(False, error_message)
 
-        assert "failed" in overlay.status_label.text().lower()
+        assert "failed" in overlay.view.status_label.text().lower()
         mock_qmessagebox.assert_called_once_with(
             overlay,
             "Translation failed",
@@ -598,8 +609,8 @@ class TestQtIntegration:
 
         overlay._on_translation_finished(True, "Hola")
 
-        assert overlay.translated_text.toPlainText() == "Hola"
-        assert overlay.status_label.text().startswith("Completed in ")
+        assert overlay.view.translated_text.toPlainText() == "Hola"
+        assert overlay.view.status_label.text().startswith("Completed in ")
         assert overlay._translation_start_time is None
         mock_qmessagebox.assert_not_called()
 

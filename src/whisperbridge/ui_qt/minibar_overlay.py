@@ -252,7 +252,7 @@ class MiniBarOverlay(QWidget, BaseWindow):
     
     def create_button(self, key: str) -> QPushButton:
         """
-        Unified button factory mirroring OverlayUIBuilder.create_top_button behavior.
+        Unified button factory matching the overlay top-button configuration.
         Uses configuration to set icon, icon_size, tooltip; preserves legacy objectName values.
         """
         btn, cfg = self._create_widget_from_config("button", key, QPushButton)

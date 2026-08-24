@@ -3,9 +3,10 @@
 import pytest
 from PySide6.QtWidgets import QApplication, QCheckBox, QPushButton, QGroupBox, QSpinBox, QWidget
 from PySide6.QtCore import Qt
+from PySide6.QtTest import QSignalSpy
 from unittest.mock import Mock
 
-from whisperbridge.ui_qt.overlay_ui_builder import TranslatorSettingsDialog
+from whisperbridge.ui_qt.translator_settings_dialog import TranslatorSettingsDialog
 
 
 def test_translator_dialog_factory_integration(qapp, mocker):
@@ -19,7 +20,7 @@ def test_translator_dialog_factory_integration(qapp, mocker):
     mock_settings.translation_cache_enabled = False
     mock_settings.auto_copy_translated_overlay = False
     
-    mocker.patch('whisperbridge.ui_qt.overlay_ui_builder.config_service.get_settings',
+    mocker.patch('whisperbridge.ui_qt.translator_settings_dialog.config_service.get_settings',
                  return_value=mock_settings)
     
     dialog = TranslatorSettingsDialog()
@@ -71,7 +72,7 @@ def test_translator_dialog_initialization_from_config(qapp, mocker):
     mock_settings.translation_cache_enabled = False
     mock_settings.auto_copy_translated_overlay = True
     
-    mocker.patch('whisperbridge.ui_qt.overlay_ui_builder.config_service.get_settings',
+    mocker.patch('whisperbridge.ui_qt.translator_settings_dialog.config_service.get_settings',
                  return_value=mock_settings)
     
     dialog = TranslatorSettingsDialog()
@@ -89,7 +90,7 @@ def test_translator_dialog_initialization_with_defaults(qapp, mocker):
     # Mock config_service with empty settings object
     mock_settings = Mock(spec=[])  # Without attributes
     
-    mocker.patch('whisperbridge.ui_qt.overlay_ui_builder.config_service.get_settings',
+    mocker.patch('whisperbridge.ui_qt.translator_settings_dialog.config_service.get_settings',
                  return_value=mock_settings)
     
     dialog = TranslatorSettingsDialog()
@@ -115,9 +116,9 @@ def test_compact_view_changed_callback(qapp, mocker):
     mock_settings.translation_cache_enabled = False
     mock_settings.auto_copy_translated_overlay = False
     
-    mocker.patch('whisperbridge.ui_qt.overlay_ui_builder.config_service.get_settings',
+    mocker.patch('whisperbridge.ui_qt.translator_settings_dialog.config_service.get_settings',
                  return_value=mock_settings)
-    mock_set_setting = mocker.patch('whisperbridge.ui_qt.overlay_ui_builder.config_service.set_setting')
+    mock_set_setting = mocker.patch('whisperbridge.ui_qt.translator_settings_dialog.config_service.set_setting')
     
     dialog = TranslatorSettingsDialog()
     
@@ -140,9 +141,9 @@ def test_autohide_buttons_changed_callback(qapp, mocker):
     mock_settings.translation_cache_enabled = False
     mock_settings.auto_copy_translated_overlay = False
     
-    mocker.patch('whisperbridge.ui_qt.overlay_ui_builder.config_service.get_settings',
+    mocker.patch('whisperbridge.ui_qt.translator_settings_dialog.config_service.get_settings',
                  return_value=mock_settings)
-    mock_set_setting = mocker.patch('whisperbridge.ui_qt.overlay_ui_builder.config_service.set_setting')
+    mock_set_setting = mocker.patch('whisperbridge.ui_qt.translator_settings_dialog.config_service.set_setting')
     
     dialog = TranslatorSettingsDialog()
     dialog.autohide_buttons_checkbox.setChecked(True)
@@ -160,24 +161,21 @@ def test_compact_view_rolls_back_when_save_fails(qapp, mocker):
     mock_settings.translation_cache_enabled = False
     mock_settings.auto_copy_translated_overlay = False
 
-    mocker.patch('whisperbridge.ui_qt.overlay_ui_builder.config_service.get_settings',
+    mocker.patch('whisperbridge.ui_qt.translator_settings_dialog.config_service.get_settings',
                  return_value=mock_settings)
     mock_set_setting = mocker.patch(
-        'whisperbridge.ui_qt.overlay_ui_builder.config_service.set_setting',
+        'whisperbridge.ui_qt.translator_settings_dialog.config_service.set_setting',
         return_value=False,
     )
-    mock_log_info = mocker.patch('whisperbridge.ui_qt.overlay_ui_builder.logger.info')
-
-    mock_parent = Mock(spec=['_update_layout'])
-    mock_parent._update_layout = mocker.Mock()
+    mock_log_info = mocker.patch('whisperbridge.ui_qt.translator_settings_dialog.logger.info')
 
     dialog = TranslatorSettingsDialog(parent=None)
-    dialog.parent = lambda: mock_parent
+    signal_spy = QSignalSpy(dialog.layout_settings_changed)
     dialog.compact_view_checkbox.setChecked(True)
 
     mock_set_setting.assert_called_with("compact_view", True)
     assert not dialog.compact_view_checkbox.isChecked()
-    mock_parent._update_layout.assert_not_called()
+    assert signal_spy.count() == 0
     mock_log_info.assert_not_called()
     dialog.close()
 
@@ -191,24 +189,21 @@ def test_autohide_buttons_roll_back_when_save_fails(qapp, mocker):
     mock_settings.translation_cache_enabled = False
     mock_settings.auto_copy_translated_overlay = False
 
-    mocker.patch('whisperbridge.ui_qt.overlay_ui_builder.config_service.get_settings',
+    mocker.patch('whisperbridge.ui_qt.translator_settings_dialog.config_service.get_settings',
                  return_value=mock_settings)
     mock_set_setting = mocker.patch(
-        'whisperbridge.ui_qt.overlay_ui_builder.config_service.set_setting',
+        'whisperbridge.ui_qt.translator_settings_dialog.config_service.set_setting',
         return_value=False,
     )
-    mock_log_info = mocker.patch('whisperbridge.ui_qt.overlay_ui_builder.logger.info')
-
-    mock_parent = Mock(spec=['_update_layout'])
-    mock_parent._update_layout = mocker.Mock()
+    mock_log_info = mocker.patch('whisperbridge.ui_qt.translator_settings_dialog.logger.info')
 
     dialog = TranslatorSettingsDialog(parent=None)
-    dialog.parent = lambda: mock_parent
+    signal_spy = QSignalSpy(dialog.layout_settings_changed)
     dialog.autohide_buttons_checkbox.setChecked(True)
 
     mock_set_setting.assert_called_with("overlay_side_buttons_autohide", True)
     assert not dialog.autohide_buttons_checkbox.isChecked()
-    mock_parent._update_layout.assert_not_called()
+    assert signal_spy.count() == 0
     mock_log_info.assert_not_called()
     dialog.close()
 
@@ -223,9 +218,9 @@ def test_translator_font_size_changed_callback(qapp, mocker):
     mock_settings.translation_cache_enabled = False
     mock_settings.auto_copy_translated_overlay = False
 
-    mocker.patch('whisperbridge.ui_qt.overlay_ui_builder.config_service.get_settings',
+    mocker.patch('whisperbridge.ui_qt.translator_settings_dialog.config_service.get_settings',
                  return_value=mock_settings)
-    mock_set_setting = mocker.patch('whisperbridge.ui_qt.overlay_ui_builder.config_service.set_setting')
+    mock_set_setting = mocker.patch('whisperbridge.ui_qt.translator_settings_dialog.config_service.set_setting')
 
     dialog = TranslatorSettingsDialog()
     dialog.translator_font_size_spinbox.setValue(18)
@@ -244,9 +239,9 @@ def test_translator_font_size_does_not_call_parent_directly(qapp, mocker):
     mock_settings.translation_cache_enabled = False
     mock_settings.auto_copy_translated_overlay = False
 
-    mocker.patch('whisperbridge.ui_qt.overlay_ui_builder.config_service.get_settings',
+    mocker.patch('whisperbridge.ui_qt.translator_settings_dialog.config_service.get_settings',
                  return_value=mock_settings)
-    mock_set_setting = mocker.patch('whisperbridge.ui_qt.overlay_ui_builder.config_service.set_setting')
+    mock_set_setting = mocker.patch('whisperbridge.ui_qt.translator_settings_dialog.config_service.set_setting')
 
     mock_parent = Mock(spec=['_apply_translator_font_size'])
     mock_parent._apply_translator_font_size = mocker.Mock()
@@ -270,13 +265,13 @@ def test_translator_font_size_rolls_back_when_save_fails(qapp, mocker):
     mock_settings.translation_cache_enabled = False
     mock_settings.auto_copy_translated_overlay = False
 
-    mocker.patch('whisperbridge.ui_qt.overlay_ui_builder.config_service.get_settings',
+    mocker.patch('whisperbridge.ui_qt.translator_settings_dialog.config_service.get_settings',
                  return_value=mock_settings)
     mock_set_setting = mocker.patch(
-        'whisperbridge.ui_qt.overlay_ui_builder.config_service.set_setting',
+        'whisperbridge.ui_qt.translator_settings_dialog.config_service.set_setting',
         return_value=False,
     )
-    mock_log_info = mocker.patch('whisperbridge.ui_qt.overlay_ui_builder.logger.info')
+    mock_log_info = mocker.patch('whisperbridge.ui_qt.translator_settings_dialog.logger.info')
 
     mock_parent = Mock(spec=['_apply_translator_font_size'])
     mock_parent._apply_translator_font_size = mocker.Mock()
@@ -302,9 +297,9 @@ def test_auto_copy_translated_changed_callback(qapp, mocker):
     mock_settings.translation_cache_enabled = False
     mock_settings.auto_copy_translated_overlay = False
     
-    mocker.patch('whisperbridge.ui_qt.overlay_ui_builder.config_service.get_settings',
+    mocker.patch('whisperbridge.ui_qt.translator_settings_dialog.config_service.get_settings',
                  return_value=mock_settings)
-    mock_set_setting = mocker.patch('whisperbridge.ui_qt.overlay_ui_builder.config_service.set_setting')
+    mock_set_setting = mocker.patch('whisperbridge.ui_qt.translator_settings_dialog.config_service.set_setting')
     
     dialog = TranslatorSettingsDialog()
     dialog.auto_copy_translated_checkbox.setChecked(True)
@@ -324,7 +319,7 @@ def test_translator_dialog_config_consistency(qapp, mocker):
     mock_settings.translation_cache_enabled = False
     mock_settings.auto_copy_translated_overlay = False
     
-    mocker.patch('whisperbridge.ui_qt.overlay_ui_builder.config_service.get_settings',
+    mocker.patch('whisperbridge.ui_qt.translator_settings_dialog.config_service.get_settings',
                  return_value=mock_settings)
     
     dialog = TranslatorSettingsDialog()
@@ -347,8 +342,8 @@ def test_translator_dialog_config_consistency(qapp, mocker):
 
 # ==================== Parent Window Integration Tests ====================
 
-def test_compact_view_triggers_parent_update_layout(qapp, mocker):
-    """Test calling parent._update_layout() when compact_view changes."""
+def test_compact_view_emits_layout_settings_changed_after_save(qapp, mocker):
+    """A successful compact-view save emits one layout-change signal."""
     # Mock config_service to return False for all settings
     mock_settings = Mock()
     mock_settings.compact_view = False
@@ -357,28 +352,23 @@ def test_compact_view_triggers_parent_update_layout(qapp, mocker):
     mock_settings.translation_cache_enabled = False
     mock_settings.auto_copy_translated_overlay = False
     
-    mocker.patch('whisperbridge.ui_qt.overlay_ui_builder.config_service.get_settings',
+    mocker.patch('whisperbridge.ui_qt.translator_settings_dialog.config_service.get_settings',
                  return_value=mock_settings)
     
-    # Create mock parent with _update_layout method
-    mock_parent = Mock(spec=['_update_layout'])
-    mock_parent._update_layout = mocker.Mock()
-    
-    mock_set_setting = mocker.patch('whisperbridge.ui_qt.overlay_ui_builder.config_service.set_setting')
+    mock_set_setting = mocker.patch('whisperbridge.ui_qt.translator_settings_dialog.config_service.set_setting')
     
     dialog = TranslatorSettingsDialog(parent=None)
-    dialog.parent = lambda: mock_parent  # Mock parent() method
+    signal_spy = QSignalSpy(dialog.layout_settings_changed)
     
     dialog.compact_view_checkbox.setChecked(True)
     
-    # Verify _update_layout was called
     mock_set_setting.assert_called_once_with("compact_view", True)
-    mock_parent._update_layout.assert_called_once_with()
+    assert signal_spy.count() == 1
     dialog.close()
 
 
-def test_autohide_buttons_triggers_parent_update_layout(qapp, mocker):
-    """Test calling parent._update_layout() when autohide_buttons changes."""
+def test_autohide_buttons_emits_layout_settings_changed_after_save(qapp, mocker):
+    """A successful autohide save emits one layout-change signal."""
     # Mock config_service to return False for all settings
     mock_settings = Mock()
     mock_settings.compact_view = False
@@ -387,22 +377,18 @@ def test_autohide_buttons_triggers_parent_update_layout(qapp, mocker):
     mock_settings.translation_cache_enabled = False
     mock_settings.auto_copy_translated_overlay = False
     
-    mocker.patch('whisperbridge.ui_qt.overlay_ui_builder.config_service.get_settings',
+    mocker.patch('whisperbridge.ui_qt.translator_settings_dialog.config_service.get_settings',
                  return_value=mock_settings)
     
-    # Create mock parent with _update_layout method
-    mock_parent = Mock(spec=['_update_layout'])
-    mock_parent._update_layout = mocker.Mock()
-    
-    mock_set_setting = mocker.patch('whisperbridge.ui_qt.overlay_ui_builder.config_service.set_setting')
+    mock_set_setting = mocker.patch('whisperbridge.ui_qt.translator_settings_dialog.config_service.set_setting')
     
     dialog = TranslatorSettingsDialog(parent=None)
-    dialog.parent = lambda: mock_parent  # Mock parent() method
+    signal_spy = QSignalSpy(dialog.layout_settings_changed)
     
     dialog.autohide_buttons_checkbox.setChecked(True)
     
     mock_set_setting.assert_called_once_with("overlay_side_buttons_autohide", True)
-    mock_parent._update_layout.assert_called_once_with()
+    assert signal_spy.count() == 1
     dialog.close()
 
 
@@ -416,9 +402,9 @@ def test_callback_without_parent(qapp, mocker):
     mock_settings.translation_cache_enabled = False
     mock_settings.auto_copy_translated_overlay = False
     
-    mocker.patch('whisperbridge.ui_qt.overlay_ui_builder.config_service.get_settings',
+    mocker.patch('whisperbridge.ui_qt.translator_settings_dialog.config_service.get_settings',
                  return_value=mock_settings)
-    mock_set_setting = mocker.patch('whisperbridge.ui_qt.overlay_ui_builder.config_service.set_setting')
+    mock_set_setting = mocker.patch('whisperbridge.ui_qt.translator_settings_dialog.config_service.set_setting')
     
     dialog = TranslatorSettingsDialog(parent=None)  # No parent
     dialog.compact_view_checkbox.setChecked(True)
@@ -428,8 +414,8 @@ def test_callback_without_parent(qapp, mocker):
     dialog.close()
 
 
-def test_callback_with_parent_without_update_layout(qapp, mocker):
-    """Test that callbacks work if parent doesn't have _update_layout method."""
+def test_callback_without_parent_window_reference(qapp, mocker):
+    """The dialog persists and emits without inspecting its parent."""
     # Mock config_service to return False for all settings
     mock_settings = Mock()
     mock_settings.compact_view = False
@@ -438,20 +424,19 @@ def test_callback_with_parent_without_update_layout(qapp, mocker):
     mock_settings.translation_cache_enabled = False
     mock_settings.auto_copy_translated_overlay = False
     
-    mocker.patch('whisperbridge.ui_qt.overlay_ui_builder.config_service.get_settings',
+    mocker.patch('whisperbridge.ui_qt.translator_settings_dialog.config_service.get_settings',
                  return_value=mock_settings)
     
-    # Create mock parent without _update_layout method
-    mock_parent = Mock(spec=[])
-    mock_set_setting = mocker.patch('whisperbridge.ui_qt.overlay_ui_builder.config_service.set_setting')
+    mock_set_setting = mocker.patch('whisperbridge.ui_qt.translator_settings_dialog.config_service.set_setting')
     
     dialog = TranslatorSettingsDialog(parent=None)
-    dialog.parent = lambda: mock_parent  # Mock parent() method
+    signal_spy = QSignalSpy(dialog.layout_settings_changed)
     
     dialog.compact_view_checkbox.setChecked(True)
     
     # No errors should occur, setting should be saved
     mock_set_setting.assert_called_with("compact_view", True)
+    assert signal_spy.count() == 1
     dialog.close()
 
 
@@ -467,12 +452,12 @@ def test_error_handling_in_compact_view_callback(qapp, mocker, loguru_caplog):
     mock_settings.translation_cache_enabled = False
     mock_settings.auto_copy_translated_overlay = False
     
-    mocker.patch('whisperbridge.ui_qt.overlay_ui_builder.config_service.get_settings',
+    mocker.patch('whisperbridge.ui_qt.translator_settings_dialog.config_service.get_settings',
                  return_value=mock_settings)
     
     # Mock set_setting to raise exception
     mock_set_setting = mocker.patch(
-        'whisperbridge.ui_qt.overlay_ui_builder.config_service.set_setting',
+        'whisperbridge.ui_qt.translator_settings_dialog.config_service.set_setting',
         side_effect=Exception("Database error"),
     )
     
@@ -499,7 +484,7 @@ def test_dialog_properties(qapp, mocker):
     mock_settings.translation_cache_enabled = False
     mock_settings.auto_copy_translated_overlay = False
     
-    mocker.patch('whisperbridge.ui_qt.overlay_ui_builder.config_service.get_settings',
+    mocker.patch('whisperbridge.ui_qt.translator_settings_dialog.config_service.get_settings',
                  return_value=mock_settings)
     
     dialog = TranslatorSettingsDialog()
@@ -525,7 +510,7 @@ def test_dialog_has_all_groups(qapp, mocker):
     mock_settings.translation_cache_enabled = False
     mock_settings.auto_copy_translated_overlay = False
     
-    mocker.patch('whisperbridge.ui_qt.overlay_ui_builder.config_service.get_settings',
+    mocker.patch('whisperbridge.ui_qt.translator_settings_dialog.config_service.get_settings',
                  return_value=mock_settings)
     
     dialog = TranslatorSettingsDialog()
@@ -558,7 +543,7 @@ def test_all_checkboxes_text_and_tooltips(qapp, mocker):
     mock_settings.translation_cache_enabled = False
     mock_settings.auto_copy_translated_overlay = False
     
-    mocker.patch('whisperbridge.ui_qt.overlay_ui_builder.config_service.get_settings',
+    mocker.patch('whisperbridge.ui_qt.translator_settings_dialog.config_service.get_settings',
                  return_value=mock_settings)
     
     dialog = TranslatorSettingsDialog()
@@ -589,7 +574,7 @@ def test_close_button_functionality(qapp, qtbot, mocker):
     mock_settings.translation_cache_enabled = False
     mock_settings.auto_copy_translated_overlay = False
     
-    mocker.patch('whisperbridge.ui_qt.overlay_ui_builder.config_service.get_settings',
+    mocker.patch('whisperbridge.ui_qt.translator_settings_dialog.config_service.get_settings',
                  return_value=mock_settings)
     
     dialog = TranslatorSettingsDialog()
@@ -619,9 +604,9 @@ def test_checkbox_state_conversion_to_bool(qapp, mocker):
     mock_settings.translation_cache_enabled = False
     mock_settings.auto_copy_translated_overlay = False
     
-    mocker.patch('whisperbridge.ui_qt.overlay_ui_builder.config_service.get_settings',
+    mocker.patch('whisperbridge.ui_qt.translator_settings_dialog.config_service.get_settings',
                  return_value=mock_settings)
-    mock_set_setting = mocker.patch('whisperbridge.ui_qt.overlay_ui_builder.config_service.set_setting')
+    mock_set_setting = mocker.patch('whisperbridge.ui_qt.translator_settings_dialog.config_service.set_setting')
     
     dialog = TranslatorSettingsDialog()
     
