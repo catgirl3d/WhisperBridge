@@ -39,7 +39,7 @@ from ..core.config import (
     validate_api_key_format,
 )
 from ..core.provider_catalog import APIProvider
-from .styled_overlay_base import StyledOverlayWindow
+from .styled_overlay_base import StyledOverlayWindow, WINDOW_CONTROLS_ICONS
 from .workers import TranslationWorker, StyleWorker
 from .overlay_ui_builder import PanelWidget, TranslatorSettingsDialog
 from .widgets.placeholder_text_edit import PlaceholderTextEdit
@@ -63,10 +63,7 @@ ICONS_CONFIG = {
         'check_success': {'icon': 'fa5s.check', 'color': 'green'},
         'edit_styles': {'asset': 'pen-to-square-solid-full.svg'},
     },
-    'window_controls': {
-        'close': {'icon': 'fa5s.times', 'color': 'black'},
-        'close_hover': {'icon': 'fa5s.times', 'color': 'white'},
-    },
+    'window_controls': WINDOW_CONTROLS_ICONS,
     'translate_disabled': {
         'compact': {'icon': 'fa5s.lock', 'color': 'white'},
         'full': {'icon': 'fa5s.lock', 'color': '#757575'},

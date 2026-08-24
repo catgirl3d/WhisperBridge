@@ -55,6 +55,14 @@ WINDOW_CONFIG = {
 
 _ASSETS_BASE = Path(__file__).parent.parent / "assets"
 
+# Single source of truth for window-control icon specs (top bar + footer close)
+WINDOW_CONTROLS_ICONS = {
+    'close': {'icon': 'fa5s.times', 'color': 'black'},
+    'close_hover': {'icon': 'fa5s.times', 'color': 'white'},
+    'settings': {'asset': 'gear-solid-full.svg'},
+    'collapse': {'icon': 'fa5s.compress-alt', 'color': 'black'},
+}
+
 TOP_CONTROLS_CONFIG = {
     'title_label': {
         'object_name': 'overlayTitleLabel',
@@ -63,21 +71,21 @@ TOP_CONTROLS_CONFIG = {
     'settings_button': {
         'object_name': 'settingsBtnTop',
         'size': (22, 22),
-        'icon': {'asset': 'gear-solid-full.svg'},
+        'icon': WINDOW_CONTROLS_ICONS['settings'],
         'icon_size': (16, 16),
         'tooltip': 'Settings'
     },
     'close_button': {
         'object_name': 'closeBtnTop',
         'size': (22, 22),
-        'icon': {'icon': 'fa5s.times', 'color': 'black'},
+        'icon': WINDOW_CONTROLS_ICONS['close'],
         'icon_size': (20, 16),
         'tooltip': 'Close'
     },
     'collapse_button': {
         'object_name': 'collapseBtnTop',
         'size': (22, 22),
-        'icon': {'icon': 'fa5s.compress-alt', 'color': 'black'},
+        'icon': WINDOW_CONTROLS_ICONS['collapse'],
         'icon_size': (20, 16),
         'tooltip': 'Collapse'
     }
