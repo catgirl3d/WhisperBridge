@@ -3,12 +3,13 @@ Qt-based worker classes for background processing in WhisperBridge.
 Provides thread-safe workers for OCR/translation and settings saving operations.
 """
 
+from typing import Optional
+
 from loguru import logger
 from PySide6.QtCore import QObject, Signal
 
 from ..core.api_manager import get_api_manager
 from ..core.provider_catalog import APIProvider
-from ..core.settings_manager import settings_manager
 from ..services.config_service import config_service
 from ..services.notification_service import get_notification_service
 from ..services.ocr_service import OCRRequest, get_ocr_service
@@ -117,6 +118,7 @@ class CaptureOcrTranslateWorker(QObject):
             logger.error(f"Error in worker run: {e}", exc_info=True)
             self.finished.emit("", "", "", str(e))
 
+
 class ApiTestWorker(QObject):
     """Worker for testing API key asynchronously."""
 
@@ -163,6 +165,53 @@ class ApiTestWorker(QObject):
                 self.finished.emit(False, f"DeepL test failed: {str(e)}", [], "api")
             else:
                 self.finished.emit(False, f"Connection error: {str(e)}", [], "")
+
+
+class ModelListWorker(QObject):
+    """Worker for fetching the available model list asynchronously."""
+
+    finished = Signal(str, list, str, int, object)  # provider, models, source, generation, selected model
+
+    def __init__(
+        self,
+        provider: str,
+        temp_api_key: Optional[str] = None,
+        generation: int = 0,
+        model_to_select: Optional[str] = None,
+    ):
+        super().__init__()
+        self.provider = provider
+        self.temp_api_key = temp_api_key
+        self.generation = generation
+        self.model_to_select = model_to_select
+
+    def run(self):
+        """Fetch models and emit the result with its request metadata."""
+        try:
+            api_manager = get_api_manager()
+            if not api_manager.is_initialized():
+                api_manager.initialize()
+            models, source = api_manager.get_available_models_sync(
+                provider=APIProvider(self.provider),
+                temp_api_key=self.temp_api_key,
+            )
+            self.finished.emit(
+                self.provider,
+                list(models),
+                source,
+                self.generation,
+                self.model_to_select,
+            )
+        except Exception as e:
+            logger.error(f"Model list fetch failed for {self.provider}: {e}", exc_info=True)
+            self.finished.emit(
+                self.provider,
+                [],
+                "error",
+                self.generation,
+                self.model_to_select,
+            )
+
 
 class BaseWorker(QObject):
     """Base class for background workers."""

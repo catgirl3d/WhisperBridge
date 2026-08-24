@@ -2,12 +2,13 @@
 Model management for the API Manager package.
 
 This module provides the ModelManager class for listing and filtering
-available models from API providers.
+available models from API providers, backed by an in-memory cache.
 """
 
 import re
+import threading
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from loguru import logger
 
@@ -17,10 +18,8 @@ from ..config import (
     get_google_model_excludes,
     get_openai_model_excludes,
 )
-from ...providers.deepl_adapter import DeepLClientAdapter
 from ...providers.google_chat_adapter import GoogleChatClientAdapter
 from ...providers.openai_adapter import OpenAIChatClientAdapter
-from .cache import ModelCache
 from ..provider_catalog import APIProvider
 from .types import ModelSource
 
@@ -29,20 +28,96 @@ class ModelManager:
     """
     Manager for listing and filtering available models.
 
-    This class handles fetching models from API providers with caching
-    and filtering.
+    This class handles fetching models from API providers with an
+    in-memory session cache and filtering.
     """
 
-    def __init__(self, cache: ModelCache, provider_registry):
+    def __init__(self, provider_registry):
         """
         Initialize the ModelManager.
 
         Args:
-            cache: ModelCache instance for caching model lists.
             provider_registry: ProviderRegistry for accessing provider clients.
         """
-        self._cache = cache
         self._providers = provider_registry
+        self._models_cache: Dict[str, List[str]] = {}
+        self._cache_lock = threading.Lock()
+
+    def get_cached_models(self, provider: str) -> Optional[List[str]]:
+        """
+        Return the cached model list for a provider.
+
+        Args:
+            provider: Provider identifier (e.g., "openai", "google").
+
+        Returns:
+            Cached list of model IDs, or None when missing.
+        """
+        with self._cache_lock:
+            return self._models_cache.get(provider)
+
+    def cache_models(self, provider: str, models: List[str]) -> None:
+        """
+        Store a model list for a provider in the in-memory cache.
+
+        Args:
+            provider: Provider identifier (e.g., "openai", "google").
+            models: List of model names to cache.
+        """
+        with self._cache_lock:
+            self._models_cache[provider] = models
+
+    def clear_cached_models(self, provider: Optional[str] = None) -> None:
+        """
+        Clear cached model lists.
+
+        Args:
+            provider: Provider identifier to clear, or None to clear all.
+        """
+        with self._cache_lock:
+            if provider is None:
+                self._models_cache.clear()
+            else:
+                self._models_cache.pop(provider, None)
+
+    def cache_models_if_client_matches(self, provider: str, models: List[str], client) -> bool:
+        """
+        Store a model list only while `client` is still the provider's active client.
+
+        The registry lookup and the mutation happen under one lock, so a
+        concurrent reinitialize() cannot interleave between them and let an
+        outdated result poison the reset cache.
+
+        Args:
+            provider: Provider identifier (e.g., "openai", "google").
+            models: List of model names to cache.
+            client: The client instance that produced the result.
+
+        Returns:
+            True when cached, False when credentials changed mid-request.
+        """
+        with self._cache_lock:
+            if self._providers.get_client(provider) is not client:
+                return False
+            self._models_cache[provider] = models
+            return True
+
+    def clear_models_if_client_matches(self, provider: str, client) -> bool:
+        """
+        Clear a provider's cache entry only while `client` is still its active client.
+
+        Args:
+            provider: Provider identifier (e.g., "openai", "google").
+            client: The client instance whose failed request triggered the clear.
+
+        Returns:
+            True when cleared, False when credentials changed mid-request.
+        """
+        with self._cache_lock:
+            if self._providers.get_client(provider) is not client:
+                return False
+            self._models_cache.pop(provider, None)
+            return True
 
     def _get_exclude_terms(self, provider: APIProvider) -> Optional[List[str]]:
         if provider == APIProvider.OPENAI:
@@ -185,21 +260,19 @@ class ModelManager:
 
         # 1. Check cache first, but only if not using a temporary key
         if not temp_api_key:
-            cached = self._cache.get(provider.value)
-            if cached:
-                models, timestamp = cached
-                # Only use cache if NOT empty (unless it's DeepL which has a virtual model)
-                if models or provider == APIProvider.DEEPL:
-                    logger.debug(f"Using cached models for {provider.value}")
-                    # Apply global filters to cached data to ensure any newly added exclusions take effect
-                    filtered_models = self._filter_models_for_selection(provider, models)
-                    if filtered_models:
-                        return filtered_models, ModelSource.CACHE.value
-                    logger.info(
-                        f"Cached models for {provider.value} became invalid after filtering; forcing fresh fetch."
-                    )
-                else:
-                    logger.debug(f"Cache for {provider.value} is empty, forcing fresh fetch.")
+            cached_models = self.get_cached_models(provider.value)
+            # Only use cache if NOT empty (unless it's DeepL which has a virtual model)
+            if cached_models or provider == APIProvider.DEEPL:
+                logger.debug(f"Using cached models for {provider.value}")
+                # Apply global filters to cached data to ensure any newly added exclusions take effect
+                filtered_models = self._filter_models_for_selection(provider, cached_models or [])
+                if filtered_models:
+                    return filtered_models, ModelSource.CACHE.value
+                logger.info(
+                    f"Cached models for {provider.value} became invalid after filtering; forcing fresh fetch."
+                )
+            else:
+                logger.debug(f"No fresh cached models for {provider.value}, forcing fresh fetch.")
 
         # 2. Determine which client to use (temporary or configured)
         client = None
@@ -255,17 +328,24 @@ class ModelManager:
             else:
                 return [], ModelSource.ERROR.value
 
-            # Cache the result for successful API calls (except temp API key usage)
-            # Avoid caching empty lists unless it's DeepL
+            # Cache the result for successful API calls (except temp API key usage),
+            # but only while the request still belongs to the current credentials
+            # (a concurrent reinitialize must not let an old result poison the cache).
+            # Avoid caching empty lists unless it's DeepL.
             if source != ModelSource.API_TEMP_KEY:
                 if models or provider == APIProvider.DEEPL:
-                    self._cache.cache_models_and_persist(provider.value, models)
+                    if not self.cache_models_if_client_matches(provider.value, models, client):
+                        logger.debug(
+                            f"Discarding model result for {provider.value} after credentials changed."
+                        )
             return models, source.value
 
         except Exception as e:
             logger.error(f"Failed to fetch models from {provider.value}: {e}")
-            # Clear cache entry for this provider to prevent caching empty/error results
-            self._cache.clear(provider.value)
+            # Clear cache entry for this provider to prevent caching empty/error results,
+            # unless the credentials changed mid-request or this was a temp-key fetch.
+            if source != ModelSource.API_TEMP_KEY:
+                self.clear_models_if_client_matches(provider.value, client)
             return [], ModelSource.ERROR.value
 
 

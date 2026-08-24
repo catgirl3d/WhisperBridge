@@ -13,7 +13,7 @@ from typing import Any, Callable, Dict, Optional
 import keyring
 from loguru import logger
 
-from .config import API_TIMEOUT_DEFAULT, Settings, get_config_path, BUILD_OCR_ENABLED
+from .config import API_TIMEOUT_DEFAULT, Settings, ensure_config_dir, BUILD_OCR_ENABLED
 
 
 class SettingsManager:
@@ -65,7 +65,7 @@ class SettingsManager:
 
     def _get_settings_file(self) -> Path:
         """Get the path to the settings file."""
-        return get_config_path() / "settings.json"
+        return ensure_config_dir() / "settings.json"
 
     def _load_key(self, key_name: str) -> Optional[str]:
         """Load a generic API key from keyring."""

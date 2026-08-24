@@ -6,7 +6,7 @@ Run with: python -m pytest test_workers.py
 import pytest
 from unittest.mock import Mock
 
-from whisperbridge.ui_qt.workers import ApiTestWorker
+from whisperbridge.ui_qt.workers import ApiTestWorker, ModelListWorker
 from whisperbridge.core.provider_catalog import APIProvider
 
 # If run directly, execute pytest with very verbose output and no coverage
@@ -15,6 +15,42 @@ if __name__ == "__main__":
 
 class TestWorkers:
     """Test worker signal emissions."""
+
+    def test_model_list_worker_success(self, qapp, mocker):
+        """ModelListWorker emits the provider, models, and source from APIManager."""
+        mock_get_api = mocker.patch("whisperbridge.ui_qt.workers.get_api_manager")
+        mock_api = Mock()
+        mock_api.is_initialized.return_value = True
+        mock_api.get_available_models_sync.return_value = (["gpt-5.4-mini"], "cache")
+        mock_get_api.return_value = mock_api
+
+        worker = ModelListWorker("openai", generation=3, model_to_select="gpt-5.4-mini")
+        results = []
+        worker.finished.connect(lambda *args: results.append(list(args)))
+
+        worker.run()
+
+        assert results == [["openai", ["gpt-5.4-mini"], "cache", 3, "gpt-5.4-mini"]]
+        mock_api.get_available_models_sync.assert_called_once_with(
+            provider=APIProvider.OPENAI,
+            temp_api_key=None,
+        )
+
+    def test_model_list_worker_error_emits_error_source(self, qapp, mocker):
+        """ModelListWorker converts a failed fetch into an empty error result."""
+        mock_get_api = mocker.patch("whisperbridge.ui_qt.workers.get_api_manager")
+        mock_api = Mock()
+        mock_api.is_initialized.return_value = True
+        mock_api.get_available_models_sync.side_effect = RuntimeError("API down")
+        mock_get_api.return_value = mock_api
+
+        worker = ModelListWorker("google", generation=4)
+        results = []
+        worker.finished.connect(lambda *args: results.append(list(args)))
+
+        worker.run()
+
+        assert results == [["google", [], "error", 4, None]]
 
     def test_api_test_worker_success(self, qapp, mocker):
         """Test ApiTestWorker emits finished on success."""

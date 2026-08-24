@@ -12,7 +12,6 @@ This module tests API manager integration functionality including:
 
 import pytest
 
-from whisperbridge.core.api_manager.manager import APIManager
 from whisperbridge.core.config import Settings
 from whisperbridge.core.provider_catalog import APIProvider
 
@@ -159,10 +158,10 @@ class TestInitialization:
         assert api_manager.is_initialized() is True
         assert api_manager.has_clients() is True
         
-    def test_reinitialize_removes_persistent_model_cache(
-        self, api_manager, mock_config_service, mocker, tmp_path
+    def test_reinitialize_clears_model_cache(
+        self, api_manager, mock_config_service, mocker
     ):
-        """Reinitialization must not reload models from the previous session."""
+        """Reinitialization must not keep models fetched for the previous credentials."""
         mock_config_service.get_setting.side_effect = lambda key: {
             "openai_api_key": "sk-test123",
             "api_provider": "openai",
@@ -173,14 +172,12 @@ class TestInitialization:
             return_value=mocker.Mock(),
         )
 
-        api_manager._cache.cache_models_and_persist("openai", ["stale-model"])
-        cache_file = tmp_path / "models_cache.json"
-        assert cache_file.exists()
+        api_manager.initialize()
+        api_manager._model_manager.cache_models("openai", ["stale-model"])
 
         api_manager.reinitialize()
 
-        assert not cache_file.exists()
-        assert api_manager._cache.get("openai") is None
+        assert api_manager._model_manager.get_cached_models("openai") is None
 
 
 class TestMakeRequestSync:
@@ -494,14 +491,14 @@ class TestShutdown:
     def test_shutdown_clears_all_state(self, initialized_openai_manager):
         """Test that shutdown clears all resources."""
         # Add some state
-        initialized_openai_manager._cache.set("openai", ["gpt-5.4-mini"])
+        initialized_openai_manager._model_manager.cache_models("openai", ["gpt-5.4-mini"])
 
         # Act
         initialized_openai_manager.shutdown()
 
         # Assert
         assert initialized_openai_manager.is_initialized() is False
-        assert not initialized_openai_manager._cache.is_cached("openai")
+        assert initialized_openai_manager._model_manager.get_cached_models("openai") is None
 
 
 class TestGetAvailableModelsSync:
@@ -523,3 +520,4 @@ class TestGetAvailableModelsSync:
         assert "gpt-5.7" in models
         # Source can be CACHE if it was cached before or API
         assert source in ("api", "cache")
+

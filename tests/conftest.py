@@ -59,11 +59,10 @@ def mock_config_service(mocker):
 
 
 @pytest.fixture
-def api_manager(mock_config_service, tmp_path, mocker):
+def api_manager(mock_config_service, mocker):
     """Create an APIManager instance for testing."""
     from whisperbridge.core.api_manager.manager import APIManager
-    mocker.patch("whisperbridge.core.api_manager.manager.ensure_config_dir", return_value=tmp_path)
-    # Also patch validate_api_key_format to return True for our test keys
+    # Patch validate_api_key_format to return True for our test keys
     mocker.patch("whisperbridge.core.api_manager.providers.validate_api_key_format", return_value=True)
     return APIManager(mock_config_service)
 

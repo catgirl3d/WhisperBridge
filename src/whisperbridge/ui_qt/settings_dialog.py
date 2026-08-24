@@ -16,24 +16,14 @@ from PySide6.QtWidgets import (
     QDialog,
     QVBoxLayout,
     QHBoxLayout,
-    QTabWidget,
     QWidget,
     QLabel,
-    QLineEdit,
-    QComboBox,
-    QSpinBox,
-    QDoubleSpinBox,
-    QCheckBox,
-    QPushButton,
     QFormLayout,
-    QGroupBox,
     QMessageBox,
-    QTextEdit,
-    QTableWidget,
     QTableWidgetItem,
     QHeaderView,
 )
-from PySide6.QtCore import QThread, Signal, QObject, QTimer
+from PySide6.QtCore import QTimer
 
 from ..services.config_service import config_service, SettingsObserver
 from ..core.api_manager import get_api_manager
@@ -41,13 +31,11 @@ from ..core.config import (
     validate_api_key_format,
     requires_model_selection,
     supports_stylist,
-    Settings as DefaultSettings,
     BUILD_OCR_ENABLED,
 )
-from ..core.provider_catalog import APIProvider
 from loguru import logger
 from ..core.version import get_version
-from .workers import ApiTestWorker
+from .workers import ApiTestWorker, ModelListWorker
 from ..utils.help_texts import HELP_TEXTS
 
 
@@ -71,7 +59,8 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
         "No models available",
         "Translation Engine",
         "Invalid API key format",
-        "Failed to retrieve models list"
+        "Failed to retrieve models list",
+        "Loading models..."
     }
 
     def __init__(self, app, parent=None):
@@ -126,6 +115,9 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
         # Connect debounce timer to all API key fields
         for edit in self.api_key_edits.values():
             edit.textChanged.connect(self.api_key_debounce_timer.start)
+
+        # Generation counter guarding against stale async model list results
+        self._models_load_generation = 0
 
         # Create buttons
         self._create_buttons(layout)
@@ -958,6 +950,8 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
 
         if success:
             QMessageBox.information(self, "Test Successful", "API key is working correctly!")
+            # A fresh test outcome supersedes any model load started before it.
+            self._models_load_generation += 1
             try:
                 current_model = self.model_combo.currentText().strip()
                 self._apply_available_models_to_ui(
@@ -974,9 +968,13 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
             QMessageBox.warning(self, "Test Failed", f"API test failed: {error_msg}")
 
     def _load_models(self, provider_name: Optional[str] = None, model_to_select: Optional[str] = None):
-        """Load available models for the current provider."""
+        """Start an async model list fetch for the current provider."""
         # Normalize provider name if passed, or get from UI
         provider = (provider_name.strip().lower() if provider_name else self._get_current_provider())
+
+        # Invalidate any in-flight result before handling the new provider state.
+        self._models_load_generation += 1
+        generation = self._models_load_generation
 
         logger.debug("=== _load_models called ===")
         logger.debug(f"Loading models for provider: {provider}")
@@ -991,41 +989,56 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
             logger.debug("Provider without model selection - model selection hidden/disabled")
             return
 
-        # Clear current models
-        self.model_combo.clear()
-
         try:
             api_manager = get_api_manager()
             if not api_manager.is_initialized():
                 logger.debug("API manager not initialized; skipping model fetch in UI. It will be initialized at app startup.")
                 self._apply_available_models_to_ui([], model_to_select, "unconfigured", provider)
                 return
-
-            # Unified synchronous fetch for all providers (API manager is the single SoT)
-            logger.debug("Fetching models synchronously via centralized API manager")
-            provider_enum = APIProvider(provider)
-
-            # Derive temp_api_key from typed value if it differs from saved and has valid format
-            temp_key = None
-            try:
-                typed_key = self.api_key_edits[provider].text().strip()
-                saved_key = getattr(config_service.get_settings(), f"{provider}_api_key", None) or ""
-                if typed_key and typed_key != saved_key and validate_api_key_format(typed_key, provider):
-                    temp_key = typed_key
-                    logger.debug("Using temporary API key from input for model fetch")
-            except Exception as ve:
-                logger.debug(f"Temp API key validation skipped or failed: {ve}")
-
-            models, source = api_manager.get_available_models_sync(
-                provider=provider_enum,
-                temp_api_key=temp_key
-            )
-
-            self._apply_available_models_to_ui(models, model_to_select, source, provider)
-
         except Exception as e:
-            logger.error(f"Failed to load models: {e}")
+            logger.error(f"Failed to prepare model loading: {e}")
             self._apply_available_models_to_ui([], model_to_select, "error", provider)
+            return
+
+        # Derive temp_api_key from typed value if it differs from saved and has valid format
+        temp_key = None
+        try:
+            typed_key = self.api_key_edits[provider].text().strip()
+            saved_key = getattr(config_service.get_settings(), f"{provider}_api_key", None) or ""
+            if typed_key and typed_key != saved_key and validate_api_key_format(typed_key, provider):
+                temp_key = typed_key
+                logger.debug("Using temporary API key from input for model fetch")
+        except Exception as ve:
+            logger.debug(f"Temp API key validation skipped or failed: {ve}")
+
+        # Show a placeholder while fetching without blocking the dialog.
+        self.model_combo.clear()
+        if model_to_select and model_to_select not in self.MODEL_PLACEHOLDERS:
+            self.model_combo.addItem(model_to_select)
+            self.model_combo.setCurrentText(model_to_select)
+        self.model_combo.addItem("Loading models...")
+
+        worker = ModelListWorker(
+            provider,
+            temp_api_key=temp_key,
+            generation=generation,
+            model_to_select=model_to_select,
+        )
+        self.app.create_and_run_worker(worker, self._on_models_loaded)
+
+    def _on_models_loaded(
+        self,
+        provider: str,
+        models: list,
+        source: str,
+        generation: int,
+        model_to_select: Optional[str],
+    ):
+        """Apply fetched models unless a newer load request superseded them."""
+        if generation != self._models_load_generation:
+            logger.debug(f"Discarding stale model list for {provider} (generation {generation})")
+            return
+        self._apply_available_models_to_ui(models, model_to_select, source, provider)
 
     def _apply_available_models_to_ui(
         self,
@@ -1195,12 +1208,16 @@ class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
 
     def _load_models_from_key_input(self):
         """Slot for the debounce timer to reload models based on API key input."""
+        # A key edit can invalidate an already running request before the next
+        # debounced load starts.
+        self._models_load_generation += 1
         provider = self._get_current_provider()
         api_key = self.api_key_edits[provider].text().strip()
 
         # Check if there's any key entered
         if not api_key:
-            logger.debug("API key is empty, skipping model load.")
+            logger.debug("API key is empty, showing unconfigured state.")
+            self._apply_available_models_to_ui([], None, "unconfigured", provider)
             return
 
         # Validate key format first

@@ -115,10 +115,9 @@ class TestAPIManagerIntegration:
         assert api_manager._providers.is_provider_available(APIProvider.GOOGLE) is True
         assert api_manager._providers.is_provider_available(APIProvider.OPENAI) is False
 
-    def test_model_caching_across_sessions(self, mock_config_service, tmp_path, mocker):
-        """Test that model cache persists between manager instances."""
+    def test_model_cache_is_session_local(self, mock_config_service, mocker):
+        """Test that model cache is cleared when an API manager shuts down."""
         from whisperbridge.core.api_manager.manager import APIManager
-        mocker.patch("whisperbridge.core.api_manager.manager.ensure_config_dir", return_value=tmp_path)
         mocker.patch("whisperbridge.core.api_manager.providers.validate_api_key_format", return_value=True)
 
         # 1. Session 1: Fetch and cache
@@ -135,16 +134,16 @@ class TestAPIManagerIntegration:
         assert source == "api"
         assert api_model in models
         manager1.shutdown()
+        assert manager1._model_manager.get_cached_models("openai") is None
 
-        # 2. Session 2: Load from cache
-        # Mock client to fail to ensure it uses cache
+        # 2. A new manager cannot reuse the previous instance's in-memory cache
         mock_client.models.list.side_effect = Exception("API Down")
         manager2 = APIManager(mock_config_service)
         manager2.initialize()
         models2, source2 = manager2.get_available_models_sync(APIProvider.OPENAI)
         
-        assert api_model in models2
-        assert source2 == "cache"
+        assert models2 == []
+        assert source2 == "error"
 
     def test_concurrent_translation_requests(self, api_manager, config_openai, mock_openai_client):
         """Test handling multiple concurrent requests."""

@@ -110,6 +110,59 @@ def test_select_tab_by_hidden_title_keeps_current_tab(dialog):
     assert dialog.tab_widget.currentIndex() == current_index
 
 
+def test_stale_model_list_result_is_ignored(dialog, mocker):
+    """A result from an older provider load must not overwrite the current combo."""
+    dialog._models_load_generation = 2
+    apply_models = mocker.patch.object(dialog, "_apply_available_models_to_ui")
+
+    dialog._on_models_loaded("openai", ["gpt-5.4-mini"], "api", 1, None)
+
+    apply_models.assert_not_called()
+
+
+def test_current_model_list_result_is_applied(dialog, mocker):
+    """The latest model load result updates the model selector."""
+    dialog._models_load_generation = 2
+    apply_models = mocker.patch.object(dialog, "_apply_available_models_to_ui")
+
+    dialog._on_models_loaded("openai", ["gpt-5.4-mini"], "cache", 2, "gpt-5.4-mini")
+
+    apply_models.assert_called_once_with(
+        ["gpt-5.4-mini"],
+        "gpt-5.4-mini",
+        "cache",
+        "openai",
+    )
+
+
+def test_switching_to_non_model_provider_invalidates_in_flight_load(dialog):
+    """Switching to DeepL must invalidate an older OpenAI load result."""
+    dialog._models_load_generation = 2
+
+    dialog._load_models("deepl")
+
+    assert dialog._models_load_generation == 3
+    assert dialog.model_combo.currentText() == "Translation Engine"
+
+
+def test_api_test_result_invalidates_in_flight_model_load(dialog, mocker):
+    """Models applied after a successful API test must not be overwritten by an older load."""
+    mocker.patch.object(QMessageBox, "information")
+    apply_models = mocker.patch.object(dialog, "_apply_available_models_to_ui")
+
+    # An in-flight model load (generation 2) predates the finished API test.
+    dialog._models_load_generation = 2
+    dialog._on_test_finished(True, "", ["gpt-5.4-mini"], "api")
+
+    assert dialog._models_load_generation == 3
+    assert apply_models.call_count == 1
+
+    # The late result from the superseded generation must be discarded.
+    dialog._on_models_loaded("openai", ["stale-model"], "api", 2, None)
+
+    assert apply_models.call_count == 1
+
+
 def test_unchanged_form_produces_empty_patch(dialog):
     assert dialog._build_settings_patch() == {}
 

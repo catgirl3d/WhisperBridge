@@ -410,10 +410,6 @@ def ensure_config_dir() -> Path:
     return config_path
 
 
-
-
-
-
 def validate_api_key_format(api_key: str, provider: Optional[str] = "openai") -> bool:
     """Validate API key format for supported providers.
 

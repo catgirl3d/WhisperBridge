@@ -17,11 +17,10 @@ from tenacity import (
     wait_exponential,
 )
 
-from ..config import ensure_config_dir, get_deepl_identifier
+from ..config import get_deepl_identifier
 from ..model_limits import get_model_max_completion_tokens
 from ...services.config_service import ConfigService
-from .cache import ModelCache
-from .errors import APIError, APIErrorType, RetryableAPIError, classify_error, log_network_diagnostics, requires_initialization
+from .errors import APIErrorType, RetryableAPIError, classify_error, log_network_diagnostics, requires_initialization
 from .models import ModelManager
 from .providers import ProviderRegistry
 from ..provider_catalog import APIProvider
@@ -48,10 +47,8 @@ class APIManager:
         self._diag_logged = False  # log network/SSL diagnostics once
 
         # Initialize components
-        config_dir = ensure_config_dir()
-        self._cache = ModelCache(config_dir)
         self._providers = ProviderRegistry(config_service)
-        self._model_manager = ModelManager(self._cache, self._providers)
+        self._model_manager = ModelManager(self._providers)
 
     def initialize(self) -> bool:
         """
@@ -69,9 +66,9 @@ class APIManager:
                 logger.error(f"Failed to initialize API providers: {e}")
 
             # Always finalize to allow offline/partial functionality
-            # This sets _is_initialized to True and loads the cache
             self._finalize_initialization()
-            return success
+
+        return success
 
     def reinitialize(self) -> bool:
         """
@@ -87,19 +84,16 @@ class APIManager:
         logger.info("Reinitializing API manager with updated settings")
         with self._lock:
             self._providers.clear()
-            self._cache.clear(delete_persisted=True)
+            self._model_manager.clear_cached_models()
             self._is_initialized = False
 
         return self.initialize()
 
     def _finalize_initialization(self) -> None:
-        """Finalize initialization with consistent status setting and cache loading."""
+        """Finalize initialization with consistent status setting."""
         # Allow initialization even without API clients
         # The app can still run OCR and other features
         self._is_initialized = True
-
-        # Load any persistent model cache from disk so first-run UI can use it
-        self._cache.initialize_safely()
 
         if self._providers.has_any_clients():
             logger.info("API manager initialized successfully with clients")
@@ -423,7 +417,7 @@ class APIManager:
         """Shutdown API manager and cleanup resources."""
         with self._lock:
             self._providers.clear()
-            self._cache.clear()
+            self._model_manager.clear_cached_models()
             self._is_initialized = False
             logger.info("API manager shutdown")
 

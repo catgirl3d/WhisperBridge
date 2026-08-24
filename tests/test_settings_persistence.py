@@ -44,6 +44,18 @@ def test_settings_manager_save_single_setting_persists_canonical_value(tmp_path,
     assert manager.get_settings().translator_font_size == 32
 
 
+def test_settings_manager_creates_config_directory_when_resolving_settings_file(tmp_path, mocker):
+    """Settings persistence must work before the first API manager initialization."""
+    config_dir = tmp_path / "config"
+    mocker.patch("whisperbridge.core.config.get_config_path", return_value=config_dir)
+    manager = SettingsManager()
+
+    settings_file = manager._get_settings_file()
+
+    assert settings_file == config_dir / "settings.json"
+    assert config_dir.is_dir()
+
+
 def test_legacy_temperature_settings_are_ignored_without_becoming_settings():
     settings = Settings.model_validate({
         "llm_temperature_translation": 0.2,
