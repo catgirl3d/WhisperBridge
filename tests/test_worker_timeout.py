@@ -18,7 +18,7 @@ try:
         BaseWorker, TranslationWorker, StyleWorker,
         CaptureOcrTranslateWorker, ApiTestWorker
     )
-    from whisperbridge.ui_qt.overlay_window import OverlayWindow
+    from whisperbridge.ui_qt.overlay_window import OverlayWindow, set_combo_data
     from whisperbridge.services.config_service import config_service
     from whisperbridge.services.translation_service import TranslationService
 except ImportError:
@@ -461,8 +461,8 @@ class TestQtIntegration:
 
         overlay._cached_settings = Mock(compact_view=False, text_styles=[])
         overlay.original_text.setPlainText("hello")
-        overlay.ui_builder.set_combo_data(overlay.source_combo, "en")
-        overlay.ui_builder.set_combo_data(overlay.target_combo, "ru")
+        set_combo_data(overlay.source_combo, "en")
+        set_combo_data(overlay.target_combo, "ru")
 
         overlay._on_translate_clicked()
 

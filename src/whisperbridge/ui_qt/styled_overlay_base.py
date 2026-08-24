@@ -11,6 +11,7 @@ Configuration Guidelines:
 
 import sys
 import os
+from pathlib import Path
 
 # Add src to path for direct execution
 src_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
@@ -32,6 +33,8 @@ from PySide6.QtWidgets import (
 
 from whisperbridge.ui_qt.base_window import BaseWindow
 from ..services.config_service import config_service
+from .widget_factory import create_widget as _create_widget
+from .widget_factory import make_icon_from_spec as _make_icon_from_spec
 
 
 # Configuration dictionaries for UI components
@@ -48,6 +51,36 @@ WINDOW_CONFIG = {
         'bottom': 0,
         'left': 2,
     },
+}
+
+_ASSETS_BASE = Path(__file__).parent.parent / "assets"
+
+TOP_CONTROLS_CONFIG = {
+    'title_label': {
+        'object_name': 'overlayTitleLabel',
+        'text': ''  # set by caller as needed
+    },
+    'settings_button': {
+        'object_name': 'settingsBtnTop',
+        'size': (22, 22),
+        'icon': {'asset': 'gear-solid-full.svg'},
+        'icon_size': (16, 16),
+        'tooltip': 'Settings'
+    },
+    'close_button': {
+        'object_name': 'closeBtnTop',
+        'size': (22, 22),
+        'icon': {'icon': 'fa5s.times', 'color': 'black'},
+        'icon_size': (20, 16),
+        'tooltip': 'Close'
+    },
+    'collapse_button': {
+        'object_name': 'collapseBtnTop',
+        'size': (22, 22),
+        'icon': {'icon': 'fa5s.compress-alt', 'color': 'black'},
+        'icon_size': (20, 16),
+        'tooltip': 'Collapse'
+    }
 }
 
 RESIZE_CONFIG = {
@@ -96,9 +129,7 @@ class StyledOverlayWindow(QWidget, BaseWindow):
         self._root_layout.setSpacing(WINDOW_CONFIG['root_layout_spacing'])
 
         # Title (simple header label)
-        from .overlay_ui_builder import OverlayUIBuilder
-        self._top_ui = OverlayUIBuilder()
-        self._title_label = self._top_ui.create_top_label(text=title)
+        self._title_label = self._create_top_label(title)
         self._title_label.setFont(QFont(*WINDOW_CONFIG['title_font']))
         self.set_title(title)
         self._root_layout.addWidget(self._title_label)
@@ -152,7 +183,7 @@ class StyledOverlayWindow(QWidget, BaseWindow):
         Returns the created button so subclasses can further customize (icon/tooltip).
         """
         if self.settings_btn_top is None:
-            btn = self._top_ui.create_top_button('settings_button')
+            btn = self._create_top_button('settings_button')
             btn.setParent(self)
             if callable(on_click):
                 btn.clicked.connect(on_click)
@@ -216,15 +247,30 @@ class StyledOverlayWindow(QWidget, BaseWindow):
     # Default control buttons
     # -------------------------------------------------------------------------
 
+    def _create_top_label(self, text: str) -> QLabel:
+        """Create the window title label using configuration."""
+        lbl, _cfg = _create_widget({'top': TOP_CONTROLS_CONFIG}, 'top', 'title_label', QLabel, text=text)
+        return lbl
+
+    def _create_top_button(self, key: str) -> QPushButton:
+        """Create a top-bar control button using configuration."""
+        btn, cfg = _create_widget({'top': TOP_CONTROLS_CONFIG}, 'top', key, QPushButton)
+        if 'icon' in cfg:
+            btn.setIcon(_make_icon_from_spec(cfg['icon'], _ASSETS_BASE))
+        btn.style().unpolish(btn)
+        btn.style().polish(btn)
+        btn.update()
+        return btn
+
     def _create_default_top_buttons(self) -> None:
         """Create collapse and close buttons in the top-right corner."""
         # Close button
-        self.close_btn_top = self._top_ui.create_top_button('close_button')
+        self.close_btn_top = self._create_top_button('close_button')
         self.close_btn_top.setParent(self)
         self.close_btn_top.clicked.connect(self.dismiss)
 
         # Collapse button (to the left of close)
-        self.collapse_btn_top = self._top_ui.create_top_button('collapse_button')
+        self.collapse_btn_top = self._create_top_button('collapse_button')
         self.collapse_btn_top.setParent(self)
         self.collapse_btn_top.clicked.connect(self.collapse_to_minibar)
 

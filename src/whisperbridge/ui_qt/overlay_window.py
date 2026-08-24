@@ -3,6 +3,7 @@ Overlay window implementation for Qt-based UI.
 """
 
 import time
+from pathlib import Path
 from typing import Optional
 
 from loguru import logger
@@ -13,18 +14,23 @@ from PySide6.QtCore import (
     QThread,
     QTimer,
 )
-from PySide6.QtGui import QAction, QTextCursor, QPixmap, QTransform
+from PySide6.QtGui import QAction, QIcon, QTextCursor, QPixmap, QTransform
 from PySide6.QtWidgets import (
     QApplication,
+    QCheckBox,
+    QComboBox,
+    QFrame,
+    QHBoxLayout,
     QLabel,
     QPushButton,
+    QSpacerItem,
     QSizePolicy,
-    QTextEdit,
     QMenu,
+    QToolButton,
 )
 
 from ..services.config_service import config_service, SettingsObserver
-from ..utils.language_utils import detect_language, get_language_name
+from ..utils.language_utils import detect_language, get_language_name, get_supported_languages
 from ..core.config import (
     API_TIMEOUT_DEFAULT,
     API_TIMEOUT_MAX,
@@ -35,7 +41,200 @@ from ..core.config import (
 from ..core.provider_catalog import APIProvider
 from .styled_overlay_base import StyledOverlayWindow
 from .workers import TranslationWorker, StyleWorker
-from .overlay_ui_builder import OverlayUIBuilder, TranslatorSettingsDialog
+from .overlay_ui_builder import PanelWidget, TranslatorSettingsDialog
+from .widgets.placeholder_text_edit import PlaceholderTextEdit
+from .widget_factory import apply_custom_dropdown_style as _apply_custom_dropdown_style
+from .widget_factory import create_widget as _create_widget
+from .widget_factory import make_icon_from_spec
+
+_ASSETS_BASE = Path(__file__).parent.parent / "assets"
+
+LAYOUT_CONFIG = {
+    'info_row_margins': (0, 3, 0, 0),
+    'info_row_spacer_width': 10,
+    'info_row_spacer_height': 10,
+    'footer_margins': (0, 0, 0, 0)
+}
+
+ICONS_CONFIG = {
+    'utility_icons': {
+        'eraser': {'icon': 'fa5s.eraser', 'color': 'black'},
+        'copy': {'icon': 'fa5.copy', 'color': 'black'},
+        'check_success': {'icon': 'fa5s.check', 'color': 'green'},
+        'edit_styles': {'asset': 'pen-to-square-solid-full.svg'},
+    },
+    'window_controls': {
+        'close': {'icon': 'fa5s.times', 'color': 'black'},
+        'close_hover': {'icon': 'fa5s.times', 'color': 'white'},
+    },
+    'translate_disabled': {
+        'compact': {'icon': 'fa5s.lock', 'color': 'white'},
+        'full': {'icon': 'fa5s.lock', 'color': '#757575'},
+    },
+    'reader': {
+        'compact': {'asset': 'book_white.png'},
+        'full': {'asset': 'book_black.png'},
+    },
+    'translate': {
+        'all': {'asset': 'translation-icon.png'},
+    },
+    'swap': {'asset': 'arrows-exchange.png'},
+}
+
+DEFAULT_DISABLED_TOOLTIP = "API key is not configured. Open Settings to add a key."
+
+LANGUAGE_WIDGET_CONFIG = {
+    'source_combo': {'size': (125, 28), 'icon_size': (28, 28), 'object_name': 'sourceLanguageCombo'},
+    'target_combo': {'size': (125, 28), 'icon_size': (28, 28), 'object_name': 'targetLanguageCombo'},
+    'swap_button': {'size': (35, 28), 'icon_size': (20, 24)}
+}
+
+FOOTER_WIDGET_CONFIG = {
+    'status_label': {'object_name': "statusLabel"},
+    'provider_badge': {'object_name': "providerBadge", 'text': ""},
+    'close_button': {
+        'size': (86, 28), 'icon_size': (16, 16), 'object_name': "closeButton", 'text': "Close",
+        'icons': {'normal': ICONS_CONFIG['window_controls']['close'], 'hover': ICONS_CONFIG['window_controls']['close_hover']}
+    }
+}
+
+MAIN_BUTTONS_CONFIG = {
+    'translate': {'text': "  Translate", 'object_name': "translateButton"},
+    'reader': {'text': "", 'object_name': "readerButton", 'utility': False, 'enabled': False}
+}
+
+UTILITY_BUTTONS_CONFIG = {
+    'clear': {'text': "", 'tooltip': "Clear text", 'utility': True, 'icon_key': 'eraser'},
+    'copy': {'text': "", 'tooltip': "Copy text", 'utility': True, 'icon_key': 'copy'}
+}
+
+BUTTON_STYLES = {
+    'translate_compact': {'text': '', 'size': (24, 24), 'icon_size': (12, 12), 'icon_spec': ICONS_CONFIG['translate']['all']},
+    'translate_full': {'size': (120, 28), 'icon_size': (14, 14), 'icon_spec': ICONS_CONFIG['translate']['all']},
+    'reader_compact': {'text': '', 'size': (24, 24), 'icon_size': (17, 17), 'icon_spec': ICONS_CONFIG['reader']['compact']},
+    'reader_full': {'text': '', 'size': (40, 28), 'icon_size': (19, 19), 'tooltip': 'Open text in reader mode for comfortable reading', 'icon_spec': ICONS_CONFIG['reader']['full']},
+    'default_compact': {'text': '', 'size': (24, 24), 'icon_size': (15, 15)},
+    'default_full': {'text': '', 'size': (40, 28), 'icon_size': (16, 16)}
+}
+
+INFO_WIDGET_CONFIG = {
+    'mode_combo': {'size': (95, 28), 'object_name': 'modeCombo'},
+    'style_combo': {'size': (95, 28), 'object_name': 'styleCombo'},
+    'detected_lang_label': {'width': 120},
+    'mode_label': {'text': 'Mode:'},
+    'auto_swap_checkbox': {'text': 'Auto-translate EN ↔ RU', 'tooltip': 'If enabled, English will be translated to Russian, and Russian to English'}
+}
+
+TEXT_EDIT_CONFIG = {'object_name': 'textEdit'}
+
+LABEL_CONFIG = {
+    'bold': {'object_name': 'boldLabel'},
+    'original': {'text': 'Original:', 'object_name': 'boldLabel'},
+    'translation': {'text': 'Translation:', 'object_name': 'boldLabel'}
+}
+
+
+def _make_icon(spec):
+    return make_icon_from_spec(spec, _ASSETS_BASE)
+
+
+def _refresh_widget_style(widget):
+    widget.style().unpolish(widget)
+    widget.style().polish(widget)
+    widget.update()
+
+
+def set_combo_data(combo, data_value):
+    """Set combo to the index matching the data value, with signal blocking."""
+    combo.blockSignals(True)
+    try:
+        for i in range(combo.count()):
+            if combo.itemData(i) == data_value:
+                combo.setCurrentIndex(i)
+                break
+    finally:
+        combo.blockSignals(False)
+
+
+def _apply_status_style(status_label, style_type):
+    if not status_label:
+        return
+    try:
+        status_label.setProperty("status", style_type)
+        _refresh_widget_style(status_label)
+    except Exception as e:
+        logger.debug(f"Failed to apply status style: {e}")
+
+
+def translate_button_text(is_style):
+    return "  Style" if is_style else "  Translate"
+
+
+def _apply_button_style(button, compact):
+    mode = 'compact' if compact else 'full'
+    try:
+        role = button.property("role")
+    except Exception:
+        role = None
+    role = (role or getattr(button, "objectName", lambda: "")() or "").strip()
+    role_configs = {
+        "translateButton": {"compact": BUTTON_STYLES["translate_compact"], "full": BUTTON_STYLES["translate_full"]},
+        "readerButton": {"compact": BUTTON_STYLES["reader_compact"], "full": BUTTON_STYLES["reader_full"]},
+    }
+    config = role_configs.get(role, {}).get(mode) or BUTTON_STYLES[f"default_{mode}"]
+    config = config.copy()
+    if "text" in config and config["text"] is not None:
+        button.setText(config["text"])
+    if "tooltip" in config and config["tooltip"]:
+        button.setToolTip(config["tooltip"])
+    button.setFixedSize(*config["size"])
+    button.setIconSize(QSize(*config["icon_size"]))
+    if "icon_spec" in config:
+        button.setIcon(_make_icon(config["icon_spec"]))
+    try:
+        button.setProperty("mode", mode)
+        if button.property("utility") is None:
+            button.setProperty("utility", False)
+        _refresh_widget_style(button)
+    except Exception:
+        pass
+
+
+def _disable_translate_button_visuals(button, reason_msg, compact):
+    if not button:
+        return
+    try:
+        button.setProperty("logically_disabled", True)
+        button.setCursor(Qt.CursorShape.ForbiddenCursor)
+        button.setToolTip(reason_msg or DEFAULT_DISABLED_TOOLTIP)
+        mode = 'compact' if compact else 'full'
+        button.setProperty("mode", mode)
+        icon_spec = ICONS_CONFIG['translate_disabled'].get(mode)
+        if icon_spec:
+            button.setIcon(_make_icon(icon_spec))
+        _refresh_widget_style(button)
+    except Exception as e:
+        logger.debug(f"Failed to apply disabled translate visuals: {e}")
+
+
+def _enable_translate_button_visuals(button, compact):
+    if not button:
+        return
+    try:
+        button.setProperty("logically_disabled", False)
+        button.setCursor(Qt.CursorShape.ArrowCursor)
+        button.setToolTip("")
+        _apply_button_style(button, compact)
+        try:
+            role = button.property("role")
+        except Exception:
+            role = None
+        role = (role or getattr(button, "objectName", lambda: "")() or "").strip()
+        if role == "translateButton":
+            button.setIcon(_make_icon(ICONS_CONFIG['translate']['all']))
+        _refresh_widget_style(button)
+    except Exception as e:
+        logger.debug(f"Failed to restore enabled translate visuals: {e}")
 
 
 class _OverlaySettingsObserver(SettingsObserver):
@@ -53,19 +252,256 @@ class _OverlaySettingsObserver(SettingsObserver):
                     self._owner._apply_translator_font_size(new_value)
             elif key == "text_styles":
                 # Refresh style combo when user modifies text styles in settings
-                if hasattr(self._owner, "ui_builder") and hasattr(self._owner.ui_builder, "refresh_styles"):
-                    self._owner.ui_builder.refresh_styles()
+                if hasattr(self._owner, "refresh_styles"):
+                    self._owner.refresh_styles()
         except Exception as e:
             logger.debug(f"Overlay observer change handler error: {e}")
 
 class OverlayWindow(StyledOverlayWindow):
     """Overlay window for displaying translation results."""
 
+    def _create_widget_from_config(self, widget_type, config_key, widget_class, **kwargs):
+        config_maps = {
+            'info': INFO_WIDGET_CONFIG,
+            'language': LANGUAGE_WIDGET_CONFIG,
+            'footer': FOOTER_WIDGET_CONFIG,
+            'label': LABEL_CONFIG,
+            'main_buttons': MAIN_BUTTONS_CONFIG,
+            'utility_buttons': UTILITY_BUTTONS_CONFIG,
+        }
+        return _create_widget(config_maps, widget_type, config_key, widget_class, **kwargs)
+
+    def _create_text_edit(self, placeholder):
+        text_edit = PlaceholderTextEdit()
+        text_edit.setReadOnly(False)
+        text_edit.setAcceptRichText(False)
+        text_edit.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        text_edit.setPlaceholderText(placeholder)
+        text_edit.setObjectName(TEXT_EDIT_CONFIG['object_name'])
+        return text_edit
+
+    def _create_mode_combo(self):
+        combo, _ = self._create_widget_from_config('info', 'mode_combo', QComboBox)
+        combo.addItem("Translate")
+        combo.addItem("Style")
+        _apply_custom_dropdown_style(combo)
+        return combo
+
+    def _create_style_combo(self):
+        combo, _ = self._create_widget_from_config('info', 'style_combo', QComboBox)
+        self._populate_styles(combo)
+        combo.setVisible(False)
+        _apply_custom_dropdown_style(combo)
+        return combo
+
+    def _create_edit_styles_button(self):
+        button = QPushButton()
+        button.setObjectName("editStylesButton")
+        button.setFixedSize(28, 28)
+        button.setIcon(_make_icon(ICONS_CONFIG['utility_icons']['edit_styles']))
+        button.setIconSize(QSize(16, 16))
+        button.setVisible(False)
+        button.setToolTip("Edit Styles")
+        return button
+
+    def _create_detected_lang_label(self):
+        label, _ = self._create_widget_from_config('info', 'detected_lang_label', QLabel, text="Language: —")
+        return label
+
+    def _create_info_row(self):
+        container = QFrame()
+        container.setFrameStyle(QFrame.Shape.NoFrame)
+        info_row = QHBoxLayout(container)
+        info_row.setContentsMargins(*LAYOUT_CONFIG['info_row_margins'])
+        self.mode_label, _ = self._create_widget_from_config('info', 'mode_label', QLabel)
+        info_row.addWidget(self.mode_label)
+        self.mode_combo = self._create_mode_combo()
+        info_row.addWidget(self.mode_combo)
+        self.style_combo = self._create_style_combo()
+        info_row.addWidget(self.style_combo)
+        self.edit_styles_btn = self._create_edit_styles_button()
+        info_row.addWidget(self.edit_styles_btn)
+        info_row.addItem(QSpacerItem(
+            LAYOUT_CONFIG['info_row_spacer_width'], LAYOUT_CONFIG['info_row_spacer_height'],
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum
+        ))
+        self.detected_lang_label = self._create_detected_lang_label()
+        info_row.addWidget(self.detected_lang_label)
+        self.auto_swap_checkbox, _ = self._create_widget_from_config('info', 'auto_swap_checkbox', QCheckBox)
+        info_row.addWidget(self.auto_swap_checkbox)
+        return container
+
+    def _create_swap_button(self):
+        swap_btn, _ = self._create_widget_from_config('language', 'swap_button', QPushButton)
+        swap_btn.setIcon(_make_icon(ICONS_CONFIG['swap']))
+        return swap_btn
+
+    def _create_language_row(self):
+        language_row = QHBoxLayout()
+        self.original_label, _ = self._create_widget_from_config('label', 'original', QLabel)
+        language_row.addWidget(self.original_label, alignment=Qt.AlignmentFlag.AlignBottom)
+        language_row.addItem(QSpacerItem(0, 0, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum))
+        self.source_combo, _ = self._create_widget_from_config('language', 'source_combo', QComboBox)
+        self.source_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
+        self.source_combo.setMaxVisibleItems(12)
+        _apply_custom_dropdown_style(self.source_combo)
+        self.target_combo, _ = self._create_widget_from_config('language', 'target_combo', QComboBox)
+        self.target_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
+        self.target_combo.setMaxVisibleItems(12)
+        _apply_custom_dropdown_style(self.target_combo)
+        self.swap_btn = self._create_swap_button()
+        language_row.addWidget(self.source_combo)
+        language_row.addWidget(self.swap_btn)
+        language_row.addWidget(self.target_combo)
+        self.language_spacer = QSpacerItem(0, 0, QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Minimum)
+        language_row.addItem(self.language_spacer)
+        return language_row
+
+    def _populate_styles(self, combo):
+        try:
+            combo.clear()
+            settings = config_service.get_settings()
+            styles = getattr(settings, "text_styles", []) or []
+            if not styles:
+                combo.addItem("Improve")
+            else:
+                for s in styles:
+                    name = (s.get("name") or "").strip() if isinstance(s, dict) else str(s)
+                    if name:
+                        combo.addItem(name)
+        except Exception as e:
+            logger.warning(f"Failed to populate styles: {e}")
+
+    def refresh_styles(self):
+        if hasattr(self, "style_combo") and self.style_combo:
+            current_text = self.style_combo.currentText()
+            self._populate_styles(self.style_combo)
+            if current_text:
+                index = self.style_combo.findText(current_text)
+                if index >= 0:
+                    self.style_combo.setCurrentIndex(index)
+
+    def _create_status_label(self):
+        status_label, _ = self._create_widget_from_config('footer', 'status_label', QLabel, text="")
+        return status_label
+
+    def _create_provider_badge(self):
+        provider_badge, _ = self._create_widget_from_config('footer', 'provider_badge', QToolButton, text="")
+        provider_badge.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        provider_badge.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        return provider_badge
+
+    def _create_close_button(self):
+        config = FOOTER_WIDGET_CONFIG['close_button']
+        close_btn, _ = self._create_widget_from_config('footer', 'close_button', QPushButton, text=config['text'])
+        icons = config.get('icons', {})
+        self.close_icon_normal = _make_icon(icons.get('normal'))
+        self.close_icon_hover = _make_icon(icons.get('hover'))
+        try:
+            close_btn.setIcon(self.close_icon_normal)
+        except Exception:
+            pass
+        return close_btn
+
+    def _create_footer(self):
+        footer_widget = QFrame()
+        footer_widget.setFrameStyle(QFrame.Shape.NoFrame)
+        footer_row = QHBoxLayout(footer_widget)
+        footer_row.setContentsMargins(*LAYOUT_CONFIG['footer_margins'])
+        self.provider_badge = self._create_provider_badge()
+        footer_row.addWidget(self.provider_badge)
+        self.status_label = self._create_status_label()
+        footer_row.addWidget(self.status_label)
+        footer_row.addStretch()
+        self.close_btn = self._create_close_button()
+        footer_row.addWidget(self.close_btn, alignment=Qt.AlignmentFlag.AlignRight)
+        return footer_widget
+
+    def _init_language_controls(self):
+        supported_languages = get_supported_languages()
+        flags_path = _ASSETS_BASE / "icons" / "flags"
+        self.source_combo.insertItem(0, "Auto", userData="auto")
+        for lang in supported_languages:
+            icon_path = flags_path / lang.icon_name
+            icon = QIcon(QPixmap(str(icon_path)))
+            self.source_combo.addItem(icon, lang.name, userData=lang.code)
+            self.target_combo.addItem(icon, lang.name, userData=lang.code)
+        settings = config_service.get_settings()
+        ui_source_language = getattr(settings, "ui_source_language", "en")
+        set_combo_data(self.source_combo, ui_source_language)
+        if self.source_combo.currentData() != ui_source_language:
+            set_combo_data(self.source_combo, "en")
+        ui_target_language = getattr(settings, "ui_target_language", "en")
+        set_combo_data(self.target_combo, ui_target_language)
+        if self.target_combo.currentData() != ui_target_language:
+            set_combo_data(self.target_combo, "en")
+
+    def _create_main_buttons(self):
+        self.translate_btn, _ = self._create_widget_from_config('main_buttons', 'translate', QPushButton)
+        self.translate_btn.setProperty("role", "translateButton")
+        self.reader_mode_btn, cfg = self._create_widget_from_config('main_buttons', 'reader', QPushButton)
+        self.reader_mode_btn.setProperty("role", "readerButton")
+        if 'utility' in cfg:
+            self.reader_mode_btn.setProperty("utility", cfg['utility'])
+        if 'enabled' in cfg:
+            self.reader_mode_btn.setEnabled(cfg['enabled'])
+
+    def _create_utility_buttons(self):
+        def _create_util_btn(key):
+            btn, cfg = self._create_widget_from_config('utility_buttons', key, QPushButton)
+            if 'icon_key' in cfg:
+                btn.setIcon(_make_icon(ICONS_CONFIG['utility_icons'][cfg['icon_key']]))
+            if 'utility' in cfg:
+                btn.setProperty("utility", cfg['utility'])
+            return btn
+        self.clear_original_btn = _create_util_btn('clear')
+        self.copy_original_btn = _create_util_btn('copy')
+        self.clear_translated_btn = _create_util_btn('clear')
+        self.copy_translated_btn = _create_util_btn('copy')
+
+    def _create_text_widgets(self):
+        self.original_text = self._create_text_edit("Recognized text will appear here...")
+        self.translated_text = self._create_text_edit("Translation will appear here...")
+        self.translated_label, _ = self._create_widget_from_config('label', 'translation', QLabel)
+
+    def _create_panels(self):
+        original_buttons = [self.translate_btn, self.clear_original_btn, self.copy_original_btn]
+        translated_buttons = [self.reader_mode_btn, self.clear_translated_btn, self.copy_translated_btn]
+        self.original_panel = PanelWidget(self.original_text, original_buttons, _apply_button_style, parent=self)
+        self.translated_panel = PanelWidget(self.translated_text, translated_buttons, _apply_button_style, parent=self)
+
+    def _setup_ui(self):
+        self.info_row = self._create_info_row()
+        self.language_row = self._create_language_row()
+        self._create_text_widgets()
+        self._create_main_buttons()
+        self._create_utility_buttons()
+        self._create_panels()
+        self._init_language_controls()
+        self.footer_widget = self._create_footer()
+        self.icon_translation = _make_icon(ICONS_CONFIG["translate"]["all"])
+        self.icon_check_green = _make_icon(ICONS_CONFIG["utility_icons"]["check_success"])
+        layout = self.content_layout
+        layout.setSpacing(6)
+        layout.addWidget(self.info_row)
+        layout.addLayout(self.language_row)
+        if hasattr(self, "mode_combo"):
+            try:
+                self._apply_mode_visibility(self.mode_combo.currentText())
+            except Exception:
+                pass
+        layout.addWidget(self.original_panel)
+        layout.addWidget(self.translated_label)
+        layout.addWidget(self.translated_panel)
+        layout.addWidget(self.footer_widget)
+        layout.setStretch(layout.indexOf(self.original_panel), 1)
+        layout.setStretch(layout.indexOf(self.translated_panel), 1)
+        self.hideable_elements = [self.info_row, self.original_label, self.translated_label, self.footer_widget]
+
     def __init__(self):
         """Initialize the overlay window.
 
-        Uses OverlayUIBuilder to create all UI components, then assembles them into the layout.
-        The overlay manages signals, settings, and business logic; builder handles pure UI construction.
+        The overlay creates and manages all UI components, signals, settings, and business logic.
         """
         super().__init__(title="Translator")
         self._translator_settings_dialog = None
@@ -81,37 +517,10 @@ class OverlayWindow(StyledOverlayWindow):
         self._loading_dots_count = 0
         self._loading_base_text = ""
 
-        # Create UI builder; it builds all widgets and remains their single source of truth.
-        self.ui_builder = OverlayUIBuilder()
-        ui = self.ui_builder.build_ui(self)
-
-        # Expose built components as flat window attributes.
-        for name, component in vars(ui).items():
-            if not name.startswith("_"):
-                setattr(self, name, component)
+        self._setup_ui()
 
         # Initialize provider menu
         self._setup_provider_menu()
-
-        # Assemble the built UI into the window's content layout
-        layout = self.content_layout
-        layout.setSpacing(6)
-        layout.addWidget(self.info_row)
-        layout.addLayout(self.language_row)
-        # Apply initial mode visibility now that all controls exist
-        if hasattr(self, "mode_combo"):
-            try:
-                self._apply_mode_visibility(self.mode_combo.currentText())
-            except Exception:
-                pass
-        layout.addWidget(self.original_panel)
-        layout.addWidget(self.translated_label)
-        layout.addWidget(self.translated_panel)
-        layout.addWidget(self.footer_widget)
-
-        # Set stretch factors
-        layout.setStretch(layout.indexOf(self.original_panel), 1)
-        layout.setStretch(layout.indexOf(self.translated_panel), 1)
 
         self._apply_translator_font_size()
 
@@ -223,7 +632,7 @@ class OverlayWindow(StyledOverlayWindow):
             self.status_label.setText(status_text)
 
         try:
-            self.ui_builder.apply_status_style(self.status_label, 'error')
+            _apply_status_style(self.status_label, 'error')
         except Exception:
             pass
 
@@ -231,13 +640,13 @@ class OverlayWindow(StyledOverlayWindow):
         """Render a successful translation/style result into the UI."""
         if not result.strip():
             self.status_label.setText("Model returned empty response")
-            self.ui_builder.apply_status_style(self.status_label, 'error')
+            _apply_status_style(self.status_label, 'error')
             self.translated_text.setPlainText("")
             logger.warning("Model returned empty translation response")
             return
 
         self.translated_text.setPlainText(result)
-        self.ui_builder.apply_status_style(self.status_label, 'default')
+        _apply_status_style(self.status_label, 'default')
         logger.info("Translation completed and inserted into translated_text")
 
         try:
@@ -299,7 +708,7 @@ class OverlayWindow(StyledOverlayWindow):
         """Initialize request state and loading UI before starting a worker."""
         self._translation_start_time = time.time()
         self.status_label.setText("Request sent")
-        self.ui_builder.apply_status_style(self.status_label, 'default')
+        _apply_status_style(self.status_label, 'default')
 
         settings = self._cached_settings
         compact = getattr(settings, "compact_view", False)
@@ -396,7 +805,7 @@ class OverlayWindow(StyledOverlayWindow):
                 try:
                     compact = getattr(getattr(self, "_cached_settings", None), "compact_view", False)
                     if not compact:
-                        new_text = self.ui_builder.get_translate_button_text(is_style)
+                        new_text = translate_button_text(is_style)
                         self.translate_btn.setText(new_text)
                     # Only set icon if button is enabled (not in disabled state)
                     if self.translate_btn.isEnabled():
@@ -479,7 +888,7 @@ class OverlayWindow(StyledOverlayWindow):
             except Exception:
                 compact = False
 
-            self.ui_builder.apply_disabled_translate_visuals(self.translate_btn, reason_msg, compact)
+            _disable_translate_button_visuals(self.translate_btn, reason_msg, compact)
         except Exception as e:
             logger.debug(f"Failed to apply disabled translate visuals: {e}")
 
@@ -500,7 +909,7 @@ class OverlayWindow(StyledOverlayWindow):
             except Exception:
                 compact = False
 
-            self.ui_builder.restore_enabled_translate_visuals(self.translate_btn, compact)
+            _enable_translate_button_visuals(self.translate_btn, compact)
         except Exception as e:
             logger.debug(f"Failed to restore enabled translate visuals: {e}")
 
@@ -596,12 +1005,12 @@ class OverlayWindow(StyledOverlayWindow):
             # Update status label with priority red message when not ready
             if hasattr(self, "status_label") and self.status_label:
                 if not ready:
-                    self.ui_builder.apply_status_style(self.status_label, 'error')
+                    _apply_status_style(self.status_label, 'error')
                     self.status_label.setText(msg)
                 else:
                     # Restore default style only if we are clearing an API key error
                     if "API key" in (self.status_label.text() or ""):
-                        self.ui_builder.apply_status_style(self.status_label, 'default')
+                        _apply_status_style(self.status_label, 'default')
                         self.status_label.setText("")
 
             # Update provider badge
@@ -750,10 +1159,10 @@ class OverlayWindow(StyledOverlayWindow):
         if error_message:
             status_text, _is_known_error = self._classify_request_error(error_message)
             self.status_label.setText(status_text)
-            self.ui_builder.apply_status_style(self.status_label, 'error')
+            _apply_status_style(self.status_label, 'error')
         elif original_text:
             self.status_label.setText("Completed")
-            self.ui_builder.apply_status_style(self.status_label, 'default')
+            _apply_status_style(self.status_label, 'default')
         else:
             self.status_label.setText("")
 
@@ -886,7 +1295,7 @@ class OverlayWindow(StyledOverlayWindow):
             if config_service.update_settings(updates):
                 logger.info(f"UI target updated: lang={data}")
             else:
-                self.ui_builder.set_combo_data(self.target_combo, previous_target)
+                set_combo_data(self.target_combo, previous_target)
                 logger.error(f"Failed to persist target selection: {data}")
         except Exception as e:
             logger.error(f"Failed to persist target selection: {e}")
@@ -902,13 +1311,13 @@ class OverlayWindow(StyledOverlayWindow):
         if src_data == "auto":
             new_source = tgt_data
             new_target = tgt_data
-            self.ui_builder.set_combo_data(self.source_combo, new_source)
+            set_combo_data(self.source_combo, new_source)
             logger.info(f"Swap with 'auto' source: source set to '{new_source}'")
         else:
             new_source = tgt_data
             new_target = src_data
-            self.ui_builder.set_combo_data(self.source_combo, new_source)
-            self.ui_builder.set_combo_data(self.target_combo, new_target)
+            set_combo_data(self.source_combo, new_source)
+            set_combo_data(self.target_combo, new_target)
             logger.info(f"Swapped languages: source='{new_source}', target='{new_target}'")
 
         # Common settings update logic
@@ -918,8 +1327,8 @@ class OverlayWindow(StyledOverlayWindow):
         }
         try:
             if not config_service.update_settings(updates):
-                self.ui_builder.set_combo_data(self.source_combo, src_data)
-                self.ui_builder.set_combo_data(self.target_combo, tgt_data)
+                set_combo_data(self.source_combo, src_data)
+                set_combo_data(self.target_combo, tgt_data)
                 logger.error("Failed to persist swap")
         except Exception as e:
             logger.error(f"Failed to persist swap: {e}")
@@ -1118,7 +1527,7 @@ class OverlayWindow(StyledOverlayWindow):
         self._translation_start_time = None
         self.status_label.setText("Cancelled")
         try:
-            self.ui_builder.apply_status_style(self.status_label, 'error')
+            _apply_status_style(self.status_label, 'error')
         except Exception:
             pass
 
