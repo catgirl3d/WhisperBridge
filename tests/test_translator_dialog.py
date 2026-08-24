@@ -17,7 +17,7 @@ def test_translator_dialog_factory_integration(qapp, mocker):
     mock_settings.translator_font_size = 14
     mock_settings.stylist_cache_enabled = False
     mock_settings.translation_cache_enabled = False
-    mock_settings.auto_copy_translated_main_window = False
+    mock_settings.auto_copy_translated_overlay = False
     
     mocker.patch('whisperbridge.ui_qt.overlay_ui_builder.config_service.get_settings',
                  return_value=mock_settings)
@@ -69,7 +69,7 @@ def test_translator_dialog_initialization_from_config(qapp, mocker):
     mock_settings.translator_font_size = 18
     mock_settings.stylist_cache_enabled = True
     mock_settings.translation_cache_enabled = False
-    mock_settings.auto_copy_translated_main_window = True
+    mock_settings.auto_copy_translated_overlay = True
     
     mocker.patch('whisperbridge.ui_qt.overlay_ui_builder.config_service.get_settings',
                  return_value=mock_settings)
@@ -113,7 +113,7 @@ def test_compact_view_changed_callback(qapp, mocker):
     mock_settings.overlay_side_buttons_autohide = False
     mock_settings.stylist_cache_enabled = False
     mock_settings.translation_cache_enabled = False
-    mock_settings.auto_copy_translated_main_window = False
+    mock_settings.auto_copy_translated_overlay = False
     
     mocker.patch('whisperbridge.ui_qt.overlay_ui_builder.config_service.get_settings',
                  return_value=mock_settings)
@@ -138,7 +138,7 @@ def test_autohide_buttons_changed_callback(qapp, mocker):
     mock_settings.overlay_side_buttons_autohide = False
     mock_settings.stylist_cache_enabled = False
     mock_settings.translation_cache_enabled = False
-    mock_settings.auto_copy_translated_main_window = False
+    mock_settings.auto_copy_translated_overlay = False
     
     mocker.patch('whisperbridge.ui_qt.overlay_ui_builder.config_service.get_settings',
                  return_value=mock_settings)
@@ -158,7 +158,7 @@ def test_compact_view_rolls_back_when_save_fails(qapp, mocker):
     mock_settings.overlay_side_buttons_autohide = False
     mock_settings.stylist_cache_enabled = False
     mock_settings.translation_cache_enabled = False
-    mock_settings.auto_copy_translated_main_window = False
+    mock_settings.auto_copy_translated_overlay = False
 
     mocker.patch('whisperbridge.ui_qt.overlay_ui_builder.config_service.get_settings',
                  return_value=mock_settings)
@@ -189,7 +189,7 @@ def test_autohide_buttons_roll_back_when_save_fails(qapp, mocker):
     mock_settings.overlay_side_buttons_autohide = False
     mock_settings.stylist_cache_enabled = False
     mock_settings.translation_cache_enabled = False
-    mock_settings.auto_copy_translated_main_window = False
+    mock_settings.auto_copy_translated_overlay = False
 
     mocker.patch('whisperbridge.ui_qt.overlay_ui_builder.config_service.get_settings',
                  return_value=mock_settings)
@@ -221,7 +221,7 @@ def test_translator_font_size_changed_callback(qapp, mocker):
     mock_settings.translator_font_size = 14
     mock_settings.stylist_cache_enabled = False
     mock_settings.translation_cache_enabled = False
-    mock_settings.auto_copy_translated_main_window = False
+    mock_settings.auto_copy_translated_overlay = False
 
     mocker.patch('whisperbridge.ui_qt.overlay_ui_builder.config_service.get_settings',
                  return_value=mock_settings)
@@ -242,7 +242,7 @@ def test_translator_font_size_does_not_call_parent_directly(qapp, mocker):
     mock_settings.translator_font_size = 14
     mock_settings.stylist_cache_enabled = False
     mock_settings.translation_cache_enabled = False
-    mock_settings.auto_copy_translated_main_window = False
+    mock_settings.auto_copy_translated_overlay = False
 
     mocker.patch('whisperbridge.ui_qt.overlay_ui_builder.config_service.get_settings',
                  return_value=mock_settings)
@@ -268,7 +268,7 @@ def test_translator_font_size_rolls_back_when_save_fails(qapp, mocker):
     mock_settings.translator_font_size = 14
     mock_settings.stylist_cache_enabled = False
     mock_settings.translation_cache_enabled = False
-    mock_settings.auto_copy_translated_main_window = False
+    mock_settings.auto_copy_translated_overlay = False
 
     mocker.patch('whisperbridge.ui_qt.overlay_ui_builder.config_service.get_settings',
                  return_value=mock_settings)
@@ -293,14 +293,14 @@ def test_translator_font_size_rolls_back_when_save_fails(qapp, mocker):
 
 
 def test_auto_copy_translated_changed_callback(qapp, mocker):
-    """Test saving auto_copy_translated_main_window setting when checkbox changes."""
+    """Test saving auto_copy_translated_overlay setting when checkbox changes."""
     # Mock config_service to return False for all settings
     mock_settings = Mock()
     mock_settings.compact_view = False
     mock_settings.overlay_side_buttons_autohide = False
     mock_settings.stylist_cache_enabled = False
     mock_settings.translation_cache_enabled = False
-    mock_settings.auto_copy_translated_main_window = False
+    mock_settings.auto_copy_translated_overlay = False
     
     mocker.patch('whisperbridge.ui_qt.overlay_ui_builder.config_service.get_settings',
                  return_value=mock_settings)
@@ -309,7 +309,7 @@ def test_auto_copy_translated_changed_callback(qapp, mocker):
     dialog = TranslatorSettingsDialog()
     dialog.auto_copy_translated_checkbox.setChecked(True)
     
-    mock_set_setting.assert_called_with("auto_copy_translated_main_window", True)
+    mock_set_setting.assert_called_with("auto_copy_translated_overlay", True)
     dialog.close()
 
 
@@ -322,7 +322,7 @@ def test_translator_dialog_config_consistency(qapp, mocker):
     mock_settings.translator_font_size = 14
     mock_settings.stylist_cache_enabled = False
     mock_settings.translation_cache_enabled = False
-    mock_settings.auto_copy_translated_main_window = False
+    mock_settings.auto_copy_translated_overlay = False
     
     mocker.patch('whisperbridge.ui_qt.overlay_ui_builder.config_service.get_settings',
                  return_value=mock_settings)
@@ -355,7 +355,7 @@ def test_compact_view_triggers_parent_update_layout(qapp, mocker):
     mock_settings.overlay_side_buttons_autohide = False
     mock_settings.stylist_cache_enabled = False
     mock_settings.translation_cache_enabled = False
-    mock_settings.auto_copy_translated_main_window = False
+    mock_settings.auto_copy_translated_overlay = False
     
     mocker.patch('whisperbridge.ui_qt.overlay_ui_builder.config_service.get_settings',
                  return_value=mock_settings)
@@ -385,7 +385,7 @@ def test_autohide_buttons_triggers_parent_update_layout(qapp, mocker):
     mock_settings.overlay_side_buttons_autohide = False
     mock_settings.stylist_cache_enabled = False
     mock_settings.translation_cache_enabled = False
-    mock_settings.auto_copy_translated_main_window = False
+    mock_settings.auto_copy_translated_overlay = False
     
     mocker.patch('whisperbridge.ui_qt.overlay_ui_builder.config_service.get_settings',
                  return_value=mock_settings)
@@ -414,7 +414,7 @@ def test_callback_without_parent(qapp, mocker):
     mock_settings.overlay_side_buttons_autohide = False
     mock_settings.stylist_cache_enabled = False
     mock_settings.translation_cache_enabled = False
-    mock_settings.auto_copy_translated_main_window = False
+    mock_settings.auto_copy_translated_overlay = False
     
     mocker.patch('whisperbridge.ui_qt.overlay_ui_builder.config_service.get_settings',
                  return_value=mock_settings)
@@ -436,7 +436,7 @@ def test_callback_with_parent_without_update_layout(qapp, mocker):
     mock_settings.overlay_side_buttons_autohide = False
     mock_settings.stylist_cache_enabled = False
     mock_settings.translation_cache_enabled = False
-    mock_settings.auto_copy_translated_main_window = False
+    mock_settings.auto_copy_translated_overlay = False
     
     mocker.patch('whisperbridge.ui_qt.overlay_ui_builder.config_service.get_settings',
                  return_value=mock_settings)
@@ -465,7 +465,7 @@ def test_error_handling_in_compact_view_callback(qapp, mocker, loguru_caplog):
     mock_settings.overlay_side_buttons_autohide = False
     mock_settings.stylist_cache_enabled = False
     mock_settings.translation_cache_enabled = False
-    mock_settings.auto_copy_translated_main_window = False
+    mock_settings.auto_copy_translated_overlay = False
     
     mocker.patch('whisperbridge.ui_qt.overlay_ui_builder.config_service.get_settings',
                  return_value=mock_settings)
@@ -497,7 +497,7 @@ def test_dialog_properties(qapp, mocker):
     mock_settings.overlay_side_buttons_autohide = False
     mock_settings.stylist_cache_enabled = False
     mock_settings.translation_cache_enabled = False
-    mock_settings.auto_copy_translated_main_window = False
+    mock_settings.auto_copy_translated_overlay = False
     
     mocker.patch('whisperbridge.ui_qt.overlay_ui_builder.config_service.get_settings',
                  return_value=mock_settings)
@@ -523,7 +523,7 @@ def test_dialog_has_all_groups(qapp, mocker):
     mock_settings.overlay_side_buttons_autohide = False
     mock_settings.stylist_cache_enabled = False
     mock_settings.translation_cache_enabled = False
-    mock_settings.auto_copy_translated_main_window = False
+    mock_settings.auto_copy_translated_overlay = False
     
     mocker.patch('whisperbridge.ui_qt.overlay_ui_builder.config_service.get_settings',
                  return_value=mock_settings)
@@ -556,7 +556,7 @@ def test_all_checkboxes_text_and_tooltips(qapp, mocker):
     mock_settings.overlay_side_buttons_autohide = False
     mock_settings.stylist_cache_enabled = False
     mock_settings.translation_cache_enabled = False
-    mock_settings.auto_copy_translated_main_window = False
+    mock_settings.auto_copy_translated_overlay = False
     
     mocker.patch('whisperbridge.ui_qt.overlay_ui_builder.config_service.get_settings',
                  return_value=mock_settings)
@@ -587,7 +587,7 @@ def test_close_button_functionality(qapp, qtbot, mocker):
     mock_settings.overlay_side_buttons_autohide = False
     mock_settings.stylist_cache_enabled = False
     mock_settings.translation_cache_enabled = False
-    mock_settings.auto_copy_translated_main_window = False
+    mock_settings.auto_copy_translated_overlay = False
     
     mocker.patch('whisperbridge.ui_qt.overlay_ui_builder.config_service.get_settings',
                  return_value=mock_settings)
@@ -617,7 +617,7 @@ def test_checkbox_state_conversion_to_bool(qapp, mocker):
     mock_settings.overlay_side_buttons_autohide = False
     mock_settings.stylist_cache_enabled = False
     mock_settings.translation_cache_enabled = False
-    mock_settings.auto_copy_translated_main_window = False
+    mock_settings.auto_copy_translated_overlay = False
     
     mocker.patch('whisperbridge.ui_qt.overlay_ui_builder.config_service.get_settings',
                  return_value=mock_settings)

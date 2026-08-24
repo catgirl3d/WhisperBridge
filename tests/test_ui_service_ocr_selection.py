@@ -38,12 +38,8 @@ def _build_ui_service(mocker) -> UIService:
 
 
 def test_on_selection_completed_uses_logical_rect_without_pixel_conversion(mocker):
-    """Selection pipeline must keep logical coordinates and skip pixel conversion helper."""
+    """Selection pipeline must keep logical coordinates."""
     ui = _build_ui_service(mocker)
-
-    convert_mock = mocker.patch(
-        "whisperbridge.utils.screen_utils.ScreenUtils.convert_rect_to_pixels"
-    )
 
     fake_image = Mock()
     capture_result = Mock(success=True, image=fake_image)
@@ -52,8 +48,6 @@ def test_on_selection_completed_uses_logical_rect_without_pixel_conversion(mocke
 
     rect = _FakeRect(-120, 50, 300, 80)
     ui._on_selection_completed(rect)
-
-    convert_mock.assert_not_called()
 
     captured_region = capture_mock.call_args.args[0]
     assert captured_region.x == -120

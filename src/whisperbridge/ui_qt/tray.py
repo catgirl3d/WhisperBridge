@@ -134,7 +134,7 @@ class TrayManager(QObject):
             except Exception:
                 logger.debug("Unable to apply tray menu stylesheet on this platform")
 
-            # Show Main Window action
+            # Translator overlay toggle action
             show_action = QAction("Translator Window", self)
             # Make the main/primary action visually stand out (bold)
             try:

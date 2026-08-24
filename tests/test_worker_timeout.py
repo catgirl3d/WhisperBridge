@@ -208,7 +208,7 @@ class TestQtIntegration:
             auto_swap_en_ru=True,
             stylist_cache_enabled=False,
             translation_cache_enabled=False,
-            auto_copy_translated_main_window=False,
+            auto_copy_translated_overlay=False,
             text_styles=[],
         )
 
@@ -246,7 +246,7 @@ class TestQtIntegration:
             overlay_window_geometry=None,
             stylist_cache_enabled=False,
             translation_cache_enabled=False,
-            auto_copy_translated_main_window=False,
+            auto_copy_translated_overlay=False,
             text_styles=[],
         )
 

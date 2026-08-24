@@ -89,6 +89,26 @@ def test_settings_manager_loads_legacy_temperature_keys(tmp_path, mocker):
     assert not hasattr(settings, "llm_temperature_stylist")
 
 
+def test_legacy_auto_copy_main_window_key_is_renamed_to_overlay(tmp_path, mocker):
+    """Saved auto_copy_translated_main_window must migrate to auto_copy_translated_overlay."""
+    manager = SettingsManager()
+    settings_file = tmp_path / "settings.json"
+    settings_file.write_text(json.dumps({
+        "auto_copy_translated_main_window": True,
+    }), encoding="utf-8")
+    mocker.patch.object(manager, "_get_settings_file", return_value=settings_file)
+    mocker.patch.object(manager, "_load_key", return_value=None)
+
+    settings = manager.load_settings()
+
+    assert isinstance(settings, Settings)
+    assert settings.auto_copy_translated_overlay is True
+
+    persisted_data = json.loads(settings_file.read_text(encoding="utf-8"))
+    assert "auto_copy_translated_main_window" not in persisted_data
+    assert persisted_data["auto_copy_translated_overlay"] is True
+
+
 def test_config_service_set_setting_uses_validated_value_for_settings_and_observers(tmp_path, mocker):
     """ConfigService should expose the canonical saved value to callers and observers."""
     manager = SettingsManager()

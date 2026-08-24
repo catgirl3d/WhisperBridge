@@ -38,7 +38,6 @@ class OpenAIChatClientAdapter:
         self._client = openai.OpenAI(api_key=api_key, timeout=timeout)
         self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
         self.models = SimpleNamespace(list=self._list_models)
-        self._timeout = timeout
 
     def _create(
         self,

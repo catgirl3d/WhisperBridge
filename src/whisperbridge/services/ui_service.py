@@ -13,7 +13,6 @@ from PySide6.QtCore import QThread, Slot
 from PySide6.QtWidgets import QApplication
 
 # UI widgets (import from ui_qt package)
-from ..ui_qt.main_window import MainWindow
 from ..ui_qt.overlay_window import OverlayWindow
 from ..ui_qt.reader_window import ReaderWindow
 from ..ui_qt.selection_overlay import SelectionOverlayQt
@@ -54,8 +53,6 @@ class UIService:
     Service responsible for managing UI windows and overlay lifecycle.
 
     Public methods:
-      - show_main_window()
-      - hide_main_window_to_tray()
       - open_settings(tab_title=None)
       - show_overlay_window(original_text, translated_text, position=None, overlay_id="main")
       - hide_overlay_window(overlay_id="main")
@@ -67,7 +64,6 @@ class UIService:
 
     def __init__(
         self,
-        main_window: Optional[MainWindow] = None,
         tray_manager: Optional[TrayManager] = None,
         selection_overlay: Optional[SelectionOverlayQt] = None,
         overlay_windows: Optional[Dict[str, OverlayWindow]] = None,
@@ -76,7 +72,6 @@ class UIService:
         app=None,
     ):
         # Accept injected dependencies for easier wiring/testing
-        self.main_window = main_window
         self.tray_manager = tray_manager
         self.selection_overlay = selection_overlay
         self.settings_dialog = None
@@ -99,10 +94,6 @@ class UIService:
         # Create tray manager first as it's needed for notifications
         if self.tray_manager is None:
             self._create_tray_manager()
-
-        # Create main window
-        if self.main_window is None:
-            self._create_main_window()
 
         # Create selection overlay
         if self.selection_overlay is None:
@@ -142,23 +133,7 @@ class UIService:
             self.logger.error(f"UIService: Failed to create TrayManager: {e}", exc_info=True)
             self.tray_manager = None
 
-    # --- Main window operations ------------------------------------------------
-
-    @main_thread_only
-    def _create_main_window(self):
-        """Create the main window (called lazily in main thread)."""
-        try:
-            self.main_window = MainWindow()
-            # Connect close-to-tray signal
-            if self.app and hasattr(self.app, "hide_main_window_to_tray"):
-                try:
-                    self.main_window.closeToTrayRequested.connect(self.app.hide_main_window_to_tray)
-                except Exception:
-                    pass
-            self.logger.debug("UIService: MainWindow created")
-        except Exception as e:
-            self.logger.error(f"UIService: Failed to create MainWindow: {e}", exc_info=True)
-            self.main_window = None
+    # --- Selection overlay ------------------------------------------------------
 
     @main_thread_only
     def _create_selection_overlay(self):
@@ -181,41 +156,6 @@ class UIService:
             self.logger.error(f"UIService: Failed to create SelectionOverlayQt: {e}", exc_info=True)
             self.selection_overlay = None
 
-    @main_thread_only
-    def show_main_window(self):
-        """Show and activate the main settings window."""
-        self.logger.info("UIService: show_main_window() called")
-        try:
-            # Lazy creation
-            if self.main_window is None:
-                self._create_main_window()
-                if self.main_window is None:
-                    self.logger.error("Failed to create main_window")
-                    return
-
-            self.main_window.show()
-            # Keep same activation behavior as QtApp
-            try:
-                self.main_window.raise_()
-                self.main_window.activateWindow()
-            except Exception:
-                # Some platforms may not support raise_/activateWindow
-                pass
-            self.logger.debug("Main window shown and activated by UIService")
-        except Exception as e:
-            self.logger.error(f"UIService.show_main_window error: {e}", exc_info=True)
-
-    @main_thread_only
-    def hide_main_window_to_tray(self):
-        """Hide the main window (minimize to tray)."""
-        self.logger.info("UIService: hide_main_window_to_tray() called")
-        try:
-            if self.main_window:
-                self.main_window.hide()
-                self.logger.debug("Main window hidden by UIService")
-        except Exception as e:
-            self.logger.error(f"UIService.hide_main_window_to_tray error: {e}", exc_info=True)
-
     # --- Settings dialog ------------------------------------------------------
 
     @main_thread_only
@@ -229,13 +169,8 @@ class UIService:
         try:
             # Create dialog if it doesn't exist or was closed
             if self.settings_dialog is None:
-                # Ensure main_window exists for parenting
-                if self.main_window is None:
-                    self._create_main_window()
-                # Parent to main_window if available
-                parent = self.main_window if self.main_window else None
                 try:
-                    self.settings_dialog = SettingsDialog(app=self.app, parent=parent)
+                    self.settings_dialog = SettingsDialog(app=self.app)
                 except Exception as e:
                     self.logger.error(f"UIService: Failed to create SettingsDialog: {e}", exc_info=True)
                     # Notify user via tray if possible
@@ -570,12 +505,6 @@ class UIService:
         """Update window opacity for all managed windows."""
         try:
             opacity = max(0.1, min(1.0, opacity))
-            # Update main window opacity
-            if self.main_window:
-                try:
-                    self.main_window.setWindowOpacity(opacity)
-                except Exception:
-                    pass
             # Update overlay windows opacity
             for overlay in list(self.overlay_windows.values()):
                 try:
@@ -611,8 +540,6 @@ class UIService:
 
             # Collect known widgets to refresh
             widgets = []
-            if self.main_window:
-                widgets.append(self.main_window)
             if self.settings_dialog:
                 widgets.append(self.settings_dialog)
             if self.selection_overlay:
@@ -643,7 +570,7 @@ class UIService:
 
     @main_thread_only
     def shutdown_ui(self):
-        """Shutdown/cleanup UI-specific resources: tray, overlays, main window."""
+        """Shutdown/cleanup UI-specific resources: tray and overlays."""
         try:
             self.logger.info("UIService: shutting down UI resources")
             # Dispose tray manager
@@ -670,16 +597,6 @@ class UIService:
                 self.logger.debug("UIService: Overlay windows closed and cleared")
             except Exception as e:
                 self.logger.warning(f"UIService: Error closing overlay windows: {e}")
-            # Close main window
-            try:
-                if self.main_window:
-                    try:
-                        self.main_window.close()
-                        self.logger.debug("UIService: Main window closed")
-                    except Exception:
-                        pass
-            except Exception as e:
-                self.logger.warning(f"UIService: Error closing main window: {e}")
         except Exception as e:
             self.logger.error(f"UIService.shutdown_ui error: {e}", exc_info=True)
 

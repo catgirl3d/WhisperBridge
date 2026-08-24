@@ -25,6 +25,5 @@ loguru>=0.7.2
 # SSL/TLS Certificates
 certifi>=2024.4.0
 
-# Clipboard and Window Management
+# Clipboard
 pyperclip>=1.8.2
-pygetwindow>=0.0.9

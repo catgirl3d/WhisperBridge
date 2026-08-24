@@ -39,7 +39,6 @@ class GoogleChatClientAdapter:
 
         self._client = genai.Client(api_key=(api_key or "").strip(), http_options=http_options)
         self._types = types
-        self._timeout = timeout
         self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
         self.models = SimpleNamespace(list=self._list_models)
 

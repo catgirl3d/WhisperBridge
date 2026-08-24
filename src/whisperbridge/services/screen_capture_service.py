@@ -43,7 +43,6 @@ class CaptureResult:
     rectangle: Optional[Rectangle]
     success: bool
     error_message: str = ""
-    capture_time: float = 0.0
 
 
 @dataclass
@@ -155,8 +154,6 @@ class ScreenCaptureService:
         target_rectangle: Rectangle,
     ) -> CaptureResult:
         """Crop a pre-captured image using logical virtual-desktop coordinates."""
-        start_time = time.time()
-
         if captured_image is None or captured_rectangle is None:
             return CaptureResult(
                 image=None,
@@ -195,7 +192,6 @@ class ScreenCaptureService:
                 image=cropped_image,
                 rectangle=clipped_target,
                 success=True,
-                capture_time=time.time() - start_time,
             )
         except Exception as e:
             logger.error(f"Failed to crop captured image: {e}")
@@ -205,7 +201,6 @@ class ScreenCaptureService:
                 rectangle=None,
                 success=False,
                 error_message=str(e),
-                capture_time=time.time() - start_time,
             )
 
     @staticmethod
@@ -319,7 +314,6 @@ class ScreenCaptureService:
                 image=image,
                 rectangle=clamped_rect,
                 success=image is not None,
-                capture_time=capture_time,
             )
 
             logger.info(f"Capture result: success={result.success}, image_size={image.size if image else None}")

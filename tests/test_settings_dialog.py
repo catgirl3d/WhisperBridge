@@ -18,7 +18,6 @@ def _build_ui_service(mocker) -> UIService:
     mocker.patch.object(UIService, "_initialize_ui_components", return_value=None)
     ui = UIService(app=Mock())
     ui.logger = Mock()
-    ui.main_window = Mock()
     return ui
 
 
@@ -37,7 +36,7 @@ def test_open_settings_reuses_single_dialog_and_selects_requested_tab(mocker):
     ui.open_settings()
     ui.open_settings(tab_title="Stylist")
 
-    dialog_cls.assert_called_once()
+    dialog_cls.assert_called_once_with(app=ui.app)
     assert ui.settings_dialog is dialog_instance
     assert dialog_instance._load_settings.call_count == 2
     dialog_instance._load_settings.assert_called_with(settings=fake_settings)

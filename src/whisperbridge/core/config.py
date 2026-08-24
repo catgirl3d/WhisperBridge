@@ -206,8 +206,8 @@ class Settings(BaseSettings):
     auto_copy_translated: bool = Field(
         default=False, description="Automatically copy translated text to clipboard (hotkey mode)"
     )
-    auto_copy_translated_main_window: bool = Field(
-        default=False, description="Automatically copy translated text to clipboard (main translator window)"
+    auto_copy_translated_overlay: bool = Field(
+        default=False, description="Automatically copy translated text to clipboard (translator overlay window)"
     )
     clipboard_poll_timeout_ms: int = Field(
         default=2000,
@@ -234,7 +234,6 @@ class Settings(BaseSettings):
 
     # UI Settings
     theme: str = Field(default="light", description="UI theme")
-    window_geometry: Optional[List[int]] = Field(default=None, description="Window geometry [x, y, width, height]")
     overlay_window_geometry: Optional[List[int]] = Field(default=None, description="Overlay window geometry [x, y, width, height]")
 
     # Translator UI Settings

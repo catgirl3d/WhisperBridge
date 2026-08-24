@@ -147,19 +147,25 @@ class SettingsManager:
                 # --- Security: API keys are stored only in keyring ---
                 # Settings MUST NOT accept API keys from JSON. If keys are present in settings.json
                 # (e.g., by manual edit or legacy file), we ignore them and scrub them from disk.
-                scrubbed = False
+                normalized = False
                 for api_key_field in ("openai_api_key", "google_api_key", "deepl_api_key"):
                     if api_key_field in data:
                         data.pop(api_key_field, None)
-                        scrubbed = True
+                        normalized = True
 
-                if scrubbed and settings_file.exists():
+                # Rename legacy setting key (was tied to removed MainWindow, now overlay-only)
+                if "auto_copy_translated_main_window" in data:
+                    legacy_value = data.pop("auto_copy_translated_main_window")
+                    data.setdefault("auto_copy_translated_overlay", legacy_value)
+                    normalized = True
+
+                if normalized and settings_file.exists():
                     try:
                         with open(settings_file, "w", encoding="utf-8") as f:
                             json.dump(data, f, indent=2, ensure_ascii=False)
-                        logger.info("Security: Scrubbed API keys from settings.json")
+                        logger.info("Normalized settings.json (scrubbed keys, renamed legacy fields)")
                     except Exception as e:
-                        logger.warning(f"Security: Failed to scrub API keys from settings.json: {e}")
+                        logger.warning(f"Failed to write normalized settings.json: {e}")
 
                 # Load secure keys from keyring (the only source of truth)
                 keyring_openai = self._load_key("openai_api_key")

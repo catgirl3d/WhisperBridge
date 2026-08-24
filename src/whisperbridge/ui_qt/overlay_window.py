@@ -242,11 +242,11 @@ class OverlayWindow(StyledOverlayWindow):
 
         try:
             settings = self._cached_settings
-            auto_copy_main_window = getattr(settings, "auto_copy_translated_main_window", False)
-            if auto_copy_main_window:
+            auto_copy = getattr(settings, "auto_copy_translated_overlay", False)
+            if auto_copy:
                 clipboard = QApplication.clipboard()
                 clipboard.setText(result)
-                logger.info("Translated text automatically copied to clipboard (main window)")
+                logger.info("Translated text automatically copied to clipboard (translator overlay)")
                 self._show_button_feedback(self.copy_translated_btn)
         except Exception as e:
             logger.debug(f"Failed to auto-copy translated text: {e}")
@@ -649,30 +649,6 @@ class OverlayWindow(StyledOverlayWindow):
                 logger.debug(f"Provider capability enforcement failed: {e}")
         except Exception as e:
             logger.debug(f"Failed to update API state/UI: {e}")
-
-    def show_loading(self, position: tuple | None = None):
-        """Show a minimal loading state at an optional absolute position."""
-        try:
-            logger.info("OverlayWindow: show_loading() called")
-            if position:
-                x, y = position
-                self.move(x, y)
-
-            self.original_text.setPlainText("Loading...")
-            self.show()
-            self.raise_()
-            self.activateWindow()
-            logger.debug("Loading overlay shown")
-        except Exception as e:
-            logger.error(f"Error in show_loading: {e}")
-
-    def geometry_string(self) -> str:
-        """Return a geometry string similar to Tkinter 'WxH+X+Y' for logs."""
-        try:
-            g = self.geometry()
-            return f"{g.width()}x{g.height()}+{g.x()}+{g.y()}"
-        except Exception:
-            return "0x0+0+0"
 
     def keyPressEvent(self, event):
         """Handle key press events."""

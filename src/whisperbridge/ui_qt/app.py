@@ -37,7 +37,6 @@ class QtApp(QObject, SettingsObserver):
     """Qt-based application class with compatible interface."""
 
     # New signals for UI operations
-    show_main_window_signal = Signal()
     show_settings_signal = Signal()
     toggle_overlay_signal = Signal()
     activate_ocr_signal = Signal()
@@ -96,7 +95,6 @@ class QtApp(QObject, SettingsObserver):
         config_service.add_observer(self)
 
         # Connect UI signals to slots
-        self.show_main_window_signal.connect(self._show_main_window_slot)
         self.show_settings_signal.connect(self._show_settings_slot)
         self.toggle_overlay_signal.connect(self._toggle_overlay_slot)
         self.activate_ocr_signal.connect(self._activate_ocr_slot)
@@ -258,18 +256,6 @@ class QtApp(QObject, SettingsObserver):
             logger.warning("CopyTranslateService is not available")
 
     @Slot()
-    def _show_main_window_slot(self):
-        if self.ui:
-            self.ui.show_main_window()
-        # Use centralized NotificationService
-        try:
-            if self.notifier:
-                self.notifier.info("Application activated", "WhisperBridge")
-        except Exception as e:
-            logger.debug(f"Failed to show activation notification: {e}")
-        logger.debug("Tray notification shown for application activation")
-
-    @Slot()
     def _show_settings_slot(self):
         if self.ui:
             self.ui.open_settings()
@@ -308,16 +294,6 @@ class QtApp(QObject, SettingsObserver):
         thread.start()
         logger.info(f"Started worker {worker.__class__.__name__} in a new thread.")
         return thread, worker
-
-    def show_main_window(self):
-        """Show the main settings window (delegates to UIService)."""
-        if self.ui:
-            self.ui.show_main_window()
-
-    def hide_main_window_to_tray(self):
-        """Hide the main window to system tray (delegate to UIService)."""
-        if self.ui:
-            self.ui.hide_main_window_to_tray()
 
     def toggle_overlay(self):
         """Toggle overlay visibility — delegate to UIService."""
@@ -374,9 +350,6 @@ class QtApp(QObject, SettingsObserver):
         """Run the application main loop."""
         if not self.is_running:
             self.initialize()
-
-        # Main window is created but starts hidden to tray
-        # Only accessible through tray menu or hotkeys
 
         try:
             logger.info("Starting Qt-based WhisperBridge main loop...")

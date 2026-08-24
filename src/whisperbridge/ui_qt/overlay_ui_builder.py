@@ -175,7 +175,7 @@ class TranslatorSettingsDialog(QDialog):
             config_maps, "translator", "auto_copy_translated_checkbox", QCheckBox
         )
         self.auto_copy_translated_checkbox.setChecked(
-            _resolve_bool_setting(settings, "auto_copy_translated_main_window")
+            _resolve_bool_setting(settings, "auto_copy_translated_overlay")
         )
         self.auto_copy_translated_checkbox.stateChanged.connect(self._on_auto_copy_translated_changed)
         clipboard_layout.addWidget(self.auto_copy_translated_checkbox)
@@ -246,7 +246,7 @@ class TranslatorSettingsDialog(QDialog):
         try:
             self._persist_checkbox_setting(
                 checkbox=self.auto_copy_translated_checkbox,
-                setting_key="auto_copy_translated_main_window",
+                setting_key="auto_copy_translated_overlay",
                 state=state,
                 success_message="Auto-copy translated text setting updated",
             )
