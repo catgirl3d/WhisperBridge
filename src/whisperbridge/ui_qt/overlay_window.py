@@ -79,7 +79,6 @@ class OverlayWindow(StyledOverlayWindow):
         self._loading_base_text = ""
 
         settings = config_service.get_settings()
-        self._cached_settings = settings
         self.view = TranslatorView(
             get_supported_languages(),
             getattr(settings, "text_styles", []),
@@ -194,7 +193,7 @@ class OverlayWindow(StyledOverlayWindow):
         logger.info("Translation completed and inserted into translated_text")
 
         try:
-            settings = self._cached_settings
+            settings = config_service.get_settings()
             auto_copy = getattr(settings, "auto_copy_translated_overlay", False)
             if auto_copy:
                 clipboard = QApplication.clipboard()
@@ -217,7 +216,7 @@ class OverlayWindow(StyledOverlayWindow):
 
     def _restore_request_controls(self) -> None:
         """Stop request affordances and restore the translate/style button text."""
-        settings = getattr(self, "_cached_settings", None)
+        settings = config_service.get_settings()
         compact = getattr(settings, "compact_view", False)
         prev_text = getattr(self, "_translation_prev_text", "Translate")
 
@@ -253,7 +252,7 @@ class OverlayWindow(StyledOverlayWindow):
         self._translation_start_time = time.time()
         self.view.set_status("Request sent", "default")
 
-        settings = self._cached_settings
+        settings = config_service.get_settings()
         compact = getattr(settings, "compact_view", False)
 
         if self.view.translate_btn:
@@ -334,7 +333,7 @@ class OverlayWindow(StyledOverlayWindow):
         """Apply visibility changes based on selected mode."""
         try:
             mode = (mode or "").strip().lower()
-            compact = getattr(getattr(self, "_cached_settings", None), "compact_view", False)
+            compact = getattr(config_service.get_settings(), "compact_view", False)
             self.view.set_mode_visibility(mode, compact)
 
             logger.debug(f"Mode visibility applied: mode='{mode}'")
@@ -385,7 +384,7 @@ class OverlayWindow(StyledOverlayWindow):
     def _apply_disabled_translate_visuals(self, reason_msg: str) -> None:
         """Apply strong disabled visuals for the Translate/Style button."""
         try:
-            compact = bool(getattr(getattr(self, "_cached_settings", None), "compact_view", False))
+            compact = bool(getattr(config_service.get_settings(), "compact_view", False))
             self.view.set_translate_disabled(reason_msg, compact)
         except Exception as e:
             logger.debug(f"Failed to apply disabled translate visuals: {e}")
@@ -396,7 +395,7 @@ class OverlayWindow(StyledOverlayWindow):
             # Avoid re-enabling visuals during an active request
             if getattr(self, "_translation_start_time", None) is None:
                 self.view.translate_btn.setEnabled(True)
-            compact = bool(getattr(getattr(self, "_cached_settings", None), "compact_view", False))
+            compact = bool(getattr(config_service.get_settings(), "compact_view", False))
             self.view.restore_translate(compact)
         except Exception as e:
             logger.debug(f"Failed to restore enabled translate visuals: {e}")
@@ -548,8 +547,6 @@ class OverlayWindow(StyledOverlayWindow):
         compact = getattr(settings, "compact_view", False)
         autohide = getattr(settings, "overlay_side_buttons_autohide", False)
 
-        # Cache settings for use in other methods
-        self._cached_settings = settings
         self.view.configure(compact, autohide, getattr(settings, "translator_font_size", None))
 
         # Re-apply API state after layout changes to override any button style resets
@@ -580,7 +577,7 @@ class OverlayWindow(StyledOverlayWindow):
 
         return super().eventFilter(obj, event)
 
-    def show_overlay(self, original_text: str = "", translated_text: str = "", position: tuple[int, int] | None = None, error_message: str = ""):
+    def show_overlay(self, original_text: str = "", translated_text: str = "", error_message: str = ""):
         """Show the overlay with specified content."""
         logger.info("Showing overlay window")
         # Ensure button/state reflect API key presence at time of showing
@@ -933,17 +930,7 @@ class OverlayWindow(StyledOverlayWindow):
 
         self._translation_start_time = None
         self.view.set_status("Cancelled", "error")
-
-        settings = self._cached_settings
-        compact = getattr(settings, "compact_view", False)
-        prev_text = getattr(self, "_translation_prev_text", "Translate")
-        self._stop_loading_animation()
-        if self.view.translate_btn:
-            self.view.translate_btn.setEnabled(True)
-            if not compact:
-                self.view.translate_btn.setText(prev_text)
-        if hasattr(self, "_translation_prev_text"):
-            delattr(self, "_translation_prev_text")
+        self._restore_request_controls()
 
     def shutdown_workers(self):
         """Cancel and wait for all live request worker threads during application shutdown."""

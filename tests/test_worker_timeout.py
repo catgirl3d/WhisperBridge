@@ -459,7 +459,11 @@ class TestQtIntegration:
         mock_start_loading = mocker.patch.object(overlay, "_start_loading_animation")
         mock_setup_worker = mocker.patch.object(overlay, "_setup_worker", return_value=(Mock(), Mock()))
 
-        overlay._cached_settings = Mock(compact_view=False, text_styles=[])
+        mocker.patch.object(
+            config_service,
+            "get_settings",
+            return_value=Mock(compact_view=False, text_styles=[]),
+        )
         overlay.view.original_text.setPlainText("hello")
         overlay.view.set_language_selection("en", "ru")
 
@@ -489,7 +493,11 @@ class TestQtIntegration:
         mock_start_loading = mocker.patch.object(overlay, "_start_loading_animation")
         mock_setup_worker = mocker.patch.object(overlay, "_setup_worker", return_value=(Mock(), Mock()))
 
-        overlay._cached_settings = Mock(compact_view=False, text_styles=[])
+        mocker.patch.object(
+            config_service,
+            "get_settings",
+            return_value=Mock(compact_view=False, text_styles=[]),
+        )
         overlay.view.original_text.setPlainText("hello")
         overlay.view.style_combo.clear()
         overlay.view.style_combo.addItem("Formal")
@@ -510,7 +518,11 @@ class TestQtIntegration:
         mocker.patch.object(overlay, "_start_loading_animation")
         mock_setup_worker = mocker.patch.object(overlay, "_setup_worker", return_value=(Mock(), Mock()))
 
-        overlay._cached_settings = Mock(compact_view=False, text_styles=[{"name": "Improve tone"}])
+        mocker.patch.object(
+            config_service,
+            "get_settings",
+            return_value=Mock(compact_view=False, text_styles=[{"name": "Improve tone"}]),
+        )
         overlay.view.original_text.setPlainText("hello")
         overlay.view.style_combo.clear()
         style_index = overlay._find_index_by_text(overlay.view.mode_combo, "Style")
@@ -613,6 +625,20 @@ class TestQtIntegration:
         assert overlay.view.status_label.text().startswith("Completed in ")
         assert overlay._translation_start_time is None
         mock_qmessagebox.assert_not_called()
+
+    @pytest.mark.parametrize("auto_copy", [True, False])
+    def test_successful_finished_uses_current_auto_copy_setting(self, overlay, mocker, auto_copy):
+        """Successful results use the current settings object for auto-copy."""
+        current_settings = Mock(auto_copy_translated_overlay=auto_copy)
+        mocker.patch.object(config_service, "get_settings", return_value=current_settings)
+        clipboard = mocker.patch("whisperbridge.ui_qt.overlay_window.QApplication.clipboard")
+
+        overlay._on_translation_finished(True, "Hola")
+
+        if auto_copy:
+            clipboard.return_value.setText.assert_called_once_with("Hola")
+        else:
+            clipboard.return_value.setText.assert_not_called()
 
     # --- Race Condition Scenarios ---
 

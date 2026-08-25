@@ -6,7 +6,7 @@ work happens in the main Qt thread.
 """
 
 import functools
-from typing import Dict, Optional, Tuple
+from typing import Dict, Optional
 
 from loguru import logger as _default_logger
 from PySide6.QtCore import QThread, Slot
@@ -54,7 +54,7 @@ class UIService:
 
     Public methods:
       - open_settings(tab_title=None)
-      - show_overlay_window(original_text, translated_text, position=None, overlay_id="main")
+      - show_overlay_window(original_text, translated_text, overlay_id="main")
       - hide_overlay_window(overlay_id="main")
       - handle_worker_finished(original_text, translated_text, overlay_id)
       - handle_copy_translate(clipboard_text, translated_text, auto_copy=False)
@@ -219,7 +219,6 @@ class UIService:
         self,
         original_text: str,
         translated_text: str,
-        position: Optional[Tuple[int, int]] = None,
         overlay_id: str = "main",
         error_message: str = "",
     ):
@@ -232,7 +231,7 @@ class UIService:
             # Log truncated versions for parity with previous implementation
             self.logger.info(f"Original text: '{(original_text or '')[:50]}{'...' if original_text and len(original_text) > 50 else ''}'")
             self.logger.info(f"Translated text: '{(translated_text or '')[:50]}{'...' if translated_text and len(translated_text) > 50 else ''}'")
-            self.logger.info(f"Position: {position}, Overlay ID: {overlay_id}, Error: {error_message}")
+            self.logger.info(f"Overlay ID: {overlay_id}, Error: {error_message}")
 
             # Create overlay window if missing
             if overlay_id not in self.overlay_windows:
@@ -250,9 +249,8 @@ class UIService:
 
             overlay = self.overlay_windows[overlay_id]
             try:
-                pos = position
                 overlay.show_overlay(
-                    original_text or "", translated_text or "", pos, error_message=error_message
+                    original_text or "", translated_text or "", error_message=error_message
                 )
                 self.logger.info(
                     f"Overlay '{overlay_id}' displayed successfully by UIService"

@@ -310,17 +310,6 @@ class QtApp(QObject, SettingsObserver):
         if self.ui:
             self.ui.open_settings()
 
-    def show_overlay_window(
-        self,
-        original_text: str,
-        translated_text: str,
-        position: Optional[tuple] = None,
-        overlay_id: str = "main",
-    ):
-        """Show the overlay window with translation results (delegate to UIService)."""
-        if self.ui:
-            self.ui.show_overlay_window(original_text, translated_text, position=position, overlay_id=overlay_id)
-
     def hide_overlay_window(self, overlay_id: str = "main"):
         """Hide the overlay window (delegate to UIService)."""
         if self.ui:
