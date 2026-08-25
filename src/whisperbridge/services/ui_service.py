@@ -280,15 +280,9 @@ class UIService:
     def hide_overlay_window(self, overlay_id: str = "main"):
         """Hide an overlay window if present."""
         try:
-            if overlay_id in self.overlay_windows:
-                try:
-                    self.overlay_windows[overlay_id].hide_overlay()
-                except Exception:
-                    # Best-effort hide
-                    try:
-                        self.overlay_windows[overlay_id].hide()
-                    except Exception:
-                        pass
+            overlay = self.overlay_windows.get(overlay_id)
+            if overlay is not None:
+                overlay.dismiss()
         except Exception as e:
             self.logger.error(
                 f"UIService.hide_overlay_window error for id '{overlay_id}': {e}",
@@ -304,12 +298,9 @@ class UIService:
             if main_overlay_id in self.overlay_windows:
                 overlay = self.overlay_windows[main_overlay_id]
                 try:
-                    if getattr(overlay, "is_overlay_visible", lambda: False)():
+                    if overlay.is_overlay_visible():
                         # Hide the overlay
-                        try:
-                            overlay.hide_overlay()
-                        except AttributeError:
-                            overlay.hide()
+                        overlay.dismiss()
                         self.logger.debug(f"Overlay {main_overlay_id} hidden")
                     else:
                         # Show the overlay
