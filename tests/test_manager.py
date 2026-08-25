@@ -173,7 +173,7 @@ class TestInitialization:
         )
 
         api_manager.initialize()
-        api_manager._model_manager.cache_models("openai", ["stale-model"])
+        api_manager._model_manager._models_cache["openai"] = ["stale-model"]
 
         api_manager.reinitialize()
 
@@ -491,7 +491,7 @@ class TestShutdown:
     def test_shutdown_clears_all_state(self, initialized_openai_manager):
         """Test that shutdown clears all resources."""
         # Add some state
-        initialized_openai_manager._model_manager.cache_models("openai", ["gpt-5.4-mini"])
+        initialized_openai_manager._model_manager._models_cache["openai"] = ["gpt-5.4-mini"]
 
         # Act
         initialized_openai_manager.shutdown()
@@ -520,4 +520,3 @@ class TestGetAvailableModelsSync:
         assert "gpt-5.7" in models
         # Source can be CACHE if it was cached before or API
         assert source in ("api", "cache")
-

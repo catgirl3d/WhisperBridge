@@ -36,17 +36,12 @@ def model_manager(mock_provider_registry):
 class TestModelMemoryCache:
     """Unit tests for the in-memory model cache inside ModelManager."""
 
-    def test_cache_roundtrip(self, model_manager):
-        model_manager.cache_models("openai", ["gpt-5.4-mini"])
-
-        assert model_manager.get_cached_models("openai") == ["gpt-5.4-mini"]
-
     def test_missing_provider_returns_none(self, model_manager):
         assert model_manager.get_cached_models("google") is None
 
     def test_clear_specific_provider_only(self, model_manager):
-        model_manager.cache_models("openai", ["gpt-5.4-mini"])
-        model_manager.cache_models("google", ["gemini-2.0-flash"])
+        model_manager._models_cache["openai"] = ["gpt-5.4-mini"]
+        model_manager._models_cache["google"] = ["gemini-2.0-flash"]
 
         model_manager.clear_cached_models("openai")
 
@@ -54,8 +49,8 @@ class TestModelMemoryCache:
         assert model_manager.get_cached_models("google") == ["gemini-2.0-flash"]
 
     def test_clear_all_providers(self, model_manager):
-        model_manager.cache_models("openai", ["gpt-5.4-mini"])
-        model_manager.cache_models("google", ["gemini-2.0-flash"])
+        model_manager._models_cache["openai"] = ["gpt-5.4-mini"]
+        model_manager._models_cache["google"] = ["gemini-2.0-flash"]
 
         model_manager.clear_cached_models()
 
@@ -70,7 +65,7 @@ class TestGetAvailableModels:
         """Cached OpenAI models are re-filtered by exclusions and policy."""
         models = ["gpt-5.3", "whisper-1", "omni-moderation-latest", "gpt-5.4-mini"]
         mock_provider_registry.is_provider_available.return_value = True
-        model_manager.cache_models("openai", models)
+        model_manager._models_cache["openai"] = models
         mocker.patch(
             "whisperbridge.core.api_manager.models.get_openai_model_excludes",
             return_value=["whisper"],
@@ -85,7 +80,7 @@ class TestGetAvailableModels:
         self, model_manager, mock_provider_registry, mocker
     ):
         """A cache invalidated by current filters must fall through to the API."""
-        model_manager.cache_models("openai", ["gpt-5.3"])
+        model_manager._models_cache["openai"] = ["gpt-5.3"]
         mock_provider_registry.is_provider_available.return_value = True
         mock_client = mocker.Mock()
         mock_client.models.list.return_value.data = [mocker.Mock(id="gpt-5.4-mini")]
@@ -201,7 +196,7 @@ class TestGetAvailableModels:
         """Test unconfigured providers ignore cache and return UNCONFIGURED."""
         # Arrange
         mock_provider_registry.is_provider_available.return_value = False
-        model_manager.cache_models(APIProvider.GOOGLE.value, ["stale-model"])
+        model_manager._models_cache[APIProvider.GOOGLE.value] = ["stale-model"]
 
         # Act
         result_models, source = model_manager.get_available_models(APIProvider.GOOGLE)
@@ -372,7 +367,7 @@ class TestCacheInvalidation:
     def test_cache_invalidation_on_api_error(self, model_manager, mock_provider_registry, mocker):
         """Test that cache is cleared on API error."""
         # Arrange
-        model_manager.cache_models("openai", ["previous-model"])
+        model_manager._models_cache["openai"] = ["previous-model"]
 
         mock_client = mocker.Mock()
         mock_client.models.list.side_effect = Exception("API Error")
@@ -401,7 +396,7 @@ class TestCredentialChangeGuard:
         assert model_manager.get_cached_models("openai") == ["gpt-5.4-mini"]
 
     def test_cache_models_if_client_matches_skips_when_credentials_changed(self, model_manager, mock_provider_registry, mocker):
-        model_manager.cache_models("google", ["gemini-2.0-flash"])
+        model_manager._models_cache["google"] = ["gemini-2.0-flash"]
         mock_provider_registry.get_client.return_value = mocker.Mock()
 
         cached = model_manager.cache_models_if_client_matches(
@@ -413,7 +408,7 @@ class TestCredentialChangeGuard:
         assert model_manager.get_cached_models("google") == ["gemini-2.0-flash"]
 
     def test_clear_models_if_client_matches_clears_when_client_is_current(self, model_manager, mock_provider_registry, mocker):
-        model_manager.cache_models("openai", ["gpt-5.4-mini"])
+        model_manager._models_cache["openai"] = ["gpt-5.4-mini"]
         client = mock_provider_registry.get_client.return_value
 
         cleared = model_manager.clear_models_if_client_matches("openai", client)
@@ -422,7 +417,7 @@ class TestCredentialChangeGuard:
         assert model_manager.get_cached_models("openai") is None
 
     def test_clear_models_if_client_matches_keeps_cache_when_credentials_changed(self, model_manager, mock_provider_registry, mocker):
-        model_manager.cache_models("openai", ["fresh-model"])
+        model_manager._models_cache["openai"] = ["fresh-model"]
         mock_provider_registry.get_client.return_value = mocker.Mock()
 
         cleared = model_manager.clear_models_if_client_matches("openai", mocker.Mock())
@@ -455,7 +450,7 @@ class TestCredentialChangeGuard:
         self, model_manager, mock_provider_registry, mocker
     ):
         """A stale failing fetch must not clear a fresh entry from new credentials."""
-        model_manager.cache_models("openai", ["fresh-model"])
+        model_manager._models_cache["openai"] = ["fresh-model"]
         mock_client = mocker.Mock()
 
         def fetch_models():
@@ -473,7 +468,7 @@ class TestCredentialChangeGuard:
 
     def test_temp_key_failure_keeps_cached_list(self, model_manager, mock_provider_registry, mocker):
         """A failed temp-key check is a credential probe and must not clear cache."""
-        model_manager.cache_models("openai", ["gpt-5.4-mini"])
+        model_manager._models_cache["openai"] = ["gpt-5.4-mini"]
         mock_client = mocker.Mock()
         mock_client.models.list.side_effect = Exception("bad temp key")
         mocker.patch(

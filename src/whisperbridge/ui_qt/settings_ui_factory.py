@@ -5,7 +5,7 @@ Provides a centralized factory for creating and configuring widgets used in sett
 following the UI configuration guidelines.
 """
 
-from PySide6.QtWidgets import QComboBox, QLineEdit, QSpinBox, QPushButton, QCheckBox, QTextEdit, QDoubleSpinBox, QTableWidget, QLabel, QToolButton, QGroupBox, QWidget, QTabWidget
+from PySide6.QtWidgets import QComboBox, QLineEdit, QSpinBox, QPushButton, QCheckBox, QTextEdit, QTableWidget, QLabel, QToolButton, QGroupBox, QWidget, QTabWidget
 from .widgets.hotkey_edit import HotkeyEdit
 from ..core.config import API_TIMEOUT_MAX, API_TIMEOUT_MIN, OPENAI_REASONING_EFFORT_OPTIONS
 from ..core.provider_catalog import get_supported_provider_values
@@ -101,9 +101,6 @@ class SettingsUIFactory:
         'quickTranslateHotkeyEdit': {
             'object_name': 'quickTranslateHotkeyEdit'
         },
-        'activationHotkeyEdit': {
-            'object_name': 'activationHotkeyEdit'
-        },
         'translateHotkeyEdit': {
             'object_name': 'translateHotkeyEdit'
         },
@@ -113,10 +110,6 @@ class SettingsUIFactory:
         'autoCopyTranslatedCheck': {
             'object_name': 'autoCopyTranslatedCheck',
             'text': 'Automatically copy translated text to clipboard (hotkey mode)'
-        },
-        'autoCopyTranslatedMainCheck': {
-            'object_name': 'autoCopyTranslatedMainCheck',
-            'text': 'Automatically copy translated text to clipboard (main translator window)'
         },
         'clipboardPollTimeoutSpin': {
             'object_name': 'clipboardPollTimeoutSpin',
@@ -245,8 +238,7 @@ class SettingsUIFactory:
         """Create a QLineEdit widget using configuration."""
         config = self.get_config(key)
         
-        # Check if this should be a HotkeyEdit
-        if 'hotkey' in key.lower() or 'activation' in key.lower():
+        if 'hotkey' in key.lower():
             edit = HotkeyEdit()
         else:
             edit = QLineEdit()
@@ -281,13 +273,6 @@ class SettingsUIFactory:
         text_edit = QTextEdit()
         self.set_properties(text_edit, config)
         return text_edit
-
-    def create_double_spin(self, key: str) -> QDoubleSpinBox:
-        """Create a QDoubleSpinBox widget using configuration."""
-        config = self.get_config(key)
-        spin = QDoubleSpinBox()
-        self.set_properties(spin, config)
-        return spin
 
     def create_table(self, key: str) -> QTableWidget:
         """Create a QTableWidget widget using configuration."""
@@ -363,8 +348,6 @@ class SettingsUIFactory:
             widget.setHorizontalHeaderLabels(cfg['headers'])
         if 'title' in cfg and hasattr(widget, 'setTitle'):
             widget.setTitle(cfg['title'])
-        if 'decimals' in cfg and hasattr(widget, 'setDecimals'):
-            widget.setDecimals(cfg['decimals'])
         if 'value' in cfg and hasattr(widget, 'setValue'):
             widget.setValue(cfg['value'])
 

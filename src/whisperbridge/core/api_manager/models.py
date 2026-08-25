@@ -56,17 +56,6 @@ class ModelManager:
         with self._cache_lock:
             return self._models_cache.get(provider)
 
-    def cache_models(self, provider: str, models: List[str]) -> None:
-        """
-        Store a model list for a provider in the in-memory cache.
-
-        Args:
-            provider: Provider identifier (e.g., "openai", "google").
-            models: List of model names to cache.
-        """
-        with self._cache_lock:
-            self._models_cache[provider] = models
-
     def clear_cached_models(self, provider: Optional[str] = None) -> None:
         """
         Clear cached model lists.
