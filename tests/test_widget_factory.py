@@ -16,9 +16,15 @@ from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication, QComboBox, QLineEdit, QListView, QPushButton
 
 from whisperbridge.ui_qt import widget_factory
-from whisperbridge.ui_qt.settings_dialog import SettingsDialog
-from whisperbridge.ui_qt.settings_ui_factory import SettingsUIFactory
+from whisperbridge.ui_qt.settings_dialog import SETTINGS_WIDGET_CONFIG, SettingsDialog
+from whisperbridge.ui_qt.widget_factory import create_widget
 from whisperbridge.core.provider_catalog import get_supported_provider_values
+
+
+def _settings_combo(key: str) -> QComboBox:
+    """Create a settings-dialog combo via the shared widget factory."""
+    combo, _ = create_widget({"settings": SETTINGS_WIDGET_CONFIG}, "settings", key, QComboBox)
+    return combo
 
 
 def test_create_widget_applies_common_keys(qapp):
@@ -57,8 +63,8 @@ def test_create_widget_applies_common_keys(qapp):
     assert edit.minimumWidth() == 123
 
 
-def test_settings_factory_uses_provider_catalog(qapp):
-    combo = SettingsUIFactory().create_combo("apiProviderCombo")
+def test_settings_config_uses_provider_catalog(qapp):
+    combo = _settings_combo("apiProviderCombo")
 
     assert [combo.itemText(index) for index in range(combo.count())] == get_supported_provider_values()
 
@@ -81,9 +87,9 @@ def test_apply_custom_dropdown_style_sets_list_view(qapp):
     assert view.window().testAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
 
 
-def test_settings_factory_creates_reasoning_effort_combo(qapp):
-    """The model settings factory should expose all configured reasoning modes."""
-    combo = SettingsUIFactory().create_combo("openaiReasoningEffortCombo")
+def test_settings_config_creates_reasoning_effort_combo(qapp):
+    """The model settings config should expose all configured reasoning modes."""
+    combo = _settings_combo("openaiReasoningEffortCombo")
 
     assert combo.objectName() == "openaiReasoningEffortCombo"
     assert [combo.itemText(index) for index in range(combo.count())] == [
@@ -106,9 +112,9 @@ def test_settings_factory_creates_reasoning_effort_combo(qapp):
     ]
 
 
-def test_settings_factory_creates_editable_openai_vision_combo(qapp):
+def test_settings_config_creates_editable_openai_vision_combo(qapp):
     """The OpenAI vision model selector should allow API-listed and manual IDs."""
-    combo = SettingsUIFactory().create_combo("openaiVisionModelCombo")
+    combo = _settings_combo("openaiVisionModelCombo")
 
     assert combo.objectName() == "openaiVisionModelCombo"
     assert combo.isEditable()
@@ -116,7 +122,7 @@ def test_settings_factory_creates_editable_openai_vision_combo(qapp):
 
 def test_reasoning_effort_restore_falls_back_to_not_set(qapp):
     """Unknown persisted reasoning values must leave a valid selection."""
-    combo = SettingsUIFactory().create_combo("openaiReasoningEffortCombo")
+    combo = _settings_combo("openaiReasoningEffortCombo")
     combo.setCurrentIndex(combo.findData("high"))
     assert combo.currentData() == "high"
 
@@ -127,7 +133,7 @@ def test_reasoning_effort_restore_falls_back_to_not_set(qapp):
 
 def test_vision_model_restore_prefers_unsaved_combo_value(qapp, mocker):
     """Refreshing models must preserve a vision model edited but not saved yet."""
-    combo = SettingsUIFactory().create_combo("openaiVisionModelCombo")
+    combo = _settings_combo("openaiVisionModelCombo")
     combo.addItems(["gpt-5.4-mini", "gpt-5.6-luna"])
     combo.setCurrentText("gpt-5.6-luna")
 
@@ -164,7 +170,7 @@ def test_apply_models_to_ui_restores_current_model_or_selects_first(qapp):
 def test_apply_openai_vision_models_to_ui_populates_and_preserves_custom_model(qapp):
     """The editable OpenAI vision selector keeps a typed model absent from the API list."""
     dialog = SettingsDialog.__new__(SettingsDialog)
-    dialog.openai_vision_model_combo = SettingsUIFactory().create_combo("openaiVisionModelCombo")
+    dialog.openai_vision_model_combo = _settings_combo("openaiVisionModelCombo")
 
     dialog._apply_openai_vision_models_to_ui(
         ["gpt-5.4-mini", "gpt-5.6-luna"],
@@ -184,7 +190,7 @@ def test_apply_available_models_to_ui_leaves_vision_combo_unchanged_for_non_open
     dialog = SettingsDialog.__new__(SettingsDialog)
     dialog._loaded_model_defaults = {}
     dialog.model_combo = QComboBox()
-    dialog.openai_vision_model_combo = SettingsUIFactory().create_combo("openaiVisionModelCombo")
+    dialog.openai_vision_model_combo = _settings_combo("openaiVisionModelCombo")
     dialog.openai_vision_model_combo.addItems(["gpt-5.4-mini", "custom-vision-model"])
     dialog.openai_vision_model_combo.setCurrentText("custom-vision-model")
     before = [dialog.openai_vision_model_combo.itemText(i) for i in range(dialog.openai_vision_model_combo.count())]
@@ -199,7 +205,7 @@ def test_apply_available_models_to_ui_populates_google_model_and_default(qapp):
     dialog = SettingsDialog.__new__(SettingsDialog)
     dialog._loaded_model_defaults = {}
     dialog.model_combo = QComboBox()
-    dialog.openai_vision_model_combo = SettingsUIFactory().create_combo("openaiVisionModelCombo")
+    dialog.openai_vision_model_combo = _settings_combo("openaiVisionModelCombo")
     dialog.openai_vision_model_combo.addItem("custom-vision-model")
     dialog.openai_vision_model_combo.setCurrentText("custom-vision-model")
 

@@ -15,7 +15,7 @@ from typing import Any, Mapping, Tuple, Type, TypeVar
 import qtawesome as qta
 from PySide6.QtCore import QSize, Qt
 from PySide6.QtGui import QFont, QIcon, QPixmap
-from PySide6.QtWidgets import QComboBox, QListView
+from PySide6.QtWidgets import QComboBox, QLineEdit, QListView
 
 TWidget = TypeVar("TWidget")
 
@@ -24,7 +24,7 @@ def apply_widget_config(widget: Any, config: Mapping[str, Any]) -> None:
     """Apply common widget properties from a config mapping.
 
     Supported keys (best-effort, applied only if the widget supports it):
-    - object_name, text, tooltip
+    - object_name, text, tooltip, visible
     - size: (w, h) where either can be None
     - width, height, fixed_width, fixed_height
     - minimum_width, minimum_height, minimum_size
@@ -32,6 +32,10 @@ def apply_widget_config(widget: Any, config: Mapping[str, Any]) -> None:
     - icon_size: (w, h)
     - font: tuple suitable for QFont(*font)
     - placeholder
+    - editable, echo_mode: 'password'
+    - items: list[str], item_data: list (zipped with items into addItem(text, data))
+    - range: (min, max), single_step, value
+    - columns, headers (QTableWidget), title (QGroupBox)
     """
     if not config:
         return
@@ -80,6 +84,38 @@ def apply_widget_config(widget: Any, config: Mapping[str, Any]) -> None:
         widget.setFont(QFont(*config["font"]))
     if "placeholder" in config and hasattr(widget, "setPlaceholderText"):
         widget.setPlaceholderText(config["placeholder"])
+
+    # State
+    if "visible" in config:
+        widget.setVisible(config["visible"])
+    if "editable" in config and hasattr(widget, "setEditable"):
+        widget.setEditable(config["editable"])
+    if (
+        "echo_mode" in config
+        and config["echo_mode"] == "password"
+        and hasattr(widget, "setEchoMode")
+    ):
+        widget.setEchoMode(QLineEdit.EchoMode.Password)
+
+    # Items / numeric ranges / table structure / titles
+    if "items" in config and hasattr(widget, "addItems"):
+        if "item_data" in config and hasattr(widget, "addItem"):
+            for text, data in zip(config["items"], config["item_data"]):
+                widget.addItem(text, data)
+        else:
+            widget.addItems(config["items"])
+    if "range" in config and hasattr(widget, "setRange"):
+        widget.setRange(*config["range"])
+    if "single_step" in config and hasattr(widget, "setSingleStep"):
+        widget.setSingleStep(config["single_step"])
+    if "value" in config and hasattr(widget, "setValue"):
+        widget.setValue(config["value"])
+    if "columns" in config and hasattr(widget, "setColumnCount"):
+        widget.setColumnCount(config["columns"])
+    if "headers" in config and hasattr(widget, "setHorizontalHeaderLabels"):
+        widget.setHorizontalHeaderLabels(config["headers"])
+    if "title" in config and hasattr(widget, "setTitle"):
+        widget.setTitle(config["title"])
 
 
 def create_widget(
