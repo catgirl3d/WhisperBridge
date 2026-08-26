@@ -20,7 +20,6 @@ class CopyTranslateService(QObject):
 
     def __init__(
         self,
-        tray_manager=None,
         clipboard_service=None,
         config_service=None,
         translation_service=None,
@@ -28,7 +27,6 @@ class CopyTranslateService(QObject):
         debug_logger=None,
     ):
         super().__init__()
-        self.tray_manager = tray_manager
         self.clipboard_service = clipboard_service or get_clipboard_service()
         self.config_service = config_service or _config_service  # Use global if not provided
         self.translation_service = translation_service or get_translation_service()

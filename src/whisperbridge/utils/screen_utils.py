@@ -255,12 +255,3 @@ class ScreenUtils:
         """
         screen_bounds = ScreenUtils.get_virtual_screen_bounds()
         return rect.clip_to_bounds(screen_bounds)
-
-    @staticmethod
-    def get_screen_capture_bounds() -> Rectangle:
-        """Get bounds for screen capture (virtual screen).
-
-        Returns:
-            Rectangle: Screen capture bounds
-        """
-        return ScreenUtils.get_virtual_screen_bounds()

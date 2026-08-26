@@ -309,26 +309,6 @@ class QtApp(QObject, SettingsObserver):
         if self.ui:
             self.ui.hide_overlay_window(overlay_id=overlay_id)
 
-    def update_theme(self, theme: str):
-        """Update application theme.
-
-        Args:
-            theme: New theme ('dark', 'light', or 'system')
-        """
-        if self.ui:
-            self.ui.update_theme(theme)
-        logger.debug(f"Qt application theme updated to: {theme}")
-
-    def update_window_opacity(self, opacity: float):
-        """Update window opacity for all windows.
-
-        Args:
-            opacity: Opacity value between 0.0 and 1.0
-        """
-        opacity = max(0.1, min(1.0, opacity))  # Clamp between 0.1 and 1.0
-        if self.ui:
-            self.ui.update_window_opacity(opacity)
-
     def run(self):
         """Run the application main loop."""
         if not self.is_running:

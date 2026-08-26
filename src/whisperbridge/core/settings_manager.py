@@ -207,9 +207,7 @@ class SettingsManager:
                 return self._settings
 
     def save_settings(self, settings: Optional[Settings] = None) -> bool:
-        """Save settings to file with backup (with caller debug)."""
-        import inspect
-
+        """Save settings to file."""
         with self._lock:
             try:
                 if settings is None:
@@ -217,12 +215,6 @@ class SettingsManager:
                     if settings is None:
                         logger.warning("No settings to save")
                         return False
-
-                # Caller inspection for debugging unexpected saves
-                stack = inspect.stack()
-                caller_frame = stack[1]
-                caller_info = f"{caller_frame.function} in {caller_frame.filename}:{caller_frame.lineno}"
-                logger.debug(f"SettingsManager.save_settings called from {caller_info}")
 
                 settings_file = self._get_settings_file()
 

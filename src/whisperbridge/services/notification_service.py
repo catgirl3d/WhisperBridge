@@ -2,7 +2,7 @@
 Notification Service for WhisperBridge.
 
 Centralized service for managing system tray notifications with different types
-(INFO, WARNING, ERROR, SUCCESS) and thread-safe operations.
+(INFO, WARNING, ERROR) and thread-safe operations.
 """
 
 from enum import Enum
@@ -19,7 +19,6 @@ class NotificationType(Enum):
     INFO = "info"
     WARNING = "warning"
     ERROR = "error"
-    SUCCESS = "success"
 
 
 class NotificationService(QObject):
@@ -98,7 +97,6 @@ class NotificationService(QObject):
                     NotificationType.INFO: QSystemTrayIcon.MessageIcon.Information,
                     NotificationType.WARNING: QSystemTrayIcon.MessageIcon.Warning,
                     NotificationType.ERROR: QSystemTrayIcon.MessageIcon.Critical,
-                    NotificationType.SUCCESS: QSystemTrayIcon.MessageIcon.Information,
                 }
 
                 icon = icon_map.get(notification_type, QSystemTrayIcon.MessageIcon.Information)
@@ -123,16 +121,6 @@ class NotificationService(QObject):
             title: Notification title
         """
         self.show(message, title, NotificationType.INFO)
-
-    def success(self, message: str, title: str = "WhisperBridge"):
-        """
-        Show a success notification.
-
-        Args:
-            message: Notification message
-            title: Notification title
-        """
-        self.show(message, title, NotificationType.SUCCESS)
 
     def warning(self, message: str, title: str = "WhisperBridge"):
         """

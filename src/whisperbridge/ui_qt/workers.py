@@ -50,9 +50,6 @@ def start_qt_worker(worker: QObject, on_finished=None):
 class CaptureOcrTranslateWorker(QObject):
     """Worker for OCR + translation from a pre-captured image."""
 
-    started = Signal()
-    progress = Signal(str)
-    ocr_finished = Signal(str)
     finished = Signal(str, str, str, str)  # original, translated, overlay_id, error_message
 
     def __init__(self, image):
@@ -69,14 +66,11 @@ class CaptureOcrTranslateWorker(QObject):
         logger.info("CaptureOcrTranslateWorker run started")
 
         try:
-            self.started.emit()
-
             if self._cancel_requested:
                 self.finished.emit("", "", "", "")
                 return
 
             logger.debug("Processing pre-captured image")
-            self.progress.emit("Starting OCR and translation")
             ocr_service = get_ocr_service()
             translation_service = get_translation_service()
 
@@ -137,8 +131,6 @@ class CaptureOcrTranslateWorker(QObject):
                 self.finished.emit("", "", "", "")
                 return
 
-            self.progress.emit("Processing completed")
-            self.ocr_finished.emit(original_text)
             self.finished.emit(original_text, translated_text, overlay_id, error_message)
 
             logger.info("CaptureOcrTranslateWorker run completed successfully")

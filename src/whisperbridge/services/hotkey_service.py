@@ -289,11 +289,6 @@ class HotkeyService:
         """Check if the hotkey service is running."""
         return self._running
 
-    def get_registered_hotkeys(self) -> List[str]:
-        """Get combinations currently resolved for the listener."""
-        with self._lock:
-            return [combination for _, combination, _ in self._vk_hotkeys]
-
     def __del__(self):
         """Ensure listener cleanup during object destruction."""
         if getattr(self, "_running", False) or getattr(self, "_listener", None):

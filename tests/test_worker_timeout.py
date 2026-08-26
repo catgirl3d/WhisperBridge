@@ -924,10 +924,8 @@ class TestCaptureOcrTranslateWorker:
 
         worker = CaptureOcrTranslateWorker(image=Mock())
         finished_spy = QSignalSpy(worker.finished)
-        progress_spy = QSignalSpy(worker.progress)
         worker.run()
 
-        assert progress_spy.count() >= 1
         assert finished_spy.count() == 1
         assert finished_spy.at(0)[2] == "ocr"
         notification_service.info.assert_called_once_with(
@@ -1025,7 +1023,6 @@ class TestCaptureOcrTranslateWorker:
     def test_worker_cancellation_during_processing(self, qtbot, mock_services):
         """Test worker respects cancellation request during processing."""
         worker = CaptureOcrTranslateWorker(image=Mock())
-        progress_spy = QSignalSpy(worker.progress)
         finished_spy = QSignalSpy(worker.finished)
         
         # Request cancellation before run
@@ -1033,8 +1030,6 @@ class TestCaptureOcrTranslateWorker:
         
         worker.run()
         
-        # Worker should return early without emitting progress
-        assert progress_spy.count() == 0
         assert finished_spy.count() == 1
         assert finished_spy.at(0) == ["", "", "", ""]
 

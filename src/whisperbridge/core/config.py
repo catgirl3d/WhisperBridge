@@ -5,14 +5,12 @@ This module handles application configuration, settings loading,
 and environment variable management.
 """
 
-import json
 import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-import keyring
 from loguru import logger
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -267,15 +265,6 @@ class Settings(BaseSettings):
         env_file=Path(__file__).resolve().parent.parent.parent.parent / ".env",
         case_sensitive=False, validate_assignment=True, extra="ignore"
     )
-
-    @classmethod
-    def get_project_root(cls) -> Path:
-        """Get project root directory (works from src/ or exe)."""
-        # When running from src/, go up 3 levels: src/whisperbridge/core -> project root
-        # When running from exe, PyInstaller sets sys._MEIPASS to temp dir, but we need project root
-        current = Path(__file__).resolve()
-        # Go up to src/whisperbridge/core, then up 3 more levels to project root
-        return current.parent.parent.parent.parent
 
     @field_validator("ui_source_language", "ui_target_language")
     @classmethod

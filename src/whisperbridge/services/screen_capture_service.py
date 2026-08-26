@@ -126,7 +126,7 @@ class ScreenCaptureService:
         static screenshot captured at hotkey press time.
         """
         try:
-            virtual_bounds = self._get_qt_virtual_bounds() or ScreenUtils.get_screen_capture_bounds()
+            virtual_bounds = self._get_qt_virtual_bounds() or ScreenUtils.get_virtual_screen_bounds()
             if virtual_bounds.width <= 0 or virtual_bounds.height <= 0:
                 logger.error(f"Invalid virtual bounds for capture: {virtual_bounds}")
                 return CaptureResult(

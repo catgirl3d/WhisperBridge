@@ -280,17 +280,13 @@ class GoogleChatClientAdapter:
 
     def _list_models(self) -> Any:
         data = []
-        try:
-            for model in self._client.models.list():
-                model_name = getattr(model, "name", "")
-                if "/" in model_name:
-                    model_name = model_name.split("/")[-1]
-                # Simplified filter: any Gemini-branded model that isn't for embeddings
-                if model_name.lower().startswith("gemini-") and "embedding" not in model_name.lower():
-                    model_info = SimpleNamespace()
-                    model_info.id = model_name
-                    data.append(model_info)
-        except Exception as e:
-            from loguru import logger
-            logger.error(f"Error listing Gemini models: {e}")
+        for model in self._client.models.list():
+            model_name = getattr(model, "name", "")
+            if "/" in model_name:
+                model_name = model_name.split("/")[-1]
+            # Simplified filter: any Gemini-branded model that isn't for embeddings
+            if model_name.lower().startswith("gemini-") and "embedding" not in model_name.lower():
+                model_info = SimpleNamespace()
+                model_info.id = model_name
+                data.append(model_info)
         return SimpleNamespace(data=data)

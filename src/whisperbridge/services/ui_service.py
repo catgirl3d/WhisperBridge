@@ -487,36 +487,6 @@ class UIService:
                 except Exception:
                     self.logger.debug("Failed to show tray notification for copy-translate error")
 
-    # --- Additional UI helpers --------------------------------
-
-    @main_thread_only
-    def update_window_opacity(self, opacity: float):
-        """Update window opacity for all managed windows."""
-        try:
-            opacity = max(0.1, min(1.0, opacity))
-            # Update overlay windows opacity
-            for overlay in list(self.overlay_windows.values()):
-                try:
-                    overlay.setWindowOpacity(opacity)
-                except Exception:
-                    pass
-            self.logger.debug(f"UIService: Window opacity updated to: {opacity}")
-        except Exception as e:
-            self.logger.error(
-                f"UIService.update_window_opacity error: {e}", exc_info=True
-            )
-
-    @main_thread_only
-    def update_theme(self, theme: str):
-        """Persist theme setting and log (keeps parity with QtApp.update_theme)."""
-        try:
-            from ..services.config_service import config_service
-
-            config_service.set_setting("theme", theme)
-            self.logger.debug(f"UIService: theme updated to: {theme}")
-        except Exception as e:
-            self.logger.error(f"UIService.update_theme error: {e}", exc_info=True)
-
     @main_thread_only
     @Slot(str)
     def on_theme_changed(self, theme: str):
@@ -549,9 +519,6 @@ class UIService:
                     w.update()
                 except Exception:
                     pass
-
-            # Tray can be updated here if theme-specific assets are used (placeholder hook)
-            # if self.tray_manager: self.tray_manager.update_theme(theme)
 
             self.logger.debug(f"UIService: Applied theme change to widgets: {theme}")
         except Exception as e:

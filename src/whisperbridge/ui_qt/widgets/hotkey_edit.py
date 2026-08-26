@@ -1,7 +1,7 @@
 from typing import Optional
 
 from PySide6.QtWidgets import QLineEdit
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt
 from loguru import logger
 
 from ...utils.keyboard_utils import KeyboardUtils
@@ -11,8 +11,6 @@ class HotkeyEdit(QLineEdit):
     A custom QLineEdit for recording global hotkeys.
     It captures physical key presses and formats them as a string.
     """
-    hotkeyChanged = Signal(str)
-
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setReadOnly(True)
@@ -85,7 +83,6 @@ class HotkeyEdit(QLineEdit):
         logger.debug(f"HotkeyEdit: Recording new hotkey: '{hotkey_str}'")
         self._recording = False  # Actual key pressed, finalize
         self.setText(hotkey_str)
-        self.hotkeyChanged.emit(hotkey_str)
         
         # Clear focus to stop recording
         self.clearFocus()
@@ -107,7 +104,6 @@ class HotkeyEdit(QLineEdit):
 
     def clear_hotkey(self):
         self.setText("")
-        self.hotkeyChanged.emit("")
         self.clearFocus()
 
     def focusInEvent(self, event):

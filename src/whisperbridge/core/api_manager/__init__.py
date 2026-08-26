@@ -7,8 +7,6 @@ error handling, and retry logic.
 
 import threading
 
-from .types import ModelSource
-from .errors import APIError, APIErrorType, RetryableAPIError
 from .manager import APIManager
 
 # Singleton management
@@ -57,10 +55,6 @@ def init_api_manager() -> APIManager:
 
 __all__ = [
     "APIManager",
-    "APIError",
-    "APIErrorType",
-    "RetryableAPIError",
-    "ModelSource",
     "get_api_manager",
     "init_api_manager",
 ]

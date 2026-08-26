@@ -94,7 +94,6 @@ class AppServices(QObject):
 
         # Copy-translate service
         self.copy_translate_service = CopyTranslateService(
-            tray_manager=(self.ui_service.tray_manager if self.ui_service else None),
             clipboard_service=self.clipboard_service,
             hotkey_service=self.hotkey_service
         )
