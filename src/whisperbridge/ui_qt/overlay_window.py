@@ -10,7 +10,6 @@ from PySide6.QtCore import (
     QEvent,
     QSize,
     Qt,
-    QThread,
     QTimer,
 )
 from PySide6.QtGui import QAction, QTextCursor, QTransform
@@ -31,7 +30,7 @@ from ..core.config import (
 )
 from ..core.provider_catalog import APIProvider
 from .styled_overlay_base import StyledOverlayWindow
-from .workers import TranslationWorker, StyleWorker
+from .workers import TranslationWorker, StyleWorker, start_qt_worker
 from .translator_settings_dialog import TranslatorSettingsDialog
 from .translator_view import TranslatorView
 
@@ -748,19 +747,10 @@ class OverlayWindow(StyledOverlayWindow):
     def _setup_worker(self, worker_class, *args):
         """Generic method to set up and start a worker in a background thread."""
         worker = worker_class(*args)
-        thread = QThread()
-        worker.moveToThread(thread)
+        _, thread = start_qt_worker(worker, self._on_translation_finished)
 
-        worker.finished.connect(self._on_translation_finished)
-        thread.started.connect(worker.run)
-
-        # Stop the worker thread from the worker thread so GUI event-loop load
-        # cannot delay delivery of the completion request.
-        worker.finished.connect(thread.quit, Qt.DirectConnection)
-        worker.finished.connect(worker.deleteLater)
-        thread.finished.connect(thread.deleteLater)
-
-        # Watchdog timer setup
+        # Watchdog: if the worker never finishes (e.g. a hung network call),
+        # stop its thread after twice the API timeout.
         api_timeout = config_service.get_setting("api_timeout")
         try:
             api_timeout = int(api_timeout)
@@ -768,70 +758,28 @@ class OverlayWindow(StyledOverlayWindow):
             api_timeout = None
         if api_timeout is None or not API_TIMEOUT_MIN <= api_timeout <= API_TIMEOUT_MAX:
             api_timeout = API_TIMEOUT_DEFAULT
-        watchdog_timeout = max(api_timeout * 2, 60)  # Reduced minimum to 60 seconds
-        
+        watchdog_timeout = max(api_timeout * 2, 60)
+
         watchdog = QTimer(self)
         watchdog.setSingleShot(True)
-        watchdog_active = [True]  # Mutable flag for closure
-        
-        def _force_thread_termination():
-            if not watchdog_active[0]:
-                return
+
+        def _stop_thread_after_watchdog_timeout():
             try:
                 if not thread.isRunning():
-                    logger.debug("Watchdog triggered but thread already finished")
                     return
-                
-                # Disconnect self to prevent re-entry
-                try:
-                    watchdog.timeout.disconnect(_force_thread_termination)
-                except (RuntimeError, TypeError):
-                    pass
-                    
-                logger.error(f"Watchdog timeout: forcing thread termination after {watchdog_timeout}s")
-                thread.quit()
-                thread.wait(1000)
-                if thread.isRunning():
-                    logger.warning("Thread still running after quit, forcing termination")
-                    thread.terminate()
-                    thread.wait(1000)
-                    if thread.isRunning():
-                        logger.error("Thread still running after terminate! System instability possible.")
-            except Exception as e:
-                logger.error(f"Exception during watchdog thread termination: {e}")
-        
-        def cleanup_watchdog():
-            """Stop watchdog and clean up resources."""
-            if not watchdog_active[0]:
+            except RuntimeError:
                 return
-            watchdog_active[0] = False
-            try:
-                logger.debug("Cleaning up watchdog timer")
-                # Disconnect signals to prevent dangling references
-                try:
-                    thread.finished.disconnect(cleanup_watchdog)
-                except (RuntimeError, TypeError):
-                    pass
-                # Schedule deletion
-                watchdog.deleteLater()
-                logger.debug("Watchdog cleanup completed")
-            except Exception as e:
-                logger.debug(f"Watchdog cleanup error: {e}")
-        
-        watchdog.timeout.connect(_force_thread_termination)
-        
+            logger.error(f"Watchdog timeout: stopping worker thread after {watchdog_timeout}s")
+            thread.quit()
+            if not thread.wait(2000):
+                logger.error("Worker thread did not stop after watchdog quit; abandoning it")
 
-        
-        # Connect cleanup signals
-        thread.finished.connect(cleanup_watchdog)
-        
-        # Start watchdog immediately BEFORE thread ensures 100% coverage
-        if watchdog_active[0]:
-            logger.debug(f"Starting watchdog with {watchdog_timeout}s timeout")
-            watchdog.start(watchdog_timeout * 1000)
-            
-        # Now start the thread
-        thread.start()
+        def cleanup_watchdog():
+            watchdog.deleteLater()
+
+        watchdog.timeout.connect(_stop_thread_after_watchdog_timeout)
+        thread.finished.connect(cleanup_watchdog, Qt.ConnectionType.QueuedConnection)
+        watchdog.start(watchdog_timeout * 1000)
         return worker, thread
 
 

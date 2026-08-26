@@ -22,6 +22,7 @@ from ..services.app_services import AppServices
 from ..services.ui_service import UIService
 from ..services.notification_service import NotificationService
 from ..services.copy_translate_service import CopyTranslateService
+from .workers import start_qt_worker
 
 
 class RunnableWorker(Protocol):
@@ -278,22 +279,15 @@ class QtApp(QObject, SettingsObserver):
 
     def create_and_run_worker(self, worker: RunnableWorker, on_finished):
         """Centralized creates, configures, and starts a QThread for the worker."""
-        thread = QThread()
-        worker.moveToThread(thread)
-        worker.finished.connect(on_finished)
-        thread.started.connect(worker.run)
-        worker.finished.connect(thread.quit)
-        thread.finished.connect(thread.deleteLater)
-        worker.finished.connect(worker.deleteLater)
-        self._worker_threads.append((thread, worker))
+        started_worker, thread = start_qt_worker(worker, on_finished)
+        self._worker_threads.append((thread, started_worker))
         thread.finished.connect(
-            lambda: self._worker_threads.remove((thread, worker))
-            if (thread, worker) in self._worker_threads
+            lambda: self._worker_threads.remove((thread, started_worker))
+            if (thread, started_worker) in self._worker_threads
             else None
         )
-        thread.start()
-        logger.info(f"Started worker {worker.__class__.__name__} in a new thread.")
-        return thread, worker
+        logger.info(f"Started worker {started_worker.__class__.__name__} in a new thread.")
+        return thread, started_worker
 
     def toggle_overlay(self):
         """Toggle overlay visibility — delegate to UIService."""

@@ -58,7 +58,7 @@ QPushButton#settingsBtnTop:hover {
 }
 
 /* Input field styling */
-QLineEdit, QTextEdit, QSpinBox, QDoubleSpinBox {
+QLineEdit, QTextEdit, QSpinBox {
     background-color: #ffffff;
     color: #111111;
     border: 1px solid rgba(0,0,0,0.12);
@@ -277,24 +277,24 @@ QGroupBox::title {
 }
 
 /* SpinBox arrow styling */
-QSpinBox::up-button, QDoubleSpinBox::up-button {
+QSpinBox::up-button {
     subcontrol-origin: border;
     subcontrol-position: top right;
     width: 22px;
     border-left: 1px solid rgba(0,0,0,0.08);
 }
-QSpinBox::down-button, QDoubleSpinBox::down-button {
+QSpinBox::down-button {
     subcontrol-origin: border;
     subcontrol-position: bottom right;
     width: 22px;
     border-left: 1px solid rgba(0,0,0,0.08);
 }
-QSpinBox::up-arrow, QDoubleSpinBox::up-arrow {
+QSpinBox::up-arrow {
     image: url("{assets_path}/icons/chevron-up-solid-full.svg");
     width: 12px;
     height: 12px;
 }
-QSpinBox::down-arrow, QDoubleSpinBox::down-arrow {
+QSpinBox::down-arrow {
     image: url("{assets_path}/icons/chevron-down-solid-full.svg");
     width: 12px;
     height: 12px;

@@ -6,7 +6,7 @@ Provides thread-safe workers for OCR/translation and settings saving operations.
 from typing import Optional
 
 from loguru import logger
-from PySide6.QtCore import QObject, Signal
+from PySide6.QtCore import QObject, QThread, Signal, Qt
 
 from ..core.api_manager import get_api_manager
 from ..core.provider_catalog import APIProvider
@@ -16,6 +16,35 @@ from ..services.ocr_service import OCRRequest, get_ocr_service
 from ..services.translation_service import get_translation_service
 from ..providers.deepl_adapter import DeepLClientAdapter
 from ..core.config import get_deepl_identifier
+
+
+def start_qt_worker(worker: QObject, on_finished=None):
+    """Start `worker` on a fresh QThread using the canonical Qt lifecycle.
+
+    The thread quits and both objects schedule their own deletion when the
+    worker emits its `finished` signal. Returns (worker, thread).
+    """
+    thread = QThread()
+    worker.moveToThread(thread)
+    if on_finished is not None:
+        worker.finished.connect(on_finished)
+    thread.started.connect(worker.run)
+    # Stop from the worker thread itself so GUI event-loop load cannot delay
+    # the stop; quit() is documented thread-safe.
+    worker.finished.connect(thread.quit, Qt.ConnectionType.DirectConnection)
+    worker.finished.connect(worker.deleteLater)
+
+    def _reap_thread():
+        # finished is emitted just before the native thread exits; deleting
+        # the QThread earlier is undefined behavior, so wait it out first.
+        if thread.wait(2000):
+            thread.deleteLater()
+        else:
+            logger.warning("Worker QThread did not fully exit; leaking it")
+
+    thread.finished.connect(_reap_thread, Qt.ConnectionType.QueuedConnection)
+    thread.start()
+    return worker, thread
 
 
 class CaptureOcrTranslateWorker(QObject):
