@@ -143,8 +143,8 @@ class TestGetAvailableModels:
         mock_models_response = mocker.Mock()
         mock_models_response.data = [mocker.Mock(id="gpt-5.3")]
         mock_client.models.list.return_value = mock_models_response
-        mock_openai_adapter = mocker.patch(
-            "whisperbridge.core.api_manager.models.OpenAIChatClientAdapter",
+        mock_openai_client_factory = mocker.patch(
+            "whisperbridge.core.api_manager.models.openai.OpenAI",
             return_value=mock_client,
         )
 
@@ -155,7 +155,7 @@ class TestGetAvailableModels:
 
         assert result_models == []
         assert source == ModelSource.API_TEMP_KEY.value
-        mock_openai_adapter.assert_called_once()
+        mock_openai_client_factory.assert_called_once()
         assert model_manager.get_cached_models("openai") is None
 
     def test_get_available_models_with_temp_key_applies_openai_filters_and_ranking(
@@ -175,8 +175,8 @@ class TestGetAvailableModels:
             mocker.Mock(id="gpt-5.6-luna"),
         ]
         mock_client.models.list.return_value = mock_models_response
-        mock_openai_adapter = mocker.patch(
-            "whisperbridge.core.api_manager.models.OpenAIChatClientAdapter",
+        mock_openai_client_factory = mocker.patch(
+            "whisperbridge.core.api_manager.models.openai.OpenAI",
             return_value=mock_client,
         )
 
@@ -187,7 +187,7 @@ class TestGetAvailableModels:
 
         assert result_models == ["gpt-5.6-luna"]
         assert source == ModelSource.API_TEMP_KEY.value
-        mock_openai_adapter.assert_called_once()
+        mock_openai_client_factory.assert_called_once()
         assert model_manager.get_cached_models("openai") is None
 
 
@@ -472,7 +472,7 @@ class TestCredentialChangeGuard:
         mock_client = mocker.Mock()
         mock_client.models.list.side_effect = Exception("bad temp key")
         mocker.patch(
-            "whisperbridge.core.api_manager.models.OpenAIChatClientAdapter",
+            "whisperbridge.core.api_manager.models.openai.OpenAI",
             return_value=mock_client,
         )
 

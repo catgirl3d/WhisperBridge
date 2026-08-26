@@ -9,12 +9,12 @@ The supported provider catalog lives in core.provider_catalog.APIProvider.
 
 from typing import Any, Dict, Optional
 
+import openai
 from loguru import logger
 
 from ..config import validate_api_key_format
 from ...providers.deepl_adapter import DeepLClientAdapter
 from ...providers.google_chat_adapter import GoogleChatClientAdapter
-from ...providers.openai_adapter import OpenAIChatClientAdapter
 from ..provider_catalog import APIProvider
 
 
@@ -104,7 +104,7 @@ class ProviderRegistry:
             provider=APIProvider.OPENAI,
             config_key_name="openai_api_key",
             key_prefix="sk-",
-            client_factory=lambda key, timeout: OpenAIChatClientAdapter(api_key=key, timeout=timeout),
+            client_factory=lambda key, timeout: openai.OpenAI(api_key=key, timeout=timeout),
             provider_name="OpenAI",
         )
 

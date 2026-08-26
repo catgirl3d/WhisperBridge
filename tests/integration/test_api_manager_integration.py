@@ -94,7 +94,7 @@ class TestAPIManagerIntegration:
             "api_timeout": 30,
         }.get(key)
         
-        mocker.patch("whisperbridge.core.api_manager.providers.OpenAIChatClientAdapter")
+        mocker.patch("whisperbridge.core.api_manager.providers.openai.OpenAI")
         api_manager.initialize()
         assert api_manager.has_clients() is True
         assert api_manager._providers.is_provider_available(APIProvider.OPENAI) is True
@@ -126,7 +126,7 @@ class TestAPIManagerIntegration:
         api_model = "gpt-5.4-mini"
         mock_model = mocker.Mock(id=api_model)
         mock_client.models.list.return_value = mocker.Mock(data=[mock_model])
-        mocker.patch("whisperbridge.core.api_manager.providers.OpenAIChatClientAdapter", return_value=mock_client)
+        mocker.patch("whisperbridge.core.api_manager.providers.openai.OpenAI", return_value=mock_client)
 
         manager1 = APIManager(mock_config_service)
         manager1.initialize()

@@ -62,7 +62,7 @@ class TestInitialization:
         mock_deepl_client = mocker.Mock()
 
         mocker.patch(
-            "whisperbridge.core.api_manager.providers.OpenAIChatClientAdapter",
+            "whisperbridge.core.api_manager.providers.openai.OpenAI",
             return_value=mock_openai_client
         )
         mocker.patch(
@@ -144,7 +144,7 @@ class TestInitialization:
 
         mock_openai_client = mocker.Mock()
         mocker.patch(
-            "whisperbridge.core.api_manager.providers.OpenAIChatClientAdapter",
+            "whisperbridge.core.api_manager.providers.openai.OpenAI",
             return_value=mock_openai_client
         )
 
@@ -168,7 +168,7 @@ class TestInitialization:
             "api_timeout": 30,
         }.get(key)
         mocker.patch(
-            "whisperbridge.core.api_manager.providers.OpenAIChatClientAdapter",
+            "whisperbridge.core.api_manager.providers.openai.OpenAI",
             return_value=mocker.Mock(),
         )
 
@@ -226,7 +226,7 @@ class TestMakeRequestSync:
         mock_client.chat.completions.create.side_effect = [error, error, mock_response]
 
         mocker.patch(
-            "whisperbridge.core.api_manager.providers.OpenAIChatClientAdapter",
+            "whisperbridge.core.api_manager.providers.openai.OpenAI",
             return_value=mock_client
         )
 
@@ -261,7 +261,7 @@ class TestMakeRequestSync:
         mock_client.chat.completions.create.side_effect = error
 
         mocker.patch(
-            "whisperbridge.core.api_manager.providers.OpenAIChatClientAdapter",
+            "whisperbridge.core.api_manager.providers.openai.OpenAI",
             return_value=mock_client
         )
 

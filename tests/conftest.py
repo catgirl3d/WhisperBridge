@@ -94,7 +94,7 @@ def mock_openai_client(mocker, mock_openai_response):
     mock_client.chat.completions.create.return_value = mock_openai_response
     
     mocker.patch(
-        "whisperbridge.core.api_manager.providers.OpenAIChatClientAdapter",
+        "whisperbridge.core.api_manager.providers.openai.OpenAI",
         return_value=mock_client
     )
     return mock_client

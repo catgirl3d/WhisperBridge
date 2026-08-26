@@ -8,6 +8,8 @@ available models from API providers, backed by an in-memory cache.
 import re
 import threading
 
+import openai
+
 from typing import Dict, List, Optional, Tuple
 
 from loguru import logger
@@ -19,7 +21,6 @@ from ..config import (
     get_openai_model_excludes,
 )
 from ...providers.google_chat_adapter import GoogleChatClientAdapter
-from ...providers.openai_adapter import OpenAIChatClientAdapter
 from ..provider_catalog import APIProvider
 from .types import ModelSource
 
@@ -270,7 +271,7 @@ class ModelManager:
             try:
                 logger.debug(f"Creating temporary client for {provider.value} using provided key.")
                 if provider == APIProvider.OPENAI:
-                    client = OpenAIChatClientAdapter(api_key=temp_api_key, timeout=10)
+                    client = openai.OpenAI(api_key=temp_api_key, timeout=10)
                 elif provider == APIProvider.GOOGLE:
                     client = GoogleChatClientAdapter(api_key=temp_api_key, timeout=10)
                 source = ModelSource.API_TEMP_KEY

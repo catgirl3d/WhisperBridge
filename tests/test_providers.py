@@ -34,7 +34,7 @@ class TestProviderInitialization:
 
         mock_client = mocker.Mock()
         mocker.patch(
-            "whisperbridge.core.api_manager.providers.OpenAIChatClientAdapter",
+            "whisperbridge.core.api_manager.providers.openai.OpenAI",
             return_value=mock_client
         )
 
@@ -103,7 +103,7 @@ class TestClientRetrieval:
 
         mock_client = mocker.Mock()
         mocker.patch(
-            "whisperbridge.core.api_manager.providers.OpenAIChatClientAdapter",
+            "whisperbridge.core.api_manager.providers.openai.OpenAI",
             return_value=mock_client
         )
 
@@ -152,7 +152,7 @@ class TestProviderClearing:
         mock_openai_client = mocker.Mock()
         mock_google_client = mocker.Mock()
         mocker.patch(
-            "whisperbridge.core.api_manager.providers.OpenAIChatClientAdapter",
+            "whisperbridge.core.api_manager.providers.openai.OpenAI",
             return_value=mock_openai_client
         )
         mocker.patch(
@@ -232,7 +232,7 @@ class TestSimultaneousInitialization:
         mock_deepl_client = mocker.Mock()
 
         mocker.patch(
-            "whisperbridge.core.api_manager.providers.OpenAIChatClientAdapter",
+            "whisperbridge.core.api_manager.providers.openai.OpenAI",
             return_value=mock_openai_client
         )
         mocker.patch(
