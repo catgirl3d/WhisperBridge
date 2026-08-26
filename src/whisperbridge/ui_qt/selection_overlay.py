@@ -6,10 +6,7 @@ from PySide6.QtGui import QColor, QFont, QGuiApplication, QImage, QPainter, QPen
 from PySide6.QtWidgets import QApplication, QWidget
 from loguru import logger
 
-from .base_window import BaseWindow
-
-
-class SelectionOverlayQt(QWidget, BaseWindow):
+class SelectionOverlayQt(QWidget):
     selectionCompleted = Signal(QRect)
     selectionCanceled = Signal()
 

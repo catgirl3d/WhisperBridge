@@ -22,7 +22,6 @@ from PySide6.QtCore import QPoint, Qt
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QWidget
 
-from .base_window import BaseWindow
 from .widget_factory import create_widget as _create_widget
 from .widget_factory import make_qta_icon as _wf_make_qta_icon
 
@@ -68,7 +67,7 @@ MINIBAR_LABEL_CONFIG = {
 
 
 
-class MiniBarOverlay(QWidget, BaseWindow):
+class MiniBarOverlay(QWidget):
     """
     Detachable mini companion window for the OverlayWindow.
 
@@ -233,7 +232,7 @@ class MiniBarOverlay(QWidget, BaseWindow):
     # --- Qt lifecycle ---
 
     def closeEvent(self, event):
-        """Accept close to avoid BaseWindow.closeEvent ignore behavior."""
+        """Accept close event."""
         event.accept()
 
     def dismiss(self):

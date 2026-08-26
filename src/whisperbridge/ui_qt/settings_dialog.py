@@ -39,11 +39,8 @@ from .workers import ApiTestWorker, ModelListWorker
 from ..utils.help_texts import HELP_TEXTS
 
 
-from .base_window import BaseWindow
 from .settings_ui_factory import SettingsUIFactory
-
-
-class SettingsDialog(QDialog, BaseWindow, SettingsObserver):
+class SettingsDialog(QDialog, SettingsObserver):
     """Settings dialog with tabbed interface for configuration.
 
     Save contract: ``_form_baseline`` is the source of truth for diff-based

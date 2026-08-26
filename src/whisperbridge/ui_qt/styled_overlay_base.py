@@ -31,7 +31,6 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from whisperbridge.ui_qt.base_window import BaseWindow
 from ..services.config_service import config_service
 from .widget_factory import create_widget as _create_widget
 from .widget_factory import make_icon_from_spec as _make_icon_from_spec
@@ -96,10 +95,10 @@ RESIZE_CONFIG = {
 }
 
 
-class StyledOverlayWindow(QWidget, BaseWindow):
+class StyledOverlayWindow(QWidget):
     """
     Base class for lightweight, stylized, frameless overlay windows with:
-      - unified close/dismiss behavior (via BaseWindow)
+      - unified close/dismiss behavior
       - drag + edge-resize support
       - minibar collapse/restore support
       - top-right control buttons (collapse/close) + optional settings
