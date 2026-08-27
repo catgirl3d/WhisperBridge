@@ -1,13 +1,15 @@
 """Observable presentation contract for the translator view component."""
 
 from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 
 pytest.importorskip("PySide6")
 
-from PySide6.QtWidgets import QVBoxLayout
+from PySide6.QtGui import QColor, QPalette
 from PySide6.QtTest import QSignalSpy
+from PySide6.QtWidgets import QVBoxLayout
 
 from whisperbridge.ui_qt.translator_view import TranslatorView
 from whisperbridge.utils.language_utils import Language
@@ -41,6 +43,35 @@ def test_view_preserves_identity_and_dynamic_properties(view):
     assert view.translate_btn.property("role") == "translateButton"
     assert view.reader_mode_btn.property("role") == "readerButton"
     assert view.copy_original_btn.property("utility") is True
+
+
+def test_translator_text_controls_override_dark_palette_text_color(qapp, qtbot):
+    """Light-styled translator controls stay readable with a dark application palette."""
+    from PySide6.QtWidgets import QCheckBox, QGroupBox
+
+    from whisperbridge.services.theme_service import ThemeService
+
+    previous_palette = qapp.palette()
+    previous_stylesheet = qapp.styleSheet()
+    config_service = Mock()
+    config_service.get_setting.return_value = "dark"
+
+    try:
+        ThemeService(qt_app=qapp, config_service=config_service, logger=Mock())
+        checkbox = QCheckBox("Auto-translate EN <-> RU")
+        disabled_checkbox = QCheckBox("Disabled")
+        disabled_checkbox.setEnabled(False)
+        group_box = QGroupBox("Display Options")
+        for widget in (checkbox, disabled_checkbox, group_box):
+            qtbot.addWidget(widget)
+        qapp.processEvents()
+
+        assert checkbox.palette().color(QPalette.ColorRole.WindowText) == QColor("#111111")
+        assert disabled_checkbox.palette().color(QPalette.ColorRole.WindowText) == QColor("#9e9e9e")
+        assert group_box.palette().color(QPalette.ColorRole.WindowText) == QColor("#111111")
+    finally:
+        qapp.setStyleSheet(previous_stylesheet)
+        qapp.setPalette(previous_palette)
 
 
 def test_language_selection_blocks_signals_and_falls_back(view):

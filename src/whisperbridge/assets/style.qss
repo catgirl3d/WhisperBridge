@@ -264,6 +264,7 @@ QComboBox::down-arrow {
 
 /* GroupBox styling */
 QGroupBox {
+    color: #111111;
     font-weight: bold;
     border: 1px solid rgba(0,0,0,0.08);
     border-radius: 4px;
@@ -373,7 +374,12 @@ QPushButton#closeBtnMini:hover {
 }
 /* CheckBox styling */
 QCheckBox {
+    color: #111111;
     spacing: 4px;
+}
+
+QCheckBox:disabled {
+    color: #9e9e9e;
 }
 
 QCheckBox::indicator {
