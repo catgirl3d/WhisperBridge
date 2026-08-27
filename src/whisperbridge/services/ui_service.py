@@ -8,6 +8,7 @@ work happens in the main Qt thread.
 import functools
 from typing import Dict, Optional
 
+import pyperclip
 from loguru import logger as _default_logger
 from PySide6.QtCore import QThread, Slot
 from PySide6.QtWidgets import QApplication
@@ -22,8 +23,6 @@ from ..ui_qt.workers import CaptureOcrTranslateWorker
 from ..utils.screen_utils import Rectangle
 from ..core.config import BUILD_OCR_ENABLED
 
-# Clipboard accessor (fallback)
-from .clipboard_service import get_clipboard_service
 from .notification_service import get_notification_service
 from .screen_capture_service import get_capture_service
 
@@ -67,7 +66,6 @@ class UIService:
         tray_manager: Optional[TrayManager] = None,
         selection_overlay: Optional[SelectionOverlayQt] = None,
         overlay_windows: Optional[Dict[str, OverlayWindow]] = None,
-        clipboard_service=None,
         logger=None,
         app=None,
     ):
@@ -78,8 +76,6 @@ class UIService:
         # Use provided dict or initialize empty dict
         self.overlay_windows: Dict[str, OverlayWindow] = overlay_windows if overlay_windows is not None else {}
         self.reader_window = None
-        # Clipboard service may be None; fallback to get_clipboard_service() inside methods
-        self._clipboard_service = clipboard_service
         # Logger fallback
         self.logger = logger or _default_logger
         self.app = app
@@ -236,7 +232,7 @@ class UIService:
             # Create overlay window if missing
             if overlay_id not in self.overlay_windows:
                 try:
-                    self.overlay_windows[overlay_id] = OverlayWindow()
+                    self.overlay_windows[overlay_id] = OverlayWindow(ui_service=self)
                     self.logger.debug(f"UIService: Created OverlayWindow for id '{overlay_id}'")
                 except Exception as e:
                     self.logger.error(
@@ -322,7 +318,7 @@ class UIService:
             self.logger.info(
                 "UIService: No existing overlay found — creating a basic fullscreen overlay"
             )
-            self.overlay_windows[main_overlay_id] = OverlayWindow()
+            self.overlay_windows[main_overlay_id] = OverlayWindow(ui_service=self)
             self.overlay_windows[main_overlay_id].show_overlay("", "")
             self.logger.info(f"Created and showed overlay '{main_overlay_id}'")
         except Exception as e:
@@ -377,7 +373,7 @@ class UIService:
 
             # Ensure OCR overlay exists (created in main thread)
             if 'ocr' not in self.overlay_windows:
-                self.overlay_windows['ocr'] = OverlayWindow()
+                self.overlay_windows['ocr'] = OverlayWindow(ui_service=self)
                 self.logger.debug("OCR overlay created in main thread")
 
             if self.selection_overlay is None:
@@ -463,16 +459,9 @@ class UIService:
 
             # If auto-copy requested, copy AFTER overlay is shown
             if auto_copy:
-                clipboard_service = self._clipboard_service or get_clipboard_service()
                 try:
-                    if clipboard_service and clipboard_service.copy_text(
-                        translated_text
-                    ):
-                        self.logger.info("Translated text copied to clipboard (auto_copy_translated enabled)")
-                    else:
-                        self.logger.warning(
-                            "Failed to copy translated text to clipboard (ClipboardService.copy_text returned False or service unavailable)"
-                        )
+                    pyperclip.copy(translated_text)
+                    self.logger.info("Translated text copied to clipboard (auto_copy_translated enabled)")
                 except Exception as e:
                     self.logger.error(f"UIService: Auto-copy failed: {e}", exc_info=True)
 
@@ -732,18 +721,3 @@ class UIService:
             self.logger.error(f"Error starting OCR worker: {e}", exc_info=True)
             notification_service = get_notification_service()
             notification_service.error(f"Failed to start OCR processing: {e}", "WhisperBridge")
-
-
-# Global UI service instance (set by AppServices)
-_ui_service_instance: Optional[UIService] = None
-
-
-def get_ui_service() -> Optional[UIService]:
-    """Get the global UI service instance."""
-    return _ui_service_instance
-
-
-def set_ui_service(ui_service: UIService) -> None:
-    """Set the global UI service instance."""
-    global _ui_service_instance
-    _ui_service_instance = ui_service

@@ -5,6 +5,7 @@ Overlay window implementation for Qt-based UI.
 import time
 from typing import Optional
 
+import pyperclip
 from loguru import logger
 from PySide6.QtCore import (
     QEvent,
@@ -14,7 +15,6 @@ from PySide6.QtCore import (
 )
 from PySide6.QtGui import QAction, QTextCursor, QTransform
 from PySide6.QtWidgets import (
-    QApplication,
     QPushButton,
     QMenu,
     QLabel,
@@ -57,13 +57,18 @@ class _OverlaySettingsObserver(SettingsObserver):
 class OverlayWindow(StyledOverlayWindow):
     """Overlay window for displaying translation results."""
 
-    def __init__(self):
+    def __init__(self, ui_service=None):
         """Initialize the overlay window.
 
         The overlay owns orchestration, settings policy, signals, and business logic;
         TranslatorView owns the translator widget tree and its presentation state.
+
+        Args:
+            ui_service: UIService that owns this overlay; used for settings/reader
+                delegation. Optional for tests — actions degrade to a warning.
         """
         super().__init__(title="Translator")
+        self._ui_service = ui_service
         self._translator_settings_dialog = None
         self._translation_start_time = None
         self._translation_worker = None
@@ -195,8 +200,7 @@ class OverlayWindow(StyledOverlayWindow):
             settings = config_service.get_settings()
             auto_copy = getattr(settings, "auto_copy_translated_overlay", False)
             if auto_copy:
-                clipboard = QApplication.clipboard()
-                clipboard.setText(result)
+                pyperclip.copy(result)
                 logger.info("Translated text automatically copied to clipboard (translator overlay)")
                 self.view.show_button_feedback(self.view.copy_translated_btn)
         except Exception as e:
@@ -316,14 +320,11 @@ class OverlayWindow(StyledOverlayWindow):
     def _open_stylist_settings(self):
         """Open the main settings dialog on the Stylist tab via UIService."""
         try:
-            from ..services.ui_service import get_ui_service
-
-            ui_service = get_ui_service()
-            if ui_service is None:
+            if self._ui_service is None:
                 logger.warning("UIService is not available; cannot open Stylist settings")
                 return
 
-            ui_service.open_settings(tab_title="Stylist")
+            self._ui_service.open_settings(tab_title="Stylist")
             logger.info("Opened settings dialog on Stylist tab")
         except Exception as e:
             logger.error(f"Failed to open stylist settings: {e}", exc_info=True)
@@ -622,8 +623,7 @@ class OverlayWindow(StyledOverlayWindow):
     def _copy_text_to_clipboard(self, text_widget, button: QPushButton, text_name: str):
         """Copy text from a QTextEdit to clipboard and provide visual feedback on a button."""
         try:
-            clipboard = QApplication.clipboard()
-            clipboard.setText(text_widget.toPlainText())
+            pyperclip.copy(text_widget.toPlainText())
             logger.info(f"{text_name} text copied to clipboard")
             self.view.show_button_feedback(button)
         except Exception as e:
@@ -1004,10 +1004,8 @@ class OverlayWindow(StyledOverlayWindow):
                 logger.info("Reader mode clicked with empty translated text")
                 return
 
-            from ..services.ui_service import get_ui_service
-            ui_service = get_ui_service()
-            if ui_service:
-                ui_service.show_reader_window(translated_text)
+            if self._ui_service:
+                self._ui_service.show_reader_window(translated_text)
                 logger.info("Reader mode activated with translated text")
             else:
                 logger.error("UI service not available")

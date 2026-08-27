@@ -43,27 +43,21 @@ def test_open_settings_reuses_single_dialog_and_selects_requested_tab(mocker):
     dialog_instance.select_tab_by_title.assert_called_once_with("Stylist")
 
 
-def test_open_stylist_settings_delegates_to_existing_ui_service(mocker):
+def test_open_stylist_settings_delegates_to_existing_ui_service():
     """Overlay must delegate the Stylist path to the canonical UIService owner."""
     ui_service = Mock()
-    mocker.patch(
-        "whisperbridge.services.ui_service.get_ui_service",
-        return_value=ui_service,
-    )
-
     overlay = OverlayWindow.__new__(OverlayWindow)
+    overlay._ui_service = ui_service
+
     overlay._open_stylist_settings()
 
     ui_service.open_settings.assert_called_once_with(tab_title="Stylist")
 
 
-def test_open_stylist_settings_without_ui_service_does_not_raise(mocker):
+def test_open_stylist_settings_without_ui_service_does_not_raise():
     """Without a UI service the overlay must warn and not create anything."""
-    mocker.patch(
-        "whisperbridge.services.ui_service.get_ui_service",
-        return_value=None,
-    )
     overlay = OverlayWindow.__new__(OverlayWindow)
+    overlay._ui_service = None
 
     assert overlay._open_stylist_settings() is None
 

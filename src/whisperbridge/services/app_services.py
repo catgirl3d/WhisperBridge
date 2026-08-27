@@ -15,14 +15,12 @@ from .config_service import config_service
 
 from .translation_service import get_translation_service
 from ..core.api_manager import init_api_manager
-from .clipboard_service import get_clipboard_service
 
 
 class AppServices(QObject):
-    def __init__(self, app, clipboard_service=None):
+    def __init__(self, app):
         super().__init__()
         self.app = app
-        self.clipboard_service = clipboard_service
         self.ui_service: Optional[UIService] = None
         self.notification_service = None
         self.copy_translate_service: Optional[CopyTranslateService] = None
@@ -44,24 +42,9 @@ class AppServices(QObject):
         self.on_quick_translate = on_quick_translate
         self.on_copy_translate = on_copy_translate
 
-        # Initialize clipboard service singleton
-        if self.clipboard_service is None:
-            try:
-                self.clipboard_service = get_clipboard_service()
-                if self.clipboard_service:
-                    logger.info("AppServices: ClipboardService initialized")
-                else:
-                    logger.warning("AppServices: ClipboardService not available; clipboard-backed features may be limited")
-            except Exception as e:
-                logger.warning(f"AppServices: Failed to initialize ClipboardService: {e}")
-                self.clipboard_service = None
-
         # UI service
         try:
-            self.ui_service = UIService(app=self.app, clipboard_service=self.clipboard_service)
-            # Set global UI service instance for access from UI components
-            from .ui_service import set_ui_service
-            set_ui_service(self.ui_service)
+            self.ui_service = UIService(app=self.app)
         except Exception as e:
             logger.error(f"AppServices: Failed to instantiate UIService: {e}", exc_info=True)
             raise
@@ -94,7 +77,6 @@ class AppServices(QObject):
 
         # Copy-translate service
         self.copy_translate_service = CopyTranslateService(
-            clipboard_service=self.clipboard_service,
             hotkey_service=self.hotkey_service
         )
         try:

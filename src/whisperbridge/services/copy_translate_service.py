@@ -10,7 +10,8 @@ and error handling.
 
 from PySide6.QtCore import QObject, Signal
 
-from ..services.clipboard_service import get_clipboard_service
+import pyperclip
+
 from ..services.config_service import config_service as _config_service
 from ..services.translation_service import get_translation_service
 
@@ -20,14 +21,12 @@ class CopyTranslateService(QObject):
 
     def __init__(
         self,
-        clipboard_service=None,
         config_service=None,
         translation_service=None,
         hotkey_service=None,
         debug_logger=None,
     ):
         super().__init__()
-        self.clipboard_service = clipboard_service or get_clipboard_service()
         self.config_service = config_service or _config_service  # Use global if not provided
         self.translation_service = translation_service or get_translation_service()
         self.hotkey_service = hotkey_service
@@ -94,14 +93,13 @@ class CopyTranslateService(QObject):
                 log.info(f"Copy-translate performance: clipboard=0ms, translation=0ms, total={(t_end - t_start) * 1000:.0f}ms")
                 return
 
-            # Prepare clipboard service and read previous content BEFORE simulating copy
-            if self.clipboard_service is None:
-                log.error("Clipboard service not available; aborting copy-translate")
-                self.notification_service.error("Copy-translate failed: clipboard service unavailable", "WhisperBridge")
-                t_end = time.perf_counter()
-                log.info(f"Copy-translate performance: clipboard=0ms, translation=0ms, total={(t_end - t_start) * 1000:.0f}ms")
-                return
-            prev_clip = self.clipboard_service.get_clipboard_text() or ""
+            # Read previous content BEFORE simulating copy. Clipboard access can
+            # transiently fail on Windows while another process owns the clipboard.
+            try:
+                prev_clip = pyperclip.paste() or ""
+            except Exception as e:
+                log.debug(f"Failed to read previous clipboard content; using empty value: {e}")
+                prev_clip = ""
 
             # Increased pre-delay to allow user to release modifiers (prevent accidental physical modifiers)
             pre_delay = 0.4  # seconds
@@ -212,7 +210,11 @@ class CopyTranslateService(QObject):
                 elapsed = time.perf_counter() - poll_start
                 log.debug(f"Clipboard poll attempt #{attempts}: elapsed={elapsed:.3f}s, delay={delay:.3f}s")
 
-                new_clip = self.clipboard_service.get_clipboard_text() or ""
+                try:
+                    new_clip = pyperclip.paste() or ""
+                except Exception as e:
+                    log.debug(f"Clipboard poll read failed; treating it as empty: {e}")
+                    new_clip = ""
                 if new_clip and new_clip != prev_clip:
                     t_after_poll_success = time.perf_counter()
                     duration = t_after_poll_success - poll_start

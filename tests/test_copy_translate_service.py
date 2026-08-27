@@ -54,7 +54,10 @@ def _patch_copy_environment(mocker):
 def _build_service(qapp, mocker):
     patched = _patch_copy_environment(mocker)
 
-    clipboard_service = mocker.Mock()
+    paste = mocker.patch(
+        "whisperbridge.services.copy_translate_service.pyperclip.paste",
+        return_value="",
+    )
     config_service = mocker.Mock()
     config_service.get_settings.return_value = SimpleNamespace(
         auto_swap_en_ru=False,
@@ -67,7 +70,6 @@ def _build_service(qapp, mocker):
     notification_service = mocker.Mock()
 
     service = CopyTranslateService(
-        clipboard_service=clipboard_service,
         config_service=config_service,
         translation_service=translation_service,
         hotkey_service=hotkey_service,
@@ -80,7 +82,7 @@ def _build_service(qapp, mocker):
 
     return SimpleNamespace(
         service=service,
-        clipboard_service=clipboard_service,
+        paste=paste,
         config_service=config_service,
         translation_service=translation_service,
         hotkey_service=hotkey_service,
@@ -97,7 +99,7 @@ def _build_service(qapp, mocker):
 def test_run_emits_original_text_when_translation_is_unavailable(qapp, mocker):
     ctx = _build_service(qapp, mocker)
     ctx.translation_service.is_available = False
-    ctx.clipboard_service.get_clipboard_text.side_effect = ["old text", "selected text"]
+    ctx.paste.side_effect = ["old text", "selected text"]
     ctx.config_service.get_setting.side_effect = _make_get_setting(
         {
             "clipboard_poll_timeout_ms": 200,
@@ -115,10 +117,44 @@ def test_run_emits_original_text_when_translation_is_unavailable(qapp, mocker):
     ctx.notification_service.error.assert_not_called()
 
 
+def test_run_continues_after_clipboard_poll_read_error(qapp, mocker):
+    ctx = _build_service(qapp, mocker)
+    ctx.translation_service.is_available = False
+    ctx.paste.side_effect = ["old text", RuntimeError("clipboard busy"), "selected text"]
+    ctx.config_service.get_setting.side_effect = _make_get_setting(
+        {
+            "clipboard_poll_timeout_ms": 200,
+        }
+    )
+
+    ctx.service.run()
+
+    assert ctx.emitted == [("selected text", "", False)]
+    assert ctx.paste.call_count == 3
+    ctx.notification_service.error.assert_not_called()
+
+
+def test_run_continues_after_initial_clipboard_read_error(qapp, mocker):
+    ctx = _build_service(qapp, mocker)
+    ctx.translation_service.is_available = False
+    ctx.paste.side_effect = [RuntimeError("clipboard busy"), "selected text"]
+    ctx.config_service.get_setting.side_effect = _make_get_setting(
+        {
+            "clipboard_poll_timeout_ms": 200,
+        }
+    )
+
+    ctx.service.run()
+
+    assert ctx.emitted == [("selected text", "", False)]
+    assert ctx.paste.call_count == 2
+    ctx.notification_service.error.assert_not_called()
+
+
 def test_run_translates_with_auto_swap_and_auto_copy(qapp, mocker):
     ctx = _build_service(qapp, mocker)
     ctx.translation_service.is_available = True
-    ctx.clipboard_service.get_clipboard_text.side_effect = ["old text", "selected text"]
+    ctx.paste.side_effect = ["old text", "selected text"]
     ctx.config_service.get_setting.side_effect = _make_get_setting(
         {
             "clipboard_poll_timeout_ms": 200,
@@ -157,7 +193,7 @@ def test_run_translates_with_auto_swap_and_auto_copy(qapp, mocker):
 def test_run_translates_and_emits_result_without_auto_copy(qapp, mocker):
     ctx = _build_service(qapp, mocker)
     ctx.translation_service.is_available = True
-    ctx.clipboard_service.get_clipboard_text.side_effect = ["old text", "selected text"]
+    ctx.paste.side_effect = ["old text", "selected text"]
     ctx.config_service.get_setting.side_effect = _make_get_setting(
         {
             "clipboard_poll_timeout_ms": 200,
@@ -180,7 +216,7 @@ def test_run_translates_and_emits_result_without_auto_copy(qapp, mocker):
 def test_run_never_stringifies_failed_translation_response(qapp, mocker):
     """A failed TranslationResponse must not leak its repr into the overlay."""
     ctx = _build_service(qapp, mocker)
-    ctx.clipboard_service.get_clipboard_text.side_effect = ["old text", "selected text"]
+    ctx.paste.side_effect = ["old text", "selected text"]
     ctx.config_service.get_setting.side_effect = _make_get_setting(
         {
             "clipboard_poll_timeout_ms": 200,
@@ -200,7 +236,7 @@ def test_run_never_stringifies_failed_translation_response(qapp, mocker):
 def test_run_reports_copy_simulation_error_without_result_and_resumes_hotkeys(qapp, mocker):
     """A controller failure emits no result, reports the exception, and resumes hotkeys."""
     ctx = _build_service(qapp, mocker)
-    ctx.clipboard_service.get_clipboard_text.return_value = "old text"
+    ctx.paste.return_value = "old text"
     ctx.controller.press.side_effect = RuntimeError("controller failed")
 
     ctx.service.run()
@@ -218,7 +254,7 @@ def test_run_reports_copy_simulation_error_without_result_and_resumes_hotkeys(qa
 def test_run_reports_config_error_without_result_and_resumes_hotkeys(qapp, mocker):
     """A settings read failure emits no result, reports the error, and resumes hotkeys."""
     ctx = _build_service(qapp, mocker)
-    ctx.clipboard_service.get_clipboard_text.side_effect = ["old text", "selected text"]
+    ctx.paste.side_effect = ["old text", "selected text"]
     ctx.config_service.get_setting.side_effect = _make_get_setting(
         {
             "clipboard_poll_timeout_ms": 200,
@@ -241,7 +277,7 @@ def test_run_reports_config_error_without_result_and_resumes_hotkeys(qapp, mocke
 
 def test_run_warns_when_clipboard_content_does_not_change(qapp, mocker):
     ctx = _build_service(qapp, mocker)
-    ctx.clipboard_service.get_clipboard_text.side_effect = ["same text", "same text"]
+    ctx.paste.side_effect = ["same text", "same text"]
     ctx.config_service.get_setting.side_effect = _make_get_setting(
         {
             "clipboard_poll_timeout_ms": 0,
@@ -262,22 +298,6 @@ def test_run_warns_when_clipboard_content_does_not_change(qapp, mocker):
     ctx.notification_service.error.assert_not_called()
 
 
-def test_run_reports_missing_clipboard_service(qapp, mocker):
-    ctx = _build_service(qapp, mocker)
-    ctx.service.clipboard_service = None
-
-    ctx.service.run()
-
-    assert ctx.emitted == []
-    ctx.hotkey_service.set_paused.assert_not_called()
-    ctx.notification_service.error.assert_called_once_with(
-        "Copy-translate failed: clipboard service unavailable",
-        "WhisperBridge",
-    )
-    ctx.notification_service.info.assert_not_called()
-    ctx.notification_service.warning.assert_not_called()
-
-
 def test_run_ignores_press_while_previous_cycle_is_running(qapp, mocker):
     """A second press during an in-progress cycle must be a full no-op."""
     ctx = _build_service(qapp, mocker)
@@ -286,7 +306,7 @@ def test_run_ignores_press_while_previous_cycle_is_running(qapp, mocker):
     ctx.service.run()
 
     assert ctx.emitted == []
-    ctx.clipboard_service.get_clipboard_text.assert_not_called()
+    ctx.paste.assert_not_called()
     ctx.controller.press.assert_not_called()
     ctx.hotkey_service.set_paused.assert_not_called()
     assert ctx.service._running is True
@@ -295,7 +315,7 @@ def test_run_ignores_press_while_previous_cycle_is_running(qapp, mocker):
 def test_run_resets_running_flag_after_unexpected_error(qapp, mocker):
     """The re-entry guard must not get stuck after an error inside the cycle."""
     ctx = _build_service(qapp, mocker)
-    ctx.clipboard_service.get_clipboard_text.side_effect = ["old text", "selected text"]
+    ctx.paste.side_effect = ["old text", "selected text"]
     ctx.config_service.get_setting.side_effect = _make_get_setting(
         {
             "clipboard_poll_timeout_ms": 200,
@@ -314,7 +334,7 @@ def test_empty_translation_disables_auto_copy_to_protect_clipboard(qapp, mocker)
     """Empty translated text must not be emitted with auto_copy=True: copy_text("") clears the clipboard."""
     ctx = _build_service(qapp, mocker)
     ctx.translation_service.is_available = True
-    ctx.clipboard_service.get_clipboard_text.side_effect = ["old text", "selected text"]
+    ctx.paste.side_effect = ["old text", "selected text"]
     ctx.config_service.get_setting.side_effect = _make_get_setting(
         {
             "clipboard_poll_timeout_ms": 200,

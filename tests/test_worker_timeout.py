@@ -631,14 +631,14 @@ class TestQtIntegration:
         """Successful results use the current settings object for auto-copy."""
         current_settings = Mock(auto_copy_translated_overlay=auto_copy)
         mocker.patch.object(config_service, "get_settings", return_value=current_settings)
-        clipboard = mocker.patch("whisperbridge.ui_qt.overlay_window.QApplication.clipboard")
+        copy_text = mocker.patch("whisperbridge.ui_qt.overlay_window.pyperclip.copy")
 
         overlay._on_translation_finished(True, "Hola")
 
         if auto_copy:
-            clipboard.return_value.setText.assert_called_once_with("Hola")
+            copy_text.assert_called_once_with("Hola")
         else:
-            clipboard.return_value.setText.assert_not_called()
+            copy_text.assert_not_called()
 
     # --- Race Condition Scenarios ---
 
