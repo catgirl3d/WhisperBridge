@@ -103,3 +103,26 @@ def test_toggle_overlay_replaces_broken_overlay_when_dismiss_fails(mocker):
     assert ui.overlay_windows["main"] is replacement
     assert replacement.show_calls == [("", "")]
     assert ui.logger.error.called
+
+
+def test_handle_copy_translate_skips_auto_copy_for_empty_translated_text(mocker):
+    """pyperclip.copy("") wipes the whole clipboard; auto-copy must not run on empty text."""
+    ui = _build_ui_service(mocker, {"copy_translate": Mock()})
+    copy_mock = mocker.patch("whisperbridge.services.ui_service.pyperclip.copy")
+
+    ui.handle_copy_translate("selected text", "", auto_copy=True)
+
+    copy_mock.assert_not_called()
+
+
+def test_handle_copy_translate_copies_nonempty_translated_text_with_auto_copy(mocker):
+    """Non-empty translated text with auto_copy=True is copied exactly once after the overlay is shown."""
+    ui = _build_ui_service(mocker)
+    overlay = Mock()
+    ui.overlay_windows["copy_translate"] = overlay
+    copy_mock = mocker.patch("whisperbridge.services.ui_service.pyperclip.copy")
+
+    ui.handle_copy_translate("selected text", "перевод", auto_copy=True)
+
+    copy_mock.assert_called_once_with("перевод")
+    overlay.show_overlay.assert_called_once_with("selected text", "перевод", error_message="")

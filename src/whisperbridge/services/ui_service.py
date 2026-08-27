@@ -457,8 +457,10 @@ class UIService:
                 clipboard_text, translated_text, overlay_id="copy_translate"
             )
 
-            # If auto-copy requested, copy AFTER overlay is shown
-            if auto_copy:
+            # If auto-copy requested, copy AFTER overlay is shown.
+            # Empty text must not be copied: pyperclip.copy("") wipes the clipboard
+            # (same guard as CopyTranslateService._execute).
+            if auto_copy and translated_text:
                 try:
                     pyperclip.copy(translated_text)
                     self.logger.info("Translated text copied to clipboard (auto_copy_translated enabled)")
